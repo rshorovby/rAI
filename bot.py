@@ -66,8 +66,8 @@ HELP_TEXT = (
     "• Лучшие ракурсы: сбоку, сзади-сбоку, иногда сверху\n"
     "• На видео должен быть виден игрок и его удары/движение\n"
     "• К видео можно добавить подпись: «это форхенд сверху», «болит локоть» и т.п.\n\n"
-    "После разбора используйте кнопки быстрых вопросов или пишите свой вопрос — "
-    "бот ответит в контексте последнего видео. Новое видео автоматически начинает новый диалог.\n\n"
+    "После разбора пишите вопросы обычным сообщением — бот ответит в контексте "
+    "последнего видео. Новое видео автоматически начинает новый диалог.\n\n"
     "/new — сбросить текущий диалог без отправки видео"
 )
 
@@ -96,19 +96,16 @@ BOT_COMMANDS = [
 # callback_data → (подпись кнопки, промпт для модели)
 QUICK_QUESTIONS = {
     "main": (
-        "🔴 Главная ошибка",
-        "Объясни подробнее самую критичную ошибку из разбора: что именно происходит, "
-        "почему это мешает и как исправить на тренировке.",
+        "🔴 Разбор главной ошибки",
+        "Сделай подробный разбор самой критичной ошибки из анализа: что именно "
+        "происходит в технике, почему это снижает эффективность и травмоопасно, "
+        "и пошагово — как это исправить на тренировке.",
     ),
     "exercises": (
         "🏋️ 3 упражнения",
-        "Предложи 3 конкретных упражнения для работы над главными проблемами из разбора. "
-        "Для каждого: цель, как выполнять, сколько повторений или подходов.",
-    ),
-    "film": (
-        "📹 Как снять",
-        "Что именно снять в следующий раз, чтобы разбор был точнее? "
-        "Укажи ракурс, длительность и что должно быть в кадре.",
+        "Назови 3 упражнения, на которых игроку стоит сосредоточиться для улучшения "
+        "техники, исходя из разбора. Для каждого: на какую проблему направлено, "
+        "как выполнять и сколько повторений/подходов.",
     ),
 }
 
@@ -146,22 +143,10 @@ def _retry_keyboard() -> InlineKeyboardMarkup:
 
 
 def _quick_questions_keyboard() -> InlineKeyboardMarkup:
-    keys = list(QUICK_QUESTIONS.keys())
     return InlineKeyboardMarkup(
         [
-            [
-                InlineKeyboardButton(
-                    QUICK_QUESTIONS[keys[0]][0], callback_data=f"q:{keys[0]}"
-                ),
-                InlineKeyboardButton(
-                    QUICK_QUESTIONS[keys[1]][0], callback_data=f"q:{keys[1]}"
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    QUICK_QUESTIONS[keys[2]][0], callback_data=f"q:{keys[2]}"
-                ),
-            ],
+            [InlineKeyboardButton(label, callback_data=f"q:{key}")]
+            for key, (label, _prompt) in QUICK_QUESTIONS.items()
         ]
     )
 
@@ -240,6 +225,7 @@ async def _process_followup(
     reply = await asyncio.to_thread(
         analyzer.chat, analysis, history, user_text, player_history
     )
+    logger.info("Ответ ИИ получен (%s символов)", len(reply))
     history.append({"user": user_text, "assistant": reply})
     session["history"] = history[-MAX_HISTORY_TURNS:]
 
@@ -247,13 +233,7 @@ async def _process_followup(
     chunks = _split_message(reply)
     for i, chunk in enumerate(chunks):
         text = f"{prefix}{chunk}" if i == 0 and prefix else chunk
-        markup = _quick_questions_keyboard() if i == len(chunks) - 1 else None
-        await _send_formatted(
-            context,
-            chat_id,
-            text,
-            reply_markup=markup,
-        )
+        await _send_formatted(context, chat_id, text)
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -396,21 +376,16 @@ async def _run_video_analysis(
             await _send_formatted(context, chat_id, chunk)
         await context.bot.send_message(
             chat_id=chat_id,
-            text="💬 Задайте вопрос текстом или нажмите кнопку ниже:",
-            reply_markup=_quick_questions_keyboard(),
+            text="💬 Можете задавать уточняющие вопросы текстом.",
         )
 
     except TimeoutError:
-        await status_message.edit_text(
-            format_analysis_error(TimeoutError()),
-            reply_markup=_retry_keyboard(),
-        )
+        await status_message.edit_text(format_analysis_error(TimeoutError()))
     except Exception as exc:
         logger.exception("Ошибка анализа видео для user_id=%s", user_id)
         await status_message.edit_text(
             format_analysis_error(exc),
             parse_mode=ParseMode.MARKDOWN,
-            reply_markup=_retry_keyboard(),
         )
     finally:
         if temp_path and temp_path.exists():
@@ -454,14 +429,18 @@ async def handle_quick_question(
         return
 
     label, prompt = question
+    context.user_data["user_id"] = query.from_user.id
+
     session = _get_session(context.user_data)
     if not session.get("analysis"):
         await query.message.reply_text(
-            "Сначала отправьте видео для разбора.",
+            "Контекст разбора потерян (возможно, бот перезапускался). "
+            "Отправьте видео заново — и кнопки снова заработают.",
             reply_markup=_main_menu_keyboard(),
         )
         return
 
+    logger.info("Быстрый вопрос '%s' от user_id=%s", key, query.from_user.id)
     try:
         await _process_followup(
             context,
@@ -470,12 +449,14 @@ async def handle_quick_question(
             prompt,
             question_label=label,
         )
-    except Exception as exc:
+    except Exception:
         logger.exception("Ошибка быстрого вопроса для user_id=%s", query.from_user.id)
-        await query.message.reply_text(
-            format_analysis_error(exc),
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=_quick_questions_keyboard(),
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text=(
+                "⚠️ Не удалось получить ответ от ИИ. Попробуйте ещё раз "
+                "или задайте вопрос текстом."
+            ),
         )
 
 
