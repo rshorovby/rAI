@@ -1,0 +1,28 @@
+# Секреты
+.env
+.env.local
+
+# Виртуальное окружение
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Временные файлы видео
+*.mp4
+*.mov
+*.webm
+tmp/
+
+# IDE / ОС
+.DS_Store
+.idea/
+.vscode/

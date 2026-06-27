@@ -3,8 +3,8 @@
 import sys
 from pathlib import Path
 
-from config import load_settings
 from analyzer import VideoAnalyzer
+from config import load_settings
 
 
 def main() -> None:
