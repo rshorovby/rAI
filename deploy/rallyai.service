@@ -1,0 +1,17 @@
+[Unit]
+Description=RallyAI Telegram Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rallyai
+Group=rallyai
+WorkingDirectory=/home/rallyai/rAI
+EnvironmentFile=/home/rallyai/rAI/.env
+ExecStart=/home/rallyai/rAI/.venv/bin/python main.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
