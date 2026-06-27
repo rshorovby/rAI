@@ -74,9 +74,9 @@ cp .env.example .env
 
 ## Развёртывание на VPS (24/7)
 
-Подробная инструкция для Hetzner и systemd: **[DEPLOY.md](DEPLOY.md)**.
+Подробная инструкция для [DigitalOcean](https://www.digitalocean.com): **[DEPLOY.md](DEPLOY.md)**.
 
-Кратко: сервер в EU → `sudo bash deploy/install.sh URL_РЕПО` → заполнить `.env` → `systemctl start rallyai`.
+Кратко: Droplet в EU (Amsterdam) → `sudo bash deploy/install.sh URL_РЕПО` → заполнить `.env` → `systemctl start rallyai`.
 
 ## Лицензия
 

@@ -68,7 +68,7 @@ def test_no_history_returns_none(tmp_path):
 def test_format_history_for_user(tmp_path):
     with _tmp_db(tmp_path):
         storage.save_session(5, SAMPLE_REPORT)
-        result = storage.format_history_for_user(5)
+        result = storage.format_history_for_user(5, "ru")
     assert result is not None
     assert "разбор" in result.lower()
 

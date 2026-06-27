@@ -6,6 +6,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from i18n import DEFAULT_LANG, report_section_headers, t
+
 DB_PATH = Path(__file__).parent / "data" / "rally.db"
 MAX_HISTORY_SESSIONS = 5  # столько последних сессий попадает в контекст тренера
 
@@ -55,10 +57,30 @@ def _extract_section(report: str, header: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def save_session(user_id: int, report: str) -> None:
+def _extract_report_sections(report: str, language_code: str) -> tuple[str, str]:
+    headers = report_section_headers(language_code)
+    summary = _extract_section(report, headers["summary"])
+    top3 = _extract_section(report, headers["top3"])
+    if summary:
+        return summary, top3
+
+    for alt in ("ru", "en"):
+        alt_headers = report_section_headers(alt)
+        summary = _extract_section(report, alt_headers["summary"])
+        if summary:
+            top3 = _extract_section(report, alt_headers["top3"])
+            return summary, top3
+
+    return report[:400], top3
+
+
+def save_session(
+    user_id: int,
+    report: str,
+    language_code: str = DEFAULT_LANG,
+) -> None:
     """Сохраняет краткое резюме и топ-3 из отчёта в историю игрока."""
-    summary = _extract_section(report, "Краткое резюме") or report[:400]
-    top3 = _extract_section(report, "Топ-3 приоритета для тренировки")
+    summary, top3 = _extract_report_sections(report, language_code)
     created_at = datetime.now().strftime("%d %b %Y")
 
     with _connect() as conn:
@@ -98,7 +120,10 @@ def get_session_count(user_id: int) -> int:
         ).fetchone()[0]
 
 
-def format_history_for_user(user_id: int) -> Optional[str]:
+def format_history_for_user(
+    user_id: int,
+    lang: str = DEFAULT_LANG,
+) -> Optional[str]:
     """Возвращает историю в удобочитаемом виде для команды /history.
     Возвращает None, если сессий нет."""
     sessions = get_player_history(user_id)
@@ -106,12 +131,13 @@ def format_history_for_user(user_id: int) -> Optional[str]:
     if not sessions:
         return None
 
-    lines = [f"📊 *Ваши разборы* (всего {count})\n"]
+    ui_lang = lang if lang in ("ru", "en") else DEFAULT_LANG
+    lines = [t(ui_lang, "history_header", count=count)]
     shown = sessions[-MAX_HISTORY_SESSIONS:]
     for i, s in enumerate(shown, max(1, count - len(shown) + 1)):
         lines.append(f"*{i}. {s['created_at']}*")
         lines.append(s["summary"])
         if s["top3"]:
-            lines.append(f"_Приоритеты:_ {s['top3']}")
+            lines.append(t(ui_lang, "history_priorities", top3=s["top3"]))
         lines.append("")
     return "\n".join(lines).strip()

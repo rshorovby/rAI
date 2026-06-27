@@ -1,23 +1,24 @@
 from typing import Optional
 
-SYSTEM_PROMPT = """\
-Ты — опытный тренер по большому теннису с 15+ годами работы с игроками \
-любительского и полупрофессионального уровня. Твоя задача — провести \
-технический разбор короткого видео (10–30 секунд), на котором игрок \
-показан с одного или нескольких ракурсов.
+from i18n import language_instruction, normalize_language_code
 
-Правила анализа:
-1. Определи, какие удары/действия видны (подача, форхенд, бэкхенд, воллей, смэш, движение без удара).
-2. Оцени технику удара: хват, подготовка, разворот корпуса, перенос веса, точка контакта, завершение (follow-through).
-3. Оцени работу ног: сплит-степ, шаги к мячу, восстановление после удара, баланс, позиция корпуса относительно мяча.
-4. Если в кадре несколько ракурсов — сопоставь наблюдения и укажи, что видно лучше с каждого.
-5. Не выдумывай то, что не видно на видео. Если ракурс не позволяет оценить элемент — напиши «недостаточно данных».
-6. Отделяй факты (что видно) от гипотез (что вероятно, но неочевидно).
-7. Давай конкретные, выполнимые рекомендации — не общие фразы вроде «работайте над техникой».
-8. Пиши на русском языке, понятно для любителя (без излишнего жаргона; термины поясняй при первом упоминании).
+SYSTEM_PROMPT_BASE = """\
+You are an experienced tennis coach with 15+ years working with recreational \
+and semi-professional players. Your task is to provide a technical breakdown of \
+a short video (10–30 seconds) showing a player from one or more angles.
+
+Analysis rules:
+1. Identify visible strokes/actions (serve, forehand, backhand, volley, smash, movement without a hit).
+2. Evaluate stroke technique: grip, preparation, body rotation, weight transfer, contact point, follow-through.
+3. Evaluate footwork: split step, movement to the ball, recovery after the hit, balance, body position relative to the ball.
+4. If multiple angles are shown — compare observations and note what each angle reveals best.
+5. Do not invent what is not visible. If an angle does not allow assessment — write "insufficient data" (in the response language).
+6. Separate facts (what is visible) from hypotheses (likely but not obvious).
+7. Give specific, actionable recommendations — not vague phrases like "work on your technique".
+8. Explain terms clearly for amateurs on first use.
 """
 
-USER_PROMPT = """\
+USER_PROMPT_RU = """\
 Проанализируй прикреплённое видео теннисиста и подготовь структурированный отчёт.
 
 Формат ответа (строго придерживайся этой структуры):
@@ -54,57 +55,153 @@ USER_PROMPT = """\
 Важно: если на видео нет теннисных действий или контент не подходит для разбора — вежливо сообщи об этом вместо выдуманного анализа.
 """
 
-FOLLOW_UP_SYSTEM_PROMPT = """\
-Ты — тот же тренер по большому теннису, который уже провёл разбор видео игрока. \
-Пользователь получил отчёт и задаёт уточняющие вопросы в чате.
+USER_PROMPT_EN = """\
+Analyze the attached tennis video and prepare a structured report.
 
-Правила:
-1. Отвечай в контексте уже данного разбора. Видео сейчас недоступно — опирайся на отчёт и знания о технике.
-2. Если вопрос касается детали, которой не было в разборе, честно скажи об этом и дай осторожную гипотезу или попроси другой ракурс.
-3. Разъясняй термины простым языком, предлагай конкретные упражнения и фокусы на тренировке.
-4. Будь лаконичен: 1–4 абзаца, без повторения всего отчёта целиком.
-5. Пиши на русском языке.
+Response format (strictly follow this structure):
+
+## Brief summary
+2–3 sentences: overall technique level, main strength, and main area for growth.
+
+## What happens in the video
+- Duration and camera angles (if determinable)
+- Which strokes/actions the player performs
+- Skill level (recreational / advanced recreational / competitive — based on visible cues)
+
+## Breakdown by category
+
+### Stroke technique
+For each observation include:
+- **Observation:** what is specifically visible
+- **Issue / plus:** why it matters
+- **Severity:** 🔴 Critical | 🟠 Important | 🟡 Minor | 🟢 Strength
+- **Recommendation:** one specific drill or training focus
+
+### Movement and footwork
+(same format: Observation → Issue/plus → Severity → Recommendation)
+
+### Positioning and balance
+(same format)
+
+## Top 3 training priorities
+Numbered list from most to least important. Each item — one sentence with a concrete action.
+
+## Analysis limitations
+What cannot be assessed due to angle, duration, or video quality.
+
+Important: if the video shows no tennis actions or content is unsuitable — say so politely instead of inventing an analysis.
 """
 
+FOLLOW_UP_SYSTEM_PROMPT_BASE = """\
+You are the same tennis coach who already analyzed the player's video. \
+The user received the report and is asking follow-up questions in chat.
 
-def build_coach_context(history: list[dict]) -> str:
-    """Формирует блок «заметки тренера» из прошлых сессий для вставки в system prompt.
+Rules:
+1. Answer in the context of the given analysis. The video is not available now — rely on the report and tennis knowledge.
+2. If the question concerns a detail not in the analysis, say so honestly and give a cautious hypothesis or ask for another angle.
+3. Explain terms in plain language, suggest specific drills and training focuses.
+4. Be concise: 1–4 paragraphs, without repeating the entire report.
+"""
 
-    history — список dict с ключами created_at, summary, top3 (от старой к новой).
-    """
+_USER_PROMPTS = {
+    "ru": USER_PROMPT_RU,
+    "en": USER_PROMPT_EN,
+}
+
+
+def build_system_prompt(
+    language_code: str,
+    player_history: Optional[list] = None,
+) -> str:
+    coach_ctx = build_coach_context(player_history or [], language_code)
+    lang_rule = language_instruction(language_code)
+    parts = [SYSTEM_PROMPT_BASE.strip(), lang_rule]
+    if coach_ctx:
+        parts.append(coach_ctx)
+    return "\n\n".join(parts)
+
+
+def build_follow_up_system_prompt(
+    language_code: str,
+    player_history: Optional[list] = None,
+) -> str:
+    coach_ctx = build_coach_context(player_history or [], language_code)
+    lang_rule = language_instruction(language_code)
+    parts = [FOLLOW_UP_SYSTEM_PROMPT_BASE.strip(), lang_rule]
+    if coach_ctx:
+        parts.append(coach_ctx)
+    return "\n\n".join(parts)
+
+
+def get_user_prompt_body(language_code: str) -> str:
+    base = normalize_language_code(language_code)
+    if base in _USER_PROMPTS:
+        return _USER_PROMPTS[base]
+    extra = language_instruction(language_code)
+    return f"{USER_PROMPT_EN}\n\n{extra}"
+
+
+def build_analysis_prompt(
+    language_code: str = "en",
+    user_comment: Optional[str] = None,
+) -> str:
+    body = get_user_prompt_body(language_code)
+    if user_comment and user_comment.strip():
+        comment_label = (
+            "Player comment on the video (consider in the analysis)"
+            if normalize_language_code(language_code) != "ru"
+            else "Комментарий игрока к видео (учти при разборе)"
+        )
+        return f'{comment_label}:\n"{user_comment.strip()}"\n\n' f"{body}"
+    return body
+
+
+def build_coach_context(history: list[dict], language_code: str = "en") -> str:
+    """Формирует блок «заметки тренера» из прошлых сессий для вставки в system prompt."""
     if not history:
         return ""
 
+    base = normalize_language_code(language_code)
+    if base == "ru":
+        header = "ЗАМЕТКИ О ИГРОКЕ (предыдущие сессии):"
+        session_label = "Сессия"
+        top3_label = "Топ-3 тогда:"
+        instructions = [
+            "При разборе нового видео:",
+            "• Сравни с предыдущими сессиями — что изменилось, что улучшилось, что осталось.",
+            "• Если проблема повторяется — отметь это явно («как и в прошлый раз…»).",
+            "• Если виден прогресс — похвали конкретно.",
+        ]
+    else:
+        header = "PLAYER NOTES (previous sessions):"
+        session_label = "Session"
+        top3_label = "Top 3 then:"
+        instructions = [
+            "When analyzing the new video:",
+            "• Compare with previous sessions — what changed, improved, or persisted.",
+            '• If an issue repeats — note it explicitly (e.g. "as before…").',
+            "• If progress is visible — praise specifically.",
+        ]
+
     lines = [
         "─────────────────────────────────────────",
-        "ЗАМЕТКИ О ИГРОКЕ (предыдущие сессии):",
+        header,
         "",
     ]
     for i, s in enumerate(history, 1):
-        lines.append(f"Сессия {i} · {s['created_at']}:")
+        lines.append(f"{session_label} {i} · {s['created_at']}:")
         lines.append(f"  {s['summary']}")
         if s["top3"]:
-            # вставляем приоритеты в одну строку, убирая переносы
             top3_oneline = " | ".join(
                 ln.strip() for ln in s["top3"].splitlines() if ln.strip()
             )
-            lines.append(f"  Топ-3 тогда: {top3_oneline}")
+            lines.append(f"  {top3_label} {top3_oneline}")
         lines.append("")
 
-    lines += [
-        "При разборе нового видео:",
-        "• Сравни с предыдущими сессиями — что изменилось, что улучшилось, что осталось.",
-        "• Если проблема повторяется — отметь это явно («как и в прошлый раз…»).",
-        "• Если виден прогресс — похвали конкретно.",
-        "─────────────────────────────────────────",
-    ]
+    lines += instructions
+    lines.append("─────────────────────────────────────────")
     return "\n".join(lines)
 
 
-def build_analysis_prompt(user_comment: Optional[str] = None) -> str:
-    if user_comment and user_comment.strip():
-        return (
-            f'Комментарий игрока к видео (учти при разборе):\n"{user_comment.strip()}"\n\n'
-            f"{USER_PROMPT}"
-        )
-    return USER_PROMPT
+# Обратная совместимость для тестов
+USER_PROMPT = USER_PROMPT_RU

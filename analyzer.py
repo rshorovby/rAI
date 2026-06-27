@@ -6,11 +6,11 @@ from typing import Optional
 from google import genai
 from google.genai import types
 
+from i18n import DEFAULT_LANG, normalize_language_code, t
 from prompts import (
-    FOLLOW_UP_SYSTEM_PROMPT,
-    SYSTEM_PROMPT,
     build_analysis_prompt,
-    build_coach_context,
+    build_follow_up_system_prompt,
+    build_system_prompt,
 )
 
 MAX_CHAT_TURNS = 10
@@ -20,8 +20,7 @@ logger = logging.getLogger(__name__)
 PROCESSING_TIMEOUT_SEC = 120
 PROCESSING_POLL_INTERVAL_SEC = 2
 
-# Авторетрай при временных сбоях Gemini (перегрузка/внутренняя ошибка)
-MAX_GENERATE_RETRIES = 2  # всего попыток = 3
+MAX_GENERATE_RETRIES = 2
 RETRY_BACKOFF_SEC = 3
 _TRANSIENT_MARKERS = (
     "503",
@@ -48,6 +47,7 @@ class VideoAnalyzer:
         video_path: Path,
         user_comment: Optional[str] = None,
         player_history: Optional[list] = None,
+        language_code: str = DEFAULT_LANG,
     ) -> str:
         uploaded = self._client.files.upload(file=str(video_path))
         uploaded = self._wait_until_active(uploaded)
@@ -63,13 +63,15 @@ class VideoAnalyzer:
                                 mime_type=uploaded.mime_type,
                             ),
                             types.Part.from_text(
-                                text=build_analysis_prompt(user_comment)
+                                text=build_analysis_prompt(language_code, user_comment)
                             ),
                         ],
                     )
                 ],
                 config=types.GenerateContentConfig(
-                    system_instruction=self._build_system_prompt(player_history),
+                    system_instruction=build_system_prompt(
+                        language_code, player_history
+                    ),
                     temperature=0.4,
                 ),
             )
@@ -97,38 +99,29 @@ class VideoAnalyzer:
                 )
                 time.sleep(wait)
 
-    def _build_system_prompt(self, player_history: Optional[list]) -> str:
-        coach_ctx = build_coach_context(player_history or [])
-        if coach_ctx:
-            return f"{SYSTEM_PROMPT}\n{coach_ctx}"
-        return SYSTEM_PROMPT
-
     def chat(
         self,
         analysis_report: str,
         history: list[dict[str, str]],
         user_message: str,
         player_history: Optional[list] = None,
+        language_code: str = DEFAULT_LANG,
     ) -> str:
+        ui_lang = "ru" if normalize_language_code(language_code) == "ru" else "en"
+        report_intro = (
+            "Вот отчёт по видео теннисиста, который мы уже разобрали:\n\n"
+            if ui_lang == "ru"
+            else "Here is the tennis video analysis report we already reviewed:\n\n"
+        )
+
         contents: list[types.Content] = [
             types.Content(
                 role="user",
-                parts=[
-                    types.Part.from_text(
-                        text=(
-                            "Вот отчёт по видео теннисиста, который мы уже разобрали:\n\n"
-                            f"{analysis_report}"
-                        )
-                    )
-                ],
+                parts=[types.Part.from_text(text=f"{report_intro}{analysis_report}")],
             ),
             types.Content(
                 role="model",
-                parts=[
-                    types.Part.from_text(
-                        text="Понял. Готов ответить на вопросы и уточнения по этому разбору."
-                    )
-                ],
+                parts=[types.Part.from_text(text=t(ui_lang, "chat_ack"))],
             ),
         ]
 
@@ -153,16 +146,12 @@ class VideoAnalyzer:
             )
         )
 
-        coach_ctx = build_coach_context(player_history or [])
-        followup_system = (
-            f"{FOLLOW_UP_SYSTEM_PROMPT}\n{coach_ctx}"
-            if coach_ctx
-            else FOLLOW_UP_SYSTEM_PROMPT
-        )
         response = self._generate_with_retry(
             contents=contents,
             config=types.GenerateContentConfig(
-                system_instruction=followup_system,
+                system_instruction=build_follow_up_system_prompt(
+                    language_code, player_history
+                ),
                 temperature=0.5,
             ),
         )

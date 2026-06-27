@@ -2,7 +2,7 @@ import asyncio
 import logging
 import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from telegram import (
     BotCommand,
@@ -28,6 +28,13 @@ from analyzer import VideoAnalyzer
 from config import Settings
 from errors import format_analysis_error
 from formatting import markdown_to_html
+from i18n import (
+    UI_LANGS,
+    get_stored_lang,
+    get_stored_language_code,
+    sync_user_lang,
+    t,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,71 +50,57 @@ SUPPORTED_MIME_TYPES = {
 SESSION_KEY = "rally_session"
 MAX_HISTORY_TURNS = 10
 
-WELCOME_TEXT = (
-    "🎾 *RallyAI — разбор техники тенниса*\n\n"
-    "Отправьте видео (10–30 сек), где игрок в центре кадра. "
-    "Желательно съёмка сбоку или сзади — так проще оценить технику и работу ног.\n\n"
-    "*Как пользоваться:*\n"
-    "1. Запишите короткий ролик с одного или нескольких ракурсов\n"
-    "2. Отправьте его как видео — можно добавить подпись с вопросом или контекстом\n"
-    "3. Подождите 30–90 секунд — бот пришлёт разбор\n"
-    "4. Задавайте уточняющие вопросы в чате — бот помнит последний разбор\n\n"
-    "Используйте кнопки меню внизу или команды:\n"
-    "/help — справка\n"
-    "/about — о сервисе\n"
-    "/new — новый разбор\n"
-    "/history — мои прошлые разборы"
-)
-
-HELP_TEXT = (
-    "📋 *Справка*\n\n"
-    "• Принимаются видео до 20 МБ\n"
-    "• Оптимальная длительность: 10–30 секунд\n"
-    "• Лучшие ракурсы: сбоку, сзади-сбоку, иногда сверху\n"
-    "• На видео должен быть виден игрок и его удары/движение\n"
-    "• К видео можно добавить подпись: «это форхенд сверху», «болит локоть» и т.п.\n\n"
-    "После разбора пишите вопросы обычным сообщением — бот ответит в контексте "
-    "последнего видео. Новое видео автоматически начинает новый диалог.\n\n"
-    "/new — сбросить текущий диалог без отправки видео"
-)
-
-ABOUT_TEXT = (
-    "ℹ️ *О RallyAI*\n\n"
-    "Бот использует Google Gemini для анализа видео. "
-    "ИИ оценивает технику ударов, передвижение и баланс, "
-    "выделяет ошибки по критичности и предлагает упражнения.\n\n"
-    "⚠️ Это не замена живого тренера, а вспомогательный инструмент "
-    "для самоанализа и подготовки к тренировке."
-)
-
-BTN_HELP = "📋 Справка"
-BTN_ABOUT = "ℹ️ О сервисе"
-BTN_NEW = "🔄 Новый разбор"
-BTN_HISTORY = "📊 Мои разборы"
-
-BOT_COMMANDS = [
-    BotCommand("start", "Начать работу"),
-    BotCommand("help", "Справка по использованию"),
-    BotCommand("about", "О сервисе"),
-    BotCommand("new", "Новый разбор"),
-    BotCommand("history", "Мои прошлые разборы"),
-]
-
-# callback_data → (подпись кнопки, промпт для модели)
+# callback_data → ключи i18n (подпись кнопки, промпт для модели)
 QUICK_QUESTIONS = {
     "main": (
-        "🔴 Разбор главной ошибки",
-        "Сделай подробный разбор самой критичной ошибки из анализа: что именно "
-        "происходит в технике, почему это снижает эффективность и травмоопасно, "
-        "и пошагово — как это исправить на тренировке.",
+        "quick_main_label",
+        "quick_main_prompt",
     ),
     "exercises": (
-        "🏋️ 3 упражнения",
-        "Назови 3 упражнения, на которых игроку стоит сосредоточиться для улучшения "
-        "техники, исходя из разбора. Для каждого: на какую проблему направлено, "
-        "как выполнять и сколько повторений/подходов.",
+        "quick_exercises_label",
+        "quick_exercises_prompt",
     ),
 }
+
+_QUICK_PROMPTS = {
+    "ru": {
+        "quick_main_label": "🔴 Разбор главной ошибки",
+        "quick_main_prompt": (
+            "Сделай подробный разбор самой критичной ошибки из анализа: что именно "
+            "происходит в технике, почему это снижает эффективность и травмоопасно, "
+            "и пошагово — как это исправить на тренировке."
+        ),
+        "quick_exercises_label": "🏋️ 3 упражнения",
+        "quick_exercises_prompt": (
+            "Назови 3 упражнения, на которых игроку стоит сосредоточиться для улучшения "
+            "техники, исходя из разбора. Для каждого: на какую проблему направлено, "
+            "как выполнять и сколько повторений/подходов."
+        ),
+    },
+    "en": {
+        "quick_main_label": "🔴 Main error breakdown",
+        "quick_main_prompt": (
+            "Give a detailed breakdown of the most critical error from the analysis: "
+            "what exactly happens in the technique, why it reduces effectiveness and "
+            "injury risk, and step-by-step how to fix it in practice."
+        ),
+        "quick_exercises_label": "🏋️ 3 drills",
+        "quick_exercises_prompt": (
+            "Name 3 drills the player should focus on to improve technique based on "
+            "the analysis. For each: which issue it targets, how to perform it, "
+            "and reps/sets."
+        ),
+    },
+}
+
+
+def _lang_from_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> str:
+    code = update.effective_user.language_code if update.effective_user else None
+    return sync_user_lang(context.user_data, code)
+
+
+def _language_code_from_context(context: ContextTypes.DEFAULT_TYPE) -> str:
+    return get_stored_language_code(context.user_data)
 
 
 def _get_session(user_data: dict) -> dict:
@@ -126,29 +119,56 @@ def _get_user_id(user_data: dict) -> Optional[int]:
     return user_data.get("user_id")
 
 
-def _main_menu_keyboard() -> ReplyKeyboardMarkup:
+def _bot_commands(lang: str) -> list[BotCommand]:
+    return [
+        BotCommand("start", t(lang, "cmd_start")),
+        BotCommand("help", t(lang, "cmd_help")),
+        BotCommand("about", t(lang, "cmd_about")),
+        BotCommand("new", t(lang, "cmd_new")),
+        BotCommand("history", t(lang, "cmd_history")),
+    ]
+
+
+def _main_menu_keyboard(lang: str) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         [
-            [KeyboardButton(BTN_HELP), KeyboardButton(BTN_ABOUT)],
-            [KeyboardButton(BTN_NEW), KeyboardButton(BTN_HISTORY)],
+            [KeyboardButton(t(lang, "btn_help")), KeyboardButton(t(lang, "btn_about"))],
+            [
+                KeyboardButton(t(lang, "btn_new")),
+                KeyboardButton(t(lang, "btn_history")),
+            ],
         ],
         resize_keyboard=True,
     )
 
 
-def _retry_keyboard() -> InlineKeyboardMarkup:
+def _retry_keyboard(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        [[InlineKeyboardButton("🔄 Повторить разбор", callback_data="retry")]]
+        [[InlineKeyboardButton(t(lang, "retry_button"), callback_data="retry")]]
     )
 
 
-def _quick_questions_keyboard() -> InlineKeyboardMarkup:
+def _quick_questions_keyboard(lang: str) -> InlineKeyboardMarkup:
+    prompts = _QUICK_PROMPTS.get(lang, _QUICK_PROMPTS["en"])
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton(label, callback_data=f"q:{key}")]
-            for key, (label, _prompt) in QUICK_QUESTIONS.items()
+            [InlineKeyboardButton(prompts[label_key], callback_data=f"q:{key}")]
+            for key, (label_key, _prompt_key) in QUICK_QUESTIONS.items()
         ]
     )
+
+
+def _menu_handlers() -> dict[str, Callable]:
+    handlers: dict[str, Callable] = {}
+    for lang in UI_LANGS:
+        handlers[t(lang, "btn_help")] = help_command
+        handlers[t(lang, "btn_about")] = about_command
+        handlers[t(lang, "btn_new")] = new_command
+        handlers[t(lang, "btn_history")] = history_command
+    return handlers
+
+
+_MENU_HANDLERS: dict[str, Callable] = {}
 
 
 def _split_message(text: str, limit: int = 4000) -> list[str]:
@@ -206,11 +226,16 @@ async def _process_followup(
     user_text: str,
     *,
     question_label: Optional[str] = None,
+    lang: Optional[str] = None,
+    language_code: Optional[str] = None,
 ) -> None:
+    ui_lang = lang or get_stored_lang(user_data)
+    model_lang = language_code or get_stored_language_code(user_data)
+
     session = _get_session(user_data)
     analysis = session.get("analysis")
     if not analysis:
-        raise RuntimeError("Нет активного разбора. Отправьте видео.")
+        raise RuntimeError(t(ui_lang, "no_session_internal"))
 
     await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
 
@@ -223,7 +248,12 @@ async def _process_followup(
     )
 
     reply = await asyncio.to_thread(
-        analyzer.chat, analysis, history, user_text, player_history
+        analyzer.chat,
+        analysis,
+        history,
+        user_text,
+        player_history,
+        model_lang,
     )
     logger.info("Ответ ИИ получен (%s символов)", len(reply))
     history.append({"user": user_text, "assistant": reply})
@@ -237,51 +267,56 @@ async def _process_followup(
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    lang = _lang_from_update(update, context)
     await update.message.reply_text(
-        WELCOME_TEXT,
+        t(lang, "welcome"),
         parse_mode=ParseMode.MARKDOWN,
-        reply_markup=_main_menu_keyboard(),
+        reply_markup=_main_menu_keyboard(lang),
     )
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    lang = _lang_from_update(update, context)
     await update.message.reply_text(
-        HELP_TEXT,
+        t(lang, "help"),
         parse_mode=ParseMode.MARKDOWN,
-        reply_markup=_main_menu_keyboard(),
+        reply_markup=_main_menu_keyboard(lang),
     )
 
 
 async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    lang = _lang_from_update(update, context)
     await update.message.reply_text(
-        ABOUT_TEXT,
+        t(lang, "about"),
         parse_mode=ParseMode.MARKDOWN,
-        reply_markup=_main_menu_keyboard(),
+        reply_markup=_main_menu_keyboard(lang),
     )
 
 
 async def new_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    lang = _lang_from_update(update, context)
     _clear_session(context.user_data)
     await update.message.reply_text(
-        "Диалог сброшен. Отправьте новое видео для разбора.",
-        reply_markup=_main_menu_keyboard(),
+        t(lang, "new_reset"),
+        reply_markup=_main_menu_keyboard(lang),
     )
 
 
 async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    lang = _lang_from_update(update, context)
     user_id = update.message.from_user.id
     context.user_data["user_id"] = user_id
-    text = await asyncio.to_thread(storage.format_history_for_user, user_id)
+    text = await asyncio.to_thread(storage.format_history_for_user, user_id, lang)
     if not text:
         await update.message.reply_text(
-            "У вас пока нет сохранённых разборов. Отправьте видео — и я его запомню.",
-            reply_markup=_main_menu_keyboard(),
+            t(lang, "history_empty"),
+            reply_markup=_main_menu_keyboard(lang),
         )
         return
     await update.message.reply_text(
         text,
         parse_mode=ParseMode.MARKDOWN,
-        reply_markup=_main_menu_keyboard(),
+        reply_markup=_main_menu_keyboard(lang),
     )
 
 
@@ -290,42 +325,38 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not message:
         return
 
+    lang = _lang_from_update(update, context)
+    language_code = _language_code_from_context(context)
+
     video = message.video or message.video_note
     if not video:
         return
 
     if video.file_size and video.file_size > MAX_VIDEO_SIZE_MB * 1024 * 1024:
-        await message.reply_text(
-            f"Видео слишком большое. Максимум — {MAX_VIDEO_SIZE_MB} МБ."
-        )
+        await message.reply_text(t(lang, "video_too_large", max_mb=MAX_VIDEO_SIZE_MB))
         return
 
     mime_type = getattr(video, "mime_type", None) or "video/mp4"
     if mime_type not in SUPPORTED_MIME_TYPES:
-        await message.reply_text(
-            "Формат видео не поддерживается. Отправьте MP4, MOV или WebM."
-        )
+        await message.reply_text(t(lang, "video_unsupported"))
         return
 
     user_id = message.from_user.id
     context.user_data["user_id"] = user_id
 
     user_comment = message.caption
-    # Сохраняем данные видео, чтобы можно было повторить разбор без пересылки
     context.user_data["pending_video"] = {
         "file_id": video.file_id,
         "mime_type": mime_type,
         "comment": user_comment,
     }
 
-    status_text = (
-        "⏳ Видео получено. Анализирую технику — это может занять до минуты..."
-    )
-    if user_comment:
-        status_text = "⏳ Видео и комментарий получены. Анализирую — это может занять до минуты..."
-    status_message = await message.reply_text(status_text)
+    status_key = "status_analyzing_comment" if user_comment else "status_analyzing"
+    status_message = await message.reply_text(t(lang, status_key))
 
-    await _run_video_analysis(context, message.chat_id, user_id, status_message)
+    await _run_video_analysis(
+        context, message.chat_id, user_id, status_message, lang, language_code
+    )
 
 
 async def _run_video_analysis(
@@ -333,13 +364,12 @@ async def _run_video_analysis(
     chat_id: int,
     user_id: int,
     status_message,
+    lang: str,
+    language_code: str,
 ) -> None:
-    """Скачивает сохранённое видео, прогоняет анализ и отправляет отчёт.
-
-    При ошибке редактирует status_message и вешает кнопку «Повторить»."""
     pending = context.user_data.get("pending_video")
     if not pending:
-        await status_message.edit_text("Видео не найдено. Отправьте его заново.")
+        await status_message.edit_text(t(lang, "video_not_found"))
         return
 
     mime_type = pending["mime_type"]
@@ -364,11 +394,15 @@ async def _run_video_analysis(
 
         player_history = await asyncio.to_thread(storage.get_player_history, user_id)
         report = await asyncio.to_thread(
-            analyzer.analyze, temp_path, user_comment, player_history
+            analyzer.analyze,
+            temp_path,
+            user_comment,
+            player_history,
+            language_code,
         )
 
         _save_analysis(context.user_data, report)
-        await asyncio.to_thread(storage.save_session, user_id, report)
+        await asyncio.to_thread(storage.save_session, user_id, report, language_code)
         context.user_data.pop("pending_video", None)
 
         await status_message.delete()
@@ -376,16 +410,20 @@ async def _run_video_analysis(
             await _send_formatted(context, chat_id, chunk)
         await context.bot.send_message(
             chat_id=chat_id,
-            text="💬 Можете задавать уточняющие вопросы текстом.",
+            text=t(lang, "followup_hint"),
         )
 
     except TimeoutError:
-        await status_message.edit_text(format_analysis_error(TimeoutError()))
+        await status_message.edit_text(
+            format_analysis_error(TimeoutError(), lang),
+            reply_markup=_retry_keyboard(lang),
+        )
     except Exception as exc:
         logger.exception("Ошибка анализа видео для user_id=%s", user_id)
         await status_message.edit_text(
-            format_analysis_error(exc),
+            format_analysis_error(exc, lang),
             parse_mode=ParseMode.MARKDOWN,
+            reply_markup=_retry_keyboard(lang),
         )
     finally:
         if temp_path and temp_path.exists():
@@ -398,20 +436,28 @@ async def handle_retry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
     await query.answer()
 
+    lang = sync_user_lang(context.user_data, query.from_user.language_code)
+    language_code = _language_code_from_context(context)
+
     user_id = query.from_user.id
     context.user_data["user_id"] = user_id
 
     if not context.user_data.get("pending_video"):
         await query.message.reply_text(
-            "Видео не найдено — отправьте его заново.",
-            reply_markup=_main_menu_keyboard(),
+            t(lang, "video_not_found_retry"),
+            reply_markup=_main_menu_keyboard(lang),
         )
         return
 
-    status_message = await query.message.reply_text(
-        "⏳ Повторяю разбор — это может занять до минуты..."
+    status_message = await query.message.reply_text(t(lang, "retry_status"))
+    await _run_video_analysis(
+        context,
+        query.message.chat_id,
+        user_id,
+        status_message,
+        lang,
+        language_code,
     )
-    await _run_video_analysis(context, query.message.chat_id, user_id, status_message)
 
 
 async def handle_quick_question(
@@ -423,20 +469,25 @@ async def handle_quick_question(
 
     await query.answer()
 
+    lang = sync_user_lang(context.user_data, query.from_user.language_code)
+    language_code = _language_code_from_context(context)
+    prompts = _QUICK_PROMPTS.get(lang, _QUICK_PROMPTS["en"])
+
     key = query.data.removeprefix("q:")
     question = QUICK_QUESTIONS.get(key)
     if not question:
         return
 
-    label, prompt = question
+    label_key, prompt_key = question
+    label = prompts[label_key]
+    prompt = prompts[prompt_key]
     context.user_data["user_id"] = query.from_user.id
 
     session = _get_session(context.user_data)
     if not session.get("analysis"):
         await query.message.reply_text(
-            "Контекст разбора потерян (возможно, бот перезапускался). "
-            "Отправьте видео заново — и кнопки снова заработают.",
-            reply_markup=_main_menu_keyboard(),
+            t(lang, "context_lost"),
+            reply_markup=_main_menu_keyboard(lang),
         )
         return
 
@@ -448,15 +499,14 @@ async def handle_quick_question(
             query.message.chat_id,
             prompt,
             question_label=label,
+            lang=lang,
+            language_code=language_code,
         )
     except Exception:
         logger.exception("Ошибка быстрого вопроса для user_id=%s", query.from_user.id)
         await context.bot.send_message(
             chat_id=query.message.chat_id,
-            text=(
-                "⚠️ Не удалось получить ответ от ИИ. Попробуйте ещё раз "
-                "или задайте вопрос текстом."
-            ),
+            text=t(lang, "quick_question_failed"),
         )
 
 
@@ -465,17 +515,14 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if not message or not message.text:
         return
 
+    lang = _lang_from_update(update, context)
+    language_code = _language_code_from_context(context)
+
     user_text = message.text.strip()
     if not user_text:
         return
 
-    menu_actions = {
-        BTN_HELP: help_command,
-        BTN_ABOUT: about_command,
-        BTN_NEW: new_command,
-        BTN_HISTORY: history_command,
-    }
-    menu_handler = menu_actions.get(user_text)
+    menu_handler = _MENU_HANDLERS.get(user_text)
     if menu_handler:
         await menu_handler(update, context)
         return
@@ -483,10 +530,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     session = _get_session(context.user_data)
     analysis = session.get("analysis")
     if not analysis:
-        await message.reply_text(
-            "Сначала отправьте видео для разбора — после этого можно задавать "
-            "вопросы и просить разъяснения. К видео можно добавить подпись с контекстом."
-        )
+        await message.reply_text(t(lang, "no_active_analysis"))
         return
 
     try:
@@ -495,11 +539,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             context.user_data,
             message.chat_id,
             user_text,
+            lang=lang,
+            language_code=language_code,
         )
     except Exception as exc:
         logger.exception("Ошибка диалога для user_id=%s", message.from_user.id)
         await message.reply_text(
-            format_analysis_error(exc),
+            format_analysis_error(exc, lang),
             parse_mode=ParseMode.MARKDOWN,
         )
 
@@ -509,14 +555,20 @@ async def handle_unsupported(
 ) -> None:
     if not update.message:
         return
-    await update.message.reply_text(
-        "Отправьте видео с теннисистом (10–30 сек) или задайте текстовый вопрос "
-        "после разбора. Документы и фото пока не поддерживаются."
-    )
+    lang = _lang_from_update(update, context)
+    await update.message.reply_text(t(lang, "unsupported"))
+
+
+_MENU_HANDLERS.update(_menu_handlers())
 
 
 async def _setup_bot_menu(application: Application) -> None:
-    await application.bot.set_my_commands(BOT_COMMANDS)
+    for lang in UI_LANGS:
+        await application.bot.set_my_commands(
+            _bot_commands(lang),
+            language_code=lang,
+        )
+    await application.bot.set_my_commands(_bot_commands("en"))
 
 
 def build_application(settings: Settings) -> Application:
