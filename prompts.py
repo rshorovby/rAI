@@ -67,6 +67,40 @@ FOLLOW_UP_SYSTEM_PROMPT = """\
 """
 
 
+def build_coach_context(history: list[dict]) -> str:
+    """Формирует блок «заметки тренера» из прошлых сессий для вставки в system prompt.
+
+    history — список dict с ключами created_at, summary, top3 (от старой к новой).
+    """
+    if not history:
+        return ""
+
+    lines = [
+        "─────────────────────────────────────────",
+        "ЗАМЕТКИ О ИГРОКЕ (предыдущие сессии):",
+        "",
+    ]
+    for i, s in enumerate(history, 1):
+        lines.append(f"Сессия {i} · {s['created_at']}:")
+        lines.append(f"  {s['summary']}")
+        if s["top3"]:
+            # вставляем приоритеты в одну строку, убирая переносы
+            top3_oneline = " | ".join(
+                ln.strip() for ln in s["top3"].splitlines() if ln.strip()
+            )
+            lines.append(f"  Топ-3 тогда: {top3_oneline}")
+        lines.append("")
+
+    lines += [
+        "При разборе нового видео:",
+        "• Сравни с предыдущими сессиями — что изменилось, что улучшилось, что осталось.",
+        "• Если проблема повторяется — отметь это явно («как и в прошлый раз…»).",
+        "• Если виден прогресс — похвали конкретно.",
+        "─────────────────────────────────────────",
+    ]
+    return "\n".join(lines)
+
+
 def build_analysis_prompt(user_comment: Optional[str] = None) -> str:
     if user_comment and user_comment.strip():
         return (

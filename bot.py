@@ -23,6 +23,7 @@ from telegram.ext import (
     filters,
 )
 
+import storage
 from analyzer import VideoAnalyzer
 from config import Settings
 from errors import format_analysis_error
@@ -54,7 +55,8 @@ WELCOME_TEXT = (
     "Используйте кнопки меню внизу или команды:\n"
     "/help — справка\n"
     "/about — о сервисе\n"
-    "/new — начать заново (сбросить диалог)"
+    "/new — новый разбор\n"
+    "/history — мои прошлые разборы"
 )
 
 HELP_TEXT = (
@@ -81,12 +83,14 @@ ABOUT_TEXT = (
 BTN_HELP = "📋 Справка"
 BTN_ABOUT = "ℹ️ О сервисе"
 BTN_NEW = "🔄 Новый разбор"
+BTN_HISTORY = "📊 Мои разборы"
 
 BOT_COMMANDS = [
     BotCommand("start", "Начать работу"),
     BotCommand("help", "Справка по использованию"),
     BotCommand("about", "О сервисе"),
     BotCommand("new", "Новый разбор"),
+    BotCommand("history", "Мои прошлые разборы"),
 ]
 
 # callback_data → (подпись кнопки, промпт для модели)
@@ -121,13 +125,23 @@ def _save_analysis(user_data: dict, report: str) -> None:
     user_data[SESSION_KEY] = {"analysis": report, "history": []}
 
 
+def _get_user_id(user_data: dict) -> Optional[int]:
+    return user_data.get("user_id")
+
+
 def _main_menu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         [
             [KeyboardButton(BTN_HELP), KeyboardButton(BTN_ABOUT)],
-            [KeyboardButton(BTN_NEW)],
+            [KeyboardButton(BTN_NEW), KeyboardButton(BTN_HISTORY)],
         ],
         resize_keyboard=True,
+    )
+
+
+def _retry_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("🔄 Повторить разбор", callback_data="retry")]]
     )
 
 
@@ -218,7 +232,14 @@ async def _process_followup(
     analyzer: VideoAnalyzer = context.application.bot_data["analyzer"]
     history: list[dict[str, str]] = session.get("history", [])
 
-    reply = await asyncio.to_thread(analyzer.chat, analysis, history, user_text)
+    user_id = _get_user_id(user_data)
+    player_history = (
+        await asyncio.to_thread(storage.get_player_history, user_id) if user_id else []
+    )
+
+    reply = await asyncio.to_thread(
+        analyzer.chat, analysis, history, user_text, player_history
+    )
     history.append({"user": user_text, "assistant": reply})
     session["history"] = history[-MAX_HISTORY_TURNS:]
 
@@ -267,6 +288,23 @@ async def new_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     )
 
 
+async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.message.from_user.id
+    context.user_data["user_id"] = user_id
+    text = await asyncio.to_thread(storage.format_history_for_user, user_id)
+    if not text:
+        await update.message.reply_text(
+            "У вас пока нет сохранённых разборов. Отправьте видео — и я его запомню.",
+            reply_markup=_main_menu_keyboard(),
+        )
+        return
+    await update.message.reply_text(
+        text,
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=_main_menu_keyboard(),
+    )
+
+
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.message
     if not message:
@@ -289,16 +327,45 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         )
         return
 
+    user_id = message.from_user.id
+    context.user_data["user_id"] = user_id
+
     user_comment = message.caption
+    # Сохраняем данные видео, чтобы можно было повторить разбор без пересылки
+    context.user_data["pending_video"] = {
+        "file_id": video.file_id,
+        "mime_type": mime_type,
+        "comment": user_comment,
+    }
+
     status_text = (
         "⏳ Видео получено. Анализирую технику — это может занять до минуты..."
     )
     if user_comment:
         status_text = "⏳ Видео и комментарий получены. Анализирую — это может занять до минуты..."
     status_message = await message.reply_text(status_text)
-    await context.bot.send_chat_action(
-        chat_id=message.chat_id, action=ChatAction.TYPING
-    )
+
+    await _run_video_analysis(context, message.chat_id, user_id, status_message)
+
+
+async def _run_video_analysis(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    user_id: int,
+    status_message,
+) -> None:
+    """Скачивает сохранённое видео, прогоняет анализ и отправляет отчёт.
+
+    При ошибке редактирует status_message и вешает кнопку «Повторить»."""
+    pending = context.user_data.get("pending_video")
+    if not pending:
+        await status_message.edit_text("Видео не найдено. Отправьте его заново.")
+        return
+
+    mime_type = pending["mime_type"]
+    user_comment = pending.get("comment")
+
+    await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
 
     analyzer: VideoAnalyzer = context.application.bot_data["analyzer"]
 
@@ -310,34 +377,66 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     temp_path: Optional[Path] = None
     try:
-        telegram_file = await context.bot.get_file(video.file_id)
+        telegram_file = await context.bot.get_file(pending["file_id"])
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             temp_path = Path(tmp.name)
             await telegram_file.download_to_drive(custom_path=str(temp_path))
 
-        report = await asyncio.to_thread(analyzer.analyze, temp_path, user_comment)
+        player_history = await asyncio.to_thread(storage.get_player_history, user_id)
+        report = await asyncio.to_thread(
+            analyzer.analyze, temp_path, user_comment, player_history
+        )
 
         _save_analysis(context.user_data, report)
+        await asyncio.to_thread(storage.save_session, user_id, report)
+        context.user_data.pop("pending_video", None)
 
         await status_message.delete()
         for chunk in _split_message(report):
-            await _reply_formatted(message, chunk)
-        await message.reply_text(
-            "💬 Задайте вопрос текстом или нажмите кнопку ниже:",
+            await _send_formatted(context, chat_id, chunk)
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="💬 Задайте вопрос текстом или нажмите кнопку ниже:",
             reply_markup=_quick_questions_keyboard(),
         )
 
     except TimeoutError:
-        await status_message.edit_text(format_analysis_error(TimeoutError()))
+        await status_message.edit_text(
+            format_analysis_error(TimeoutError()),
+            reply_markup=_retry_keyboard(),
+        )
     except Exception as exc:
-        logger.exception("Ошибка анализа видео для user_id=%s", message.from_user.id)
+        logger.exception("Ошибка анализа видео для user_id=%s", user_id)
         await status_message.edit_text(
             format_analysis_error(exc),
             parse_mode=ParseMode.MARKDOWN,
+            reply_markup=_retry_keyboard(),
         )
     finally:
         if temp_path and temp_path.exists():
             temp_path.unlink(missing_ok=True)
+
+
+async def handle_retry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query:
+        return
+    await query.answer()
+
+    user_id = query.from_user.id
+    context.user_data["user_id"] = user_id
+
+    if not context.user_data.get("pending_video"):
+        await query.message.reply_text(
+            "Видео не найдено — отправьте его заново.",
+            reply_markup=_main_menu_keyboard(),
+        )
+        return
+
+    status_message = await query.message.reply_text(
+        "⏳ Повторяю разбор — это может занять до минуты..."
+    )
+    await _run_video_analysis(context, query.message.chat_id, user_id, status_message)
 
 
 async def handle_quick_question(
@@ -393,6 +492,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         BTN_HELP: help_command,
         BTN_ABOUT: about_command,
         BTN_NEW: new_command,
+        BTN_HISTORY: history_command,
     }
     menu_handler = menu_actions.get(user_text)
     if menu_handler:
@@ -457,7 +557,9 @@ def build_application(settings: Settings) -> Application:
     app.add_handler(CommandHandler("about", about_command))
     app.add_handler(CommandHandler("new", new_command))
     app.add_handler(CommandHandler("reset", new_command))
+    app.add_handler(CommandHandler("history", history_command))
     app.add_handler(CallbackQueryHandler(handle_quick_question, pattern=r"^q:"))
+    app.add_handler(CallbackQueryHandler(handle_retry, pattern=r"^retry$"))
     app.add_handler(MessageHandler(filters.VIDEO | filters.VIDEO_NOTE, handle_video))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_unsupported))

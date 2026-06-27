@@ -16,6 +16,9 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 
+# База данных игроков
+data/
+
 # Временные файлы видео
 *.mp4
 *.mov

@@ -6,6 +6,19 @@ def test_quota_error():
     assert "квота" in msg.lower()
 
 
+def test_503_unavailable():
+    msg = format_analysis_error(
+        Exception("503 UNAVAILABLE. This model is currently experiencing high demand.")
+    )
+    assert "перегружен" in msg.lower()
+    assert "повторить" in msg.lower()
+
+
+def test_500_internal():
+    msg = format_analysis_error(Exception("500 INTERNAL"))
+    assert "повторить" in msg.lower()
+
+
 def test_region_error():
     msg = format_analysis_error(Exception("User location is not supported"))
     assert "регион" in msg.lower()

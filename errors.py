@@ -13,6 +13,25 @@ def format_analysis_error(exc: Exception) -> str:
             "4. Или подключите платный тариф в Google AI Studio"
         )
 
+    if (
+        "503" in message
+        or "UNAVAILABLE" in message
+        or "overloaded" in message.lower()
+        or "high demand" in message.lower()
+    ):
+        return (
+            "⚠️ *Gemini сейчас перегружен*\n\n"
+            "Это временно: на стороне Google всплеск нагрузки на модель. "
+            "С вашим видео и ключом всё в порядке.\n\n"
+            "Нажмите «Повторить разбор» — я попробую ещё раз с тем же видео."
+        )
+
+    if "500" in message or "INTERNAL" in message:
+        return (
+            "⚠️ *Внутренняя ошибка Gemini*\n\n"
+            "Временный сбой на стороне Google. Нажмите «Повторить разбор»."
+        )
+
     if "location is not supported" in message.lower():
         return (
             "⚠️ *Gemini недоступен в вашем регионе*\n\n"
