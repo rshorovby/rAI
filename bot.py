@@ -24,6 +24,15 @@ from telegram.ext import (
 )
 
 import storage
+from analytics import (
+    EVENT_ANALYSIS_FAILED,
+    EVENT_ANALYSIS_SUCCESS,
+    EVENT_ONBOARDING_COMPLETED,
+    EVENT_ONBOARDING_SKIPPED,
+    EVENT_ONBOARDING_STARTED,
+    EVENT_VIDEO_SENT,
+    format_analytics_report,
+)
 from analyzer import VideoAnalyzer
 from config import Settings
 from errors import format_analysis_error
@@ -107,6 +116,43 @@ _QUICK_PROMPTS = {
         ),
     },
 }
+
+
+def _telegram_user_from_update(update: Update):
+    if update.message:
+        return update.message.from_user
+    if update.callback_query:
+        return update.callback_query.from_user
+    return update.effective_user
+
+
+async def _touch_user(update: Update) -> None:
+    user = _telegram_user_from_update(update)
+    if not user:
+        return
+    await asyncio.to_thread(
+        storage.upsert_user,
+        user.id,
+        user.username,
+        user.first_name,
+        user.last_name,
+        user.language_code,
+    )
+
+
+async def _log_event(user_id: int, event_type: str, payload: str = "") -> None:
+    await asyncio.to_thread(storage.log_event, user_id, event_type, payload)
+
+
+async def _begin_onboarding(
+    context: ContextTypes.DEFAULT_TYPE,
+    user_id: int,
+    *,
+    is_new_user: bool,
+) -> None:
+    start_onboarding_state(context.user_data)
+    if is_new_user:
+        await _log_event(user_id, EVENT_ONBOARDING_STARTED)
 
 
 def _lang_from_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> str:
@@ -227,6 +273,7 @@ async def _finish_onboarding_skip(
     update: Update, context: ContextTypes.DEFAULT_TYPE, lang: str, user_id: int
 ) -> None:
     await asyncio.to_thread(storage.mark_profile_skipped, user_id)
+    await _log_event(user_id, EVENT_ONBOARDING_SKIPPED)
     clear_onboarding_state(context.user_data)
     await update.message.reply_text(
         t(lang, "ob_skip_warning"),
@@ -240,6 +287,7 @@ async def _finish_onboarding_complete(
 ) -> None:
     profile = build_profile_dict(get_onboarding_answers(context.user_data))
     await asyncio.to_thread(storage.save_player_profile, user_id, profile)
+    await _log_event(user_id, EVENT_ONBOARDING_COMPLETED)
     clear_onboarding_state(context.user_data)
     await update.message.reply_text(
         t(lang, "ob_complete"),
@@ -343,7 +391,9 @@ async def _process_followup(
         await asyncio.to_thread(storage.get_player_history, user_id) if user_id else []
     )
     player_profile = (
-        await asyncio.to_thread(storage.get_player_profile, user_id) if user_id else None
+        await asyncio.to_thread(storage.get_player_profile, user_id)
+        if user_id
+        else None
     )
 
     reply = await asyncio.to_thread(
@@ -370,10 +420,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     lang = _lang_from_update(update, context)
     user_id = update.message.from_user.id
     context.user_data["user_id"] = user_id
+    await _touch_user(update)
 
     has_record = await asyncio.to_thread(storage.has_profile_record, user_id)
     if not has_record:
-        start_onboarding_state(context.user_data)
+        await _begin_onboarding(context, user_id, is_new_user=True)
         await _send_onboarding_question(
             update.message, lang, "level", intro=t(lang, "ob_intro")
         )
@@ -435,12 +486,30 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     lang = _lang_from_update(update, context)
     user_id = update.message.from_user.id
     context.user_data["user_id"] = user_id
+    await _touch_user(update)
     text = await asyncio.to_thread(storage.format_profile_for_user, user_id, lang)
     await update.message.reply_text(
         text,
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=profile_edit_keyboard(lang),
     )
+
+
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    admin_ids = context.application.bot_data.get("admin_user_ids", ())
+    user_id = update.message.from_user.id
+    if not admin_ids:
+        await update.message.reply_text(
+            "⚠️ ADMIN_USER_IDS не задан в `.env` на сервере."
+        )
+        return
+    if user_id not in admin_ids:
+        await update.message.reply_text("⛔ Команда только для администратора.")
+        return
+
+    data = await asyncio.to_thread(storage.get_analytics_summary)
+    report = format_analytics_report(data)
+    await update.message.reply_text(report, parse_mode=ParseMode.MARKDOWN)
 
 
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -461,10 +530,11 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     user_id = message.from_user.id
     context.user_data["user_id"] = user_id
+    await _touch_user(update)
 
     has_record = await asyncio.to_thread(storage.has_profile_record, user_id)
     if not has_record:
-        start_onboarding_state(context.user_data)
+        await _begin_onboarding(context, user_id, is_new_user=True)
         await _send_onboarding_question(
             message, lang, "level", intro=t(lang, "ob_intro")
         )
@@ -492,6 +562,7 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     status_key = "status_analyzing_comment" if user_comment else "status_analyzing"
     status_message = await message.reply_text(t(lang, status_key))
+    await _log_event(user_id, EVENT_VIDEO_SENT)
 
     await _run_video_analysis(
         context, message.chat_id, user_id, status_message, lang, language_code
@@ -553,14 +624,17 @@ async def _run_video_analysis(
             chat_id=chat_id,
             text=t(lang, "followup_hint"),
         )
+        await _log_event(user_id, EVENT_ANALYSIS_SUCCESS)
 
     except TimeoutError:
+        await _log_event(user_id, EVENT_ANALYSIS_FAILED, "TimeoutError")
         await status_message.edit_text(
             format_analysis_error(TimeoutError(), lang),
             reply_markup=_retry_keyboard(lang),
         )
     except Exception as exc:
         logger.exception("Ошибка анализа видео для user_id=%s", user_id)
+        await _log_event(user_id, EVENT_ANALYSIS_FAILED, str(exc)[:200])
         await status_message.edit_text(
             format_analysis_error(exc, lang),
             parse_mode=ParseMode.MARKDOWN,
@@ -753,6 +827,9 @@ def build_application(settings: Settings) -> Application:
         .build()
     )
     app.bot_data["analyzer"] = analyzer
+    app.bot_data["admin_user_ids"] = settings.admin_user_ids
+    if not settings.admin_user_ids:
+        logger.warning("ADMIN_USER_IDS не задан — команда /stats недоступна")
 
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("help", help_command))
@@ -761,6 +838,7 @@ def build_application(settings: Settings) -> Application:
     app.add_handler(CommandHandler("reset", new_command))
     app.add_handler(CommandHandler("history", history_command))
     app.add_handler(CommandHandler("profile", profile_command))
+    app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(CallbackQueryHandler(handle_quick_question, pattern=r"^q:"))
     app.add_handler(CallbackQueryHandler(handle_retry, pattern=r"^retry$"))
     app.add_handler(MessageHandler(filters.VIDEO | filters.VIDEO_NOTE, handle_video))

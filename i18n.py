@@ -454,8 +454,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "ob_question_focus": "What do you want to improve first?",
         "ob_question_hand": "What's your dominant hand?",
         "ob_question_injuries": (
-            "Any injuries or discomfort while playing?\n"
-            "Describe in text or tap No."
+            "Any injuries or discomfort while playing?\n" "Describe in text or tap No."
         ),
         "ob_skip": "⏭ Skip setup",
         "ob_skip_warning": (
@@ -477,8 +476,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         ),
         "ob_invalid_answer": "Pick an option from the buttons or tap Skip setup.",
         "profile_not_set": (
-            "Profile not set up yet.\n\n"
-            "Tap Edit profile to complete a short setup."
+            "Profile not set up yet.\n\n" "Tap Edit profile to complete a short setup."
         ),
         "profile_skipped": (
             "Profile not filled in (setup was skipped).\n\n"

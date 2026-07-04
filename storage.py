@@ -46,6 +46,30 @@ def _init_db(conn: sqlite3.Connection) -> None:
             skipped     INTEGER NOT NULL DEFAULT 0,
             updated_at  TEXT    NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS users (
+            user_id         INTEGER PRIMARY KEY,
+            username        TEXT,
+            first_name      TEXT,
+            last_name       TEXT,
+            language_code   TEXT,
+            first_seen_at   TEXT    NOT NULL,
+            last_seen_at    TEXT    NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_users_last_seen
+            ON users (last_seen_at DESC);
+
+        CREATE TABLE IF NOT EXISTS events (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id     INTEGER NOT NULL,
+            event_type  TEXT    NOT NULL,
+            created_at  TEXT    NOT NULL,
+            payload     TEXT    NOT NULL DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS idx_events_type
+            ON events (event_type, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_events_user
+            ON events (user_id, created_at DESC);
     """
     )
     conn.commit()
@@ -142,9 +166,7 @@ def has_profile_record(user_id: int) -> bool:
 
 def is_profile_complete(user_id: int) -> bool:
     profile = get_player_profile(user_id)
-    return bool(
-        profile and not profile.get("skipped") and profile.get("level")
-    )
+    return bool(profile and not profile.get("skipped") and profile.get("level"))
 
 
 def get_player_profile(user_id: int) -> Optional[dict]:
@@ -213,6 +235,161 @@ def mark_profile_skipped(user_id: int) -> None:
     )
 
 
+def upsert_user(
+    user_id: int,
+    username: Optional[str],
+    first_name: Optional[str],
+    last_name: Optional[str],
+    language_code: Optional[str],
+) -> None:
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with _connect() as conn:
+        _init_db(conn)
+        existing = conn.execute(
+            "SELECT user_id FROM users WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        if existing:
+            conn.execute(
+                """
+                UPDATE users SET
+                    username = ?,
+                    first_name = ?,
+                    last_name = ?,
+                    language_code = ?,
+                    last_seen_at = ?
+                WHERE user_id = ?
+                """,
+                (username, first_name, last_name, language_code, now, user_id),
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO users
+                    (user_id, username, first_name, last_name, language_code,
+                     first_seen_at, last_seen_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    user_id,
+                    username,
+                    first_name,
+                    last_name,
+                    language_code,
+                    now,
+                    now,
+                ),
+            )
+        conn.commit()
+
+
+def log_event(user_id: int, event_type: str, payload: str = "") -> None:
+    created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            "INSERT INTO events (user_id, event_type, created_at, payload)"
+            " VALUES (?, ?, ?, ?)",
+            (user_id, event_type, created_at, payload[:500]),
+        )
+        conn.commit()
+
+
+def get_analytics_summary(recent_limit: int = 10) -> dict:
+    from analytics import ALL_EVENT_TYPES
+
+    with _connect() as conn:
+        _init_db(conn)
+        users_total = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        profiles_complete = conn.execute(
+            """
+            SELECT COUNT(*) FROM player_profiles
+            WHERE skipped = 0 AND level IS NOT NULL
+            """
+        ).fetchone()[0]
+        profiles_skipped = conn.execute(
+            "SELECT COUNT(*) FROM player_profiles WHERE skipped = 1"
+        ).fetchone()[0]
+        users_with_videos = conn.execute(
+            "SELECT COUNT(DISTINCT user_id) FROM player_sessions"
+        ).fetchone()[0]
+        analyses_total = conn.execute(
+            "SELECT COUNT(*) FROM player_sessions"
+        ).fetchone()[0]
+        users_active_7d = conn.execute(
+            """
+            SELECT COUNT(*) FROM users
+            WHERE datetime(last_seen_at) >= datetime('now', '-7 days')
+            """
+        ).fetchone()[0]
+
+        events: dict[str, int] = {}
+        for event_type in ALL_EVENT_TYPES:
+            events[event_type] = conn.execute(
+                "SELECT COUNT(*) FROM events WHERE event_type = ?",
+                (event_type,),
+            ).fetchone()[0]
+
+        rows = conn.execute(
+            """
+            SELECT
+                u.user_id,
+                u.username,
+                u.first_name,
+                u.last_name,
+                u.language_code,
+                u.first_seen_at,
+                u.last_seen_at,
+                COALESCE(s.videos, 0) AS videos,
+                p.level,
+                p.skipped AS profile_skipped
+            FROM users u
+            LEFT JOIN (
+                SELECT user_id, COUNT(*) AS videos
+                FROM player_sessions
+                GROUP BY user_id
+            ) s ON s.user_id = u.user_id
+            LEFT JOIN player_profiles p ON p.user_id = u.user_id
+            ORDER BY u.last_seen_at DESC
+            LIMIT ?
+            """,
+            (recent_limit,),
+        ).fetchall()
+
+    recent_users = []
+    for row in rows:
+        profile_status = "—"
+        if row["profile_skipped"]:
+            profile_status = "пропущен"
+        elif row["level"]:
+            profile_status = row["level"]
+        parts = [row["first_name"] or "", row["last_name"] or ""]
+        display_name = " ".join(p for p in parts if p).strip()
+        recent_users.append(
+            {
+                "user_id": row["user_id"],
+                "username": row["username"],
+                "display_name": display_name,
+                "language_code": row["language_code"],
+                "first_seen_at": row["first_seen_at"],
+                "last_seen_at": row["last_seen_at"],
+                "videos": row["videos"],
+                "profile_status": profile_status,
+            }
+        )
+
+    return {
+        "users_total": users_total,
+        "profiles_complete": profiles_complete,
+        "profiles_skipped": profiles_skipped,
+        "users_with_videos": users_with_videos,
+        "users_active_7d": users_active_7d,
+        "analyses_total": analyses_total,
+        "events": events,
+        "recent_users": recent_users,
+    }
+
+
 def format_profile_for_user(user_id: int, lang: str) -> str:
     from onboarding import profile_value_label
 
@@ -226,9 +403,7 @@ def format_profile_for_user(user_id: int, lang: str) -> str:
 
     injuries = profile.get("injuries") or ""
     injuries_text = (
-        t(ui_lang, "ob_injuries_none")
-        if not injuries.strip()
-        else injuries.strip()
+        t(ui_lang, "ob_injuries_none") if not injuries.strip() else injuries.strip()
     )
     return t(
         ui_lang,
