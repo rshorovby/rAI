@@ -48,6 +48,7 @@ class VideoAnalyzer:
         user_comment: Optional[str] = None,
         player_history: Optional[list] = None,
         language_code: str = DEFAULT_LANG,
+        player_profile: Optional[dict] = None,
     ) -> str:
         uploaded = self._client.files.upload(file=str(video_path))
         uploaded = self._wait_until_active(uploaded)
@@ -70,7 +71,7 @@ class VideoAnalyzer:
                 ],
                 config=types.GenerateContentConfig(
                     system_instruction=build_system_prompt(
-                        language_code, player_history
+                        language_code, player_history, player_profile
                     ),
                     temperature=0.4,
                 ),
@@ -106,6 +107,7 @@ class VideoAnalyzer:
         user_message: str,
         player_history: Optional[list] = None,
         language_code: str = DEFAULT_LANG,
+        player_profile: Optional[dict] = None,
     ) -> str:
         ui_lang = "ru" if normalize_language_code(language_code) == "ru" else "en"
         report_intro = (
@@ -150,7 +152,7 @@ class VideoAnalyzer:
             contents=contents,
             config=types.GenerateContentConfig(
                 system_instruction=build_follow_up_system_prompt(
-                    language_code, player_history
+                    language_code, player_history, player_profile
                 ),
                 temperature=0.5,
             ),

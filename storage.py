@@ -36,6 +36,16 @@ def _init_db(conn: sqlite3.Connection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_sessions_user
             ON player_sessions (user_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS player_profiles (
+            user_id     INTEGER PRIMARY KEY,
+            level       TEXT,
+            focus       TEXT,
+            hand        TEXT,
+            injuries    TEXT    NOT NULL DEFAULT '',
+            skipped     INTEGER NOT NULL DEFAULT 0,
+            updated_at  TEXT    NOT NULL
+        );
     """
     )
     conn.commit()
@@ -118,6 +128,117 @@ def get_session_count(user_id: int) -> int:
             "SELECT COUNT(*) FROM player_sessions WHERE user_id = ?",
             (user_id,),
         ).fetchone()[0]
+
+
+def has_profile_record(user_id: int) -> bool:
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            "SELECT 1 FROM player_profiles WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+    return row is not None
+
+
+def is_profile_complete(user_id: int) -> bool:
+    profile = get_player_profile(user_id)
+    return bool(
+        profile and not profile.get("skipped") and profile.get("level")
+    )
+
+
+def get_player_profile(user_id: int) -> Optional[dict]:
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            """
+            SELECT level, focus, hand, injuries, skipped, updated_at
+            FROM player_profiles
+            WHERE user_id = ?
+            """,
+            (user_id,),
+        ).fetchone()
+    if not row:
+        return None
+    return {
+        "level": row["level"],
+        "focus": row["focus"],
+        "hand": row["hand"],
+        "injuries": row["injuries"] or "",
+        "skipped": bool(row["skipped"]),
+        "updated_at": row["updated_at"],
+    }
+
+
+def save_player_profile(user_id: int, profile: dict) -> None:
+    updated_at = datetime.now().strftime("%d %b %Y %H:%M")
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            """
+            INSERT INTO player_profiles
+                (user_id, level, focus, hand, injuries, skipped, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                level = excluded.level,
+                focus = excluded.focus,
+                hand = excluded.hand,
+                injuries = excluded.injuries,
+                skipped = excluded.skipped,
+                updated_at = excluded.updated_at
+            """,
+            (
+                user_id,
+                profile.get("level"),
+                profile.get("focus"),
+                profile.get("hand"),
+                profile.get("injuries", ""),
+                1 if profile.get("skipped") else 0,
+                updated_at,
+            ),
+        )
+        conn.commit()
+
+
+def mark_profile_skipped(user_id: int) -> None:
+    save_player_profile(
+        user_id,
+        {
+            "level": None,
+            "focus": None,
+            "hand": None,
+            "injuries": "",
+            "skipped": True,
+        },
+    )
+
+
+def format_profile_for_user(user_id: int, lang: str) -> str:
+    from onboarding import profile_value_label
+
+    ui_lang = lang if lang in ("ru", "en") else DEFAULT_LANG
+    profile = get_player_profile(user_id)
+    if not profile:
+        return t(ui_lang, "profile_not_set")
+
+    if profile.get("skipped"):
+        return t(ui_lang, "profile_skipped")
+
+    injuries = profile.get("injuries") or ""
+    injuries_text = (
+        t(ui_lang, "ob_injuries_none")
+        if not injuries.strip()
+        else injuries.strip()
+    )
+    return t(
+        ui_lang,
+        "profile_view",
+        level=profile_value_label(ui_lang, "level", profile.get("level")),
+        focus=profile_value_label(ui_lang, "focus", profile.get("focus")),
+        hand=profile_value_label(ui_lang, "hand", profile.get("hand")),
+        injuries=injuries_text,
+        updated_at=profile.get("updated_at", "—"),
+    )
 
 
 def format_history_for_user(

@@ -109,13 +109,67 @@ _USER_PROMPTS = {
 }
 
 
+def build_player_context(profile: Optional[dict], language_code: str = "en") -> str:
+    if not profile or profile.get("skipped"):
+        return ""
+
+    base = normalize_language_code(language_code)
+    if base == "ru":
+        header = "ПРОФИЛЬ ИГРОКА (со слов игрока):"
+        level_l = "Уровень"
+        focus_l = "Фокус улучшения"
+        hand_l = "Доминирующая рука"
+        injuries_l = "Травмы/ограничения"
+        none_l = "нет"
+        rules = [
+            "Используй профиль для приоритизации разбора и рекомендаций.",
+            "Если видео противоречит профилю — доверяй видео, но отметь расхождение.",
+            "Учитывай травмы: не рекомендуй упражнения, которые могут усугубить дискомфорт.",
+        ]
+    else:
+        header = "PLAYER PROFILE (self-reported):"
+        level_l = "Level"
+        focus_l = "Improvement focus"
+        hand_l = "Dominant hand"
+        injuries_l = "Injuries/limitations"
+        none_l = "none"
+        rules = [
+            "Use the profile to prioritize the analysis and recommendations.",
+            "If the video contradicts the profile — trust the video, but note the mismatch.",
+            "Respect injuries: do not recommend drills that may worsen discomfort.",
+        ]
+
+    from onboarding import profile_value_label
+
+    ui_lang = "ru" if base == "ru" else "en"
+    injuries = (profile.get("injuries") or "").strip() or none_l
+
+    lines = [
+        "─────────────────────────────────────────",
+        header,
+        "",
+        f"• {level_l}: {profile_value_label(ui_lang, 'level', profile.get('level'))}",
+        f"• {focus_l}: {profile_value_label(ui_lang, 'focus', profile.get('focus'))}",
+        f"• {hand_l}: {profile_value_label(ui_lang, 'hand', profile.get('hand'))}",
+        f"• {injuries_l}: {injuries}",
+        "",
+    ]
+    lines.extend(rules)
+    lines.append("─────────────────────────────────────────")
+    return "\n".join(lines)
+
+
 def build_system_prompt(
     language_code: str,
     player_history: Optional[list] = None,
+    player_profile: Optional[dict] = None,
 ) -> str:
     coach_ctx = build_coach_context(player_history or [], language_code)
+    player_ctx = build_player_context(player_profile, language_code)
     lang_rule = language_instruction(language_code)
     parts = [SYSTEM_PROMPT_BASE.strip(), lang_rule]
+    if player_ctx:
+        parts.append(player_ctx)
     if coach_ctx:
         parts.append(coach_ctx)
     return "\n\n".join(parts)
@@ -124,10 +178,14 @@ def build_system_prompt(
 def build_follow_up_system_prompt(
     language_code: str,
     player_history: Optional[list] = None,
+    player_profile: Optional[dict] = None,
 ) -> str:
     coach_ctx = build_coach_context(player_history or [], language_code)
+    player_ctx = build_player_context(player_profile, language_code)
     lang_rule = language_instruction(language_code)
     parts = [FOLLOW_UP_SYSTEM_PROMPT_BASE.strip(), lang_rule]
+    if player_ctx:
+        parts.append(player_ctx)
     if coach_ctx:
         parts.append(coach_ctx)
     return "\n\n".join(parts)

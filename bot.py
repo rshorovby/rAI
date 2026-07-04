@@ -35,6 +35,21 @@ from i18n import (
     sync_user_lang,
     t,
 )
+from onboarding import (
+    advance_step,
+    build_profile_dict,
+    clear_onboarding_state,
+    get_onboarding_answers,
+    get_onboarding_step,
+    is_edit_profile_text,
+    is_injuries_none_text,
+    is_onboarding_active,
+    is_skip_text,
+    match_step_answer,
+    onboarding_keyboard,
+    profile_edit_keyboard,
+    start_onboarding_state,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +139,7 @@ def _bot_commands(lang: str) -> list[BotCommand]:
         BotCommand("start", t(lang, "cmd_start")),
         BotCommand("help", t(lang, "cmd_help")),
         BotCommand("about", t(lang, "cmd_about")),
+        BotCommand("profile", t(lang, "cmd_profile")),
         BotCommand("new", t(lang, "cmd_new")),
         BotCommand("history", t(lang, "cmd_history")),
     ]
@@ -189,6 +205,86 @@ def _split_message(text: str, limit: int = 4000) -> list[str]:
     return chunks
 
 
+async def _send_onboarding_question(
+    message,
+    lang: str,
+    step: str,
+    *,
+    intro: Optional[str] = None,
+) -> None:
+    parts = []
+    if intro:
+        parts.append(intro)
+    parts.append(t(lang, f"ob_question_{step}"))
+    await message.reply_text(
+        "\n\n".join(parts),
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=onboarding_keyboard(lang, step),
+    )
+
+
+async def _finish_onboarding_skip(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, lang: str, user_id: int
+) -> None:
+    await asyncio.to_thread(storage.mark_profile_skipped, user_id)
+    clear_onboarding_state(context.user_data)
+    await update.message.reply_text(
+        t(lang, "ob_skip_warning"),
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=_main_menu_keyboard(lang),
+    )
+
+
+async def _finish_onboarding_complete(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, lang: str, user_id: int
+) -> None:
+    profile = build_profile_dict(get_onboarding_answers(context.user_data))
+    await asyncio.to_thread(storage.save_player_profile, user_id, profile)
+    clear_onboarding_state(context.user_data)
+    await update.message.reply_text(
+        t(lang, "ob_complete"),
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=_main_menu_keyboard(lang),
+    )
+
+
+async def _handle_onboarding_text(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    lang: str,
+    user_text: str,
+) -> None:
+    message = update.message
+    user_id = message.from_user.id
+    context.user_data["user_id"] = user_id
+    step = get_onboarding_step(context.user_data)
+    if not step:
+        return
+
+    if is_skip_text(lang, user_text):
+        await _finish_onboarding_skip(update, context, lang, user_id)
+        return
+
+    if step == "injuries":
+        injuries = "" if is_injuries_none_text(lang, user_text) else user_text
+        get_onboarding_answers(context.user_data)["injuries"] = injuries
+        await _finish_onboarding_complete(update, context, lang, user_id)
+        return
+
+    value = match_step_answer(lang, step, user_text)
+    if not value:
+        await message.reply_text(
+            t(lang, "ob_invalid_answer"),
+            reply_markup=onboarding_keyboard(lang, step),
+        )
+        return
+
+    get_onboarding_answers(context.user_data)[step] = value
+    next_step = advance_step(context.user_data)
+    if next_step:
+        await _send_onboarding_question(message, lang, next_step)
+
+
 async def _reply_formatted(message, text: str, **kwargs) -> None:
     try:
         await message.reply_text(
@@ -246,6 +342,9 @@ async def _process_followup(
     player_history = (
         await asyncio.to_thread(storage.get_player_history, user_id) if user_id else []
     )
+    player_profile = (
+        await asyncio.to_thread(storage.get_player_profile, user_id) if user_id else None
+    )
 
     reply = await asyncio.to_thread(
         analyzer.chat,
@@ -254,6 +353,7 @@ async def _process_followup(
         user_text,
         player_history,
         model_lang,
+        player_profile,
     )
     logger.info("Ответ ИИ получен (%s символов)", len(reply))
     history.append({"user": user_text, "assistant": reply})
@@ -268,6 +368,17 @@ async def _process_followup(
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     lang = _lang_from_update(update, context)
+    user_id = update.message.from_user.id
+    context.user_data["user_id"] = user_id
+
+    has_record = await asyncio.to_thread(storage.has_profile_record, user_id)
+    if not has_record:
+        start_onboarding_state(context.user_data)
+        await _send_onboarding_question(
+            update.message, lang, "level", intro=t(lang, "ob_intro")
+        )
+        return
+
     await update.message.reply_text(
         t(lang, "welcome"),
         parse_mode=ParseMode.MARKDOWN,
@@ -320,6 +431,18 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     )
 
 
+async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    lang = _lang_from_update(update, context)
+    user_id = update.message.from_user.id
+    context.user_data["user_id"] = user_id
+    text = await asyncio.to_thread(storage.format_profile_for_user, user_id, lang)
+    await update.message.reply_text(
+        text,
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=profile_edit_keyboard(lang),
+    )
+
+
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.message
     if not message:
@@ -327,6 +450,25 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     lang = _lang_from_update(update, context)
     language_code = _language_code_from_context(context)
+
+    if is_onboarding_active(context.user_data):
+        step = get_onboarding_step(context.user_data)
+        await message.reply_text(
+            t(lang, "ob_in_progress_video"),
+            reply_markup=onboarding_keyboard(lang, step),
+        )
+        return
+
+    user_id = message.from_user.id
+    context.user_data["user_id"] = user_id
+
+    has_record = await asyncio.to_thread(storage.has_profile_record, user_id)
+    if not has_record:
+        start_onboarding_state(context.user_data)
+        await _send_onboarding_question(
+            message, lang, "level", intro=t(lang, "ob_intro")
+        )
+        return
 
     video = message.video or message.video_note
     if not video:
@@ -340,9 +482,6 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if mime_type not in SUPPORTED_MIME_TYPES:
         await message.reply_text(t(lang, "video_unsupported"))
         return
-
-    user_id = message.from_user.id
-    context.user_data["user_id"] = user_id
 
     user_comment = message.caption
     context.user_data["pending_video"] = {
@@ -393,12 +532,14 @@ async def _run_video_analysis(
             await telegram_file.download_to_drive(custom_path=str(temp_path))
 
         player_history = await asyncio.to_thread(storage.get_player_history, user_id)
+        player_profile = await asyncio.to_thread(storage.get_player_profile, user_id)
         report = await asyncio.to_thread(
             analyzer.analyze,
             temp_path,
             user_comment,
             player_history,
             language_code,
+            player_profile,
         )
 
         _save_analysis(context.user_data, report)
@@ -527,6 +668,20 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await menu_handler(update, context)
         return
 
+    if is_edit_profile_text(user_text):
+        start_onboarding_state(context.user_data)
+        await _send_onboarding_question(
+            message,
+            lang,
+            "level",
+            intro=t(lang, "profile_edit_prompt"),
+        )
+        return
+
+    if is_onboarding_active(context.user_data):
+        await _handle_onboarding_text(update, context, lang, user_text)
+        return
+
     session = _get_session(context.user_data)
     analysis = session.get("analysis")
     if not analysis:
@@ -605,6 +760,7 @@ def build_application(settings: Settings) -> Application:
     app.add_handler(CommandHandler("new", new_command))
     app.add_handler(CommandHandler("reset", new_command))
     app.add_handler(CommandHandler("history", history_command))
+    app.add_handler(CommandHandler("profile", profile_command))
     app.add_handler(CallbackQueryHandler(handle_quick_question, pattern=r"^q:"))
     app.add_handler(CallbackQueryHandler(handle_retry, pattern=r"^retry$"))
     app.add_handler(MessageHandler(filters.VIDEO | filters.VIDEO_NOTE, handle_video))

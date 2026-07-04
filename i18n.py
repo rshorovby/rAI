@@ -237,6 +237,78 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "Попробуйте ещё раз или отправьте другой ракурс. "
             "Если ошибка повторяется — проверьте ключ Gemini в `.env`."
         ),
+        "cmd_profile": "Мой профиль",
+        "ob_intro": (
+            "👋 *Давайте познакомимся — это займёт 30 секунд*\n\n"
+            "Ответы помогут ИИ точнее разбирать вашу технику: подстроит глубину "
+            "критики, приоритеты и упражнения под ваш уровень.\n\n"
+            "Вопрос 1 из 4:"
+        ),
+        "ob_question_level": "Какой у вас уровень игры?",
+        "ob_question_focus": "Что хотите улучшить в первую очередь?",
+        "ob_question_hand": "Какая у вас доминирующая рука?",
+        "ob_question_injuries": (
+            "Есть травмы или дискомфорт при игре?\n"
+            "Опишите текстом или нажмите «Нет»."
+        ),
+        "ob_skip": "⏭ Пропустить настройку",
+        "ob_skip_warning": (
+            "Хорошо, настройку пропустили.\n\n"
+            "⚠️ Без профиля разбор будет более общим — ИИ не знает ваш уровень "
+            "и цели. Вы всегда можете заполнить профиль через /profile.\n\n"
+            "👇 Отправьте видео 10–30 сек, чтобы начать."
+        ),
+        "ob_complete": (
+            "✅ *Профиль сохранён!*\n\n"
+            "Теперь разборы будут точнее — с учётом вашего уровня и целей.\n\n"
+            "👇 *Отправьте первое видео* (10–30 сек, лучше сбоку или сзади)."
+        ),
+        "ob_injuries_none": "Нет",
+        "ob_edit_profile": "✏️ Изменить профиль",
+        "ob_in_progress_video": (
+            "Сначала завершите настройку профиля — ответьте на вопрос выше "
+            "или нажмите «Пропустить настройку»."
+        ),
+        "ob_invalid_answer": "Выберите вариант на кнопках или нажмите «Пропустить настройку».",
+        "profile_not_set": (
+            "Профиль ещё не настроен.\n\n"
+            "Нажмите «Изменить профиль», чтобы пройти короткую настройку."
+        ),
+        "profile_skipped": (
+            "Профиль не заполнен (настройка была пропущена).\n\n"
+            "Разборы идут в общем режиме. Нажмите «Изменить профиль», "
+            "чтобы сделать их точнее."
+        ),
+        "profile_view": (
+            "👤 *Ваш профиль*\n\n"
+            "• Уровень: {level}\n"
+            "• Фокус: {focus}\n"
+            "• Рука: {hand}\n"
+            "• Травмы/ограничения: {injuries}\n"
+            "• Обновлён: {updated_at}\n\n"
+            "Нажмите «Изменить профиль», чтобы обновить данные."
+        ),
+        "profile_edit_prompt": "Давайте обновим профиль. Вопрос 1 из 4:",
+        "ob_opt_level_beginner": "🌱 Начинающий",
+        "ob_opt_level_recreational": "🎾 Любитель",
+        "ob_opt_level_advanced": "💪 Продвинутый",
+        "ob_opt_level_competitive": "🏆 Играю турниры",
+        "ob_opt_focus_strokes": "Удары",
+        "ob_opt_focus_serve": "Подача",
+        "ob_opt_focus_footwork": "Ноги и передвижение",
+        "ob_opt_focus_all": "Всё понемногу",
+        "ob_opt_hand_right": "Правая",
+        "ob_opt_hand_left": "Левая",
+        "ob_val_level_beginner": "Начинающий",
+        "ob_val_level_recreational": "Любитель",
+        "ob_val_level_advanced": "Продвинутый",
+        "ob_val_level_competitive": "Соревнующийся",
+        "ob_val_focus_strokes": "Удары",
+        "ob_val_focus_serve": "Подача",
+        "ob_val_focus_footwork": "Ноги и передвижение",
+        "ob_val_focus_all": "Всё понемногу",
+        "ob_val_hand_right": "Правая",
+        "ob_val_hand_left": "Левая",
     },
     "en": {
         "welcome": (
@@ -371,6 +443,77 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "Try again or send a different angle. "
             "If the error persists — check your Gemini key in `.env`."
         ),
+        "cmd_profile": "My profile",
+        "ob_intro": (
+            "👋 *Let's get acquainted — takes 30 seconds*\n\n"
+            "Your answers help the AI analyze your technique more accurately: "
+            "depth of critique, priorities, and drills tailored to your level.\n\n"
+            "Question 1 of 4:"
+        ),
+        "ob_question_level": "What's your skill level?",
+        "ob_question_focus": "What do you want to improve first?",
+        "ob_question_hand": "What's your dominant hand?",
+        "ob_question_injuries": (
+            "Any injuries or discomfort while playing?\n"
+            "Describe in text or tap No."
+        ),
+        "ob_skip": "⏭ Skip setup",
+        "ob_skip_warning": (
+            "OK, setup skipped.\n\n"
+            "⚠️ Without a profile, analysis will be more generic — the AI doesn't "
+            "know your level or goals. You can always fill your profile via /profile.\n\n"
+            "👇 Send a 10–30 sec video to get started."
+        ),
+        "ob_complete": (
+            "✅ *Profile saved!*\n\n"
+            "Analyses will now be more accurate — tailored to your level and goals.\n\n"
+            "👇 *Send your first video* (10–30 sec, side or rear angle works best)."
+        ),
+        "ob_injuries_none": "No",
+        "ob_edit_profile": "✏️ Edit profile",
+        "ob_in_progress_video": (
+            "Please finish profile setup first — answer the question above "
+            "or tap Skip setup."
+        ),
+        "ob_invalid_answer": "Pick an option from the buttons or tap Skip setup.",
+        "profile_not_set": (
+            "Profile not set up yet.\n\n"
+            "Tap Edit profile to complete a short setup."
+        ),
+        "profile_skipped": (
+            "Profile not filled in (setup was skipped).\n\n"
+            "Analyses run in generic mode. Tap Edit profile to make them more accurate."
+        ),
+        "profile_view": (
+            "👤 *Your profile*\n\n"
+            "• Level: {level}\n"
+            "• Focus: {focus}\n"
+            "• Hand: {hand}\n"
+            "• Injuries/limitations: {injuries}\n"
+            "• Updated: {updated_at}\n\n"
+            "Tap Edit profile to update."
+        ),
+        "profile_edit_prompt": "Let's update your profile. Question 1 of 4:",
+        "ob_opt_level_beginner": "🌱 Beginner",
+        "ob_opt_level_recreational": "🎾 Recreational",
+        "ob_opt_level_advanced": "💪 Advanced",
+        "ob_opt_level_competitive": "🏆 Competitive",
+        "ob_opt_focus_strokes": "Strokes",
+        "ob_opt_focus_serve": "Serve",
+        "ob_opt_focus_footwork": "Footwork",
+        "ob_opt_focus_all": "A bit of everything",
+        "ob_opt_hand_right": "Right",
+        "ob_opt_hand_left": "Left",
+        "ob_val_level_beginner": "Beginner",
+        "ob_val_level_recreational": "Recreational",
+        "ob_val_level_advanced": "Advanced",
+        "ob_val_level_competitive": "Competitive",
+        "ob_val_focus_strokes": "Strokes",
+        "ob_val_focus_serve": "Serve",
+        "ob_val_focus_footwork": "Footwork",
+        "ob_val_focus_all": "A bit of everything",
+        "ob_val_hand_right": "Right",
+        "ob_val_hand_left": "Left",
     },
 }
 
