@@ -40,3 +40,9 @@ def test_t_russian_and_english():
 
 def test_t_unknown_lang_falls_back_to_en():
     assert t("de", "welcome") == t("en", "welcome")
+
+
+def test_bot_descriptions_within_telegram_limits():
+    for lang in ("ru", "en"):
+        assert len(t(lang, "bot_short_description")) <= 120
+        assert len(t(lang, "bot_description")) <= 512

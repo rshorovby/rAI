@@ -568,7 +568,21 @@ async def _setup_bot_menu(application: Application) -> None:
             _bot_commands(lang),
             language_code=lang,
         )
+        await application.bot.set_my_description(
+            description=t(lang, "bot_description"),
+            language_code=lang,
+        )
+        await application.bot.set_my_short_description(
+            short_description=t(lang, "bot_short_description"),
+            language_code=lang,
+        )
     await application.bot.set_my_commands(_bot_commands("en"))
+    await application.bot.set_my_description(
+        description=t("en", "bot_description"),
+    )
+    await application.bot.set_my_short_description(
+        short_description=t("en", "bot_short_description"),
+    )
 
 
 def build_application(settings: Settings) -> Application:

@@ -105,19 +105,32 @@ def t(lang: str, key: str, **kwargs: Any) -> str:
 _MESSAGES: dict[str, dict[str, str]] = {
     "ru": {
         "welcome": (
-            "🎾 *RallyAI — разбор техники тенниса*\n\n"
-            "Отправьте видео (10–30 сек), где игрок в центре кадра. "
-            "Желательно съёмка сбоку или сзади — так проще оценить технику и работу ног.\n\n"
-            "*Как пользоваться:*\n"
-            "1. Запишите короткий ролик с одного или нескольких ракурсов\n"
-            "2. Отправьте его как видео — можно добавить подпись с вопросом или контекстом\n"
-            "3. Подождите 30–90 секунд — бот пришлёт разбор\n"
-            "4. Задавайте уточняющие вопросы в чате — бот помнит последний разбор\n\n"
-            "Используйте кнопки меню внизу или команды:\n"
-            "/help — справка\n"
-            "/about — о сервисе\n"
-            "/new — новый разбор\n"
-            "/history — мои прошлые разборы"
+            "🎾 *Добро пожаловать в RallyAI!*\n\n"
+            "Я разбираю вашу технику тенниса по короткому видео — как тренер после просмотра "
+            "записи с корта.\n\n"
+            "*Что вы получите за ~1 минуту:*\n"
+            "• разбор ударов, ног и баланса\n"
+            "• ошибки по критичности 🔴🟠🟡\n"
+            "• топ-3 приоритета на тренировку\n\n"
+            "*Как начать:* отправьте видео 10–30 сек (сбоку или сзади — идеально). "
+            "Можно добавить подпись: «болит локоть», «это форхенд».\n\n"
+            "После разбора задавайте вопросы текстом — я помню контекст.\n\n"
+            "👇 *Отправьте первое видео прямо сейчас*"
+        ),
+        "bot_short_description": (
+            "🎾 10–30 сек видео → разбор техники, ошибок и упражнений от ИИ-тренера. "
+            "Нажмите «Старт»."
+        ),
+        "bot_description": (
+            "🎾 RallyAI — ИИ-тренер по теннису\n\n"
+            "Снимите 10–30 секунд своей игры (лучше сбоку или сзади) и отправьте сюда. "
+            "Через минуту получите разбор:\n"
+            "• техника ударов и работа ног\n"
+            "• главные ошибки по критичности\n"
+            "• 3 приоритета на тренировку\n\n"
+            "После разбора можно задавать уточняющие вопросы — бот помнит ваш последний "
+            "разбор.\n\n"
+            "👇 Нажмите «Старт», чтобы начать"
         ),
         "help": (
             "📋 *Справка*\n\n"
@@ -227,19 +240,31 @@ _MESSAGES: dict[str, dict[str, str]] = {
     },
     "en": {
         "welcome": (
-            "🎾 *RallyAI — tennis technique analysis*\n\n"
-            "Send a video (10–30 sec) with the player centered in the frame. "
-            "Side or rear angles work best for footwork and stroke mechanics.\n\n"
-            "*How to use:*\n"
-            "1. Record a short clip from one or more angles\n"
-            "2. Send it as a video — you can add a caption with a question or context\n"
-            "3. Wait 30–90 seconds for the analysis\n"
-            "4. Ask follow-up questions in chat — the bot remembers the last analysis\n\n"
-            "Use the menu buttons below or commands:\n"
-            "/help — help\n"
-            "/about — about the service\n"
-            "/new — new analysis\n"
-            "/history — my past analyses"
+            "🎾 *Welcome to RallyAI!*\n\n"
+            "I break down your tennis technique from a short video — like a coach "
+            "reviewing court footage.\n\n"
+            "*What you get in ~1 minute:*\n"
+            "• stroke, footwork, and balance analysis\n"
+            "• mistakes ranked by severity 🔴🟠🟡\n"
+            "• top 3 training priorities\n\n"
+            "*To start:* send a 10–30 sec video (side or rear angle works best). "
+            'Add a caption if you like: "elbow hurts", "this is my forehand".\n\n'
+            "After the analysis, ask follow-up questions — I remember the context.\n\n"
+            "👇 *Send your first video now*"
+        ),
+        "bot_short_description": (
+            "🎾 10–30 sec video → AI coaching on technique, mistakes & drills. Tap Start."
+        ),
+        "bot_description": (
+            "🎾 RallyAI — AI tennis coach\n\n"
+            "Record 10–30 seconds of your game (side or rear angle works best) and send "
+            "it here. In about a minute you'll get:\n"
+            "• stroke technique and footwork breakdown\n"
+            "• main mistakes ranked by severity\n"
+            "• 3 training priorities\n\n"
+            "After the analysis, ask follow-up questions — the bot remembers your last "
+            "session.\n\n"
+            "👇 Tap Start to begin"
         ),
         "help": (
             "📋 *Help*\n\n"
