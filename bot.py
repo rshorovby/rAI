@@ -199,7 +199,6 @@ def _bot_commands(lang: str) -> list[BotCommand]:
     return [
         BotCommand("start", t(lang, "cmd_start")),
         BotCommand("help", t(lang, "cmd_help")),
-        BotCommand("about", t(lang, "cmd_about")),
         BotCommand("profile", t(lang, "cmd_profile")),
         BotCommand("new", t(lang, "cmd_new")),
         BotCommand("history", t(lang, "cmd_history")),
@@ -209,11 +208,8 @@ def _bot_commands(lang: str) -> list[BotCommand]:
 def _main_menu_keyboard(lang: str) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         [
-            [KeyboardButton(t(lang, "btn_help")), KeyboardButton(t(lang, "btn_about"))],
-            [
-                KeyboardButton(t(lang, "btn_new")),
-                KeyboardButton(t(lang, "btn_history")),
-            ],
+            [KeyboardButton(t(lang, "btn_help")), KeyboardButton(t(lang, "btn_new"))],
+            [KeyboardButton(t(lang, "btn_history"))],
         ],
         resize_keyboard=True,
     )
@@ -266,7 +262,6 @@ def _menu_handlers() -> dict[str, Callable]:
     handlers: dict[str, Callable] = {}
     for lang in UI_LANGS:
         handlers[t(lang, "btn_help")] = help_command
-        handlers[t(lang, "btn_about")] = about_command
         handlers[t(lang, "btn_new")] = new_command
         handlers[t(lang, "btn_history")] = history_command
     return handlers
@@ -483,15 +478,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     lang = _lang_from_update(update, context)
     await update.message.reply_text(
         t(lang, "help"),
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=_main_menu_keyboard(lang),
-    )
-
-
-async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    lang = _lang_from_update(update, context)
-    await update.message.reply_text(
-        t(lang, "about"),
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=_main_menu_keyboard(lang),
     )
@@ -735,13 +721,23 @@ async def _run_video_analysis(
         await asyncio.to_thread(storage.save_session, user_id, report, language_code)
         context.user_data.pop("pending_video", None)
 
+        next_video = storage.extract_next_video(report, language_code)
+        display_report = storage.strip_next_video_section(report, language_code)
+
         await status_message.delete()
-        for chunk in _split_message(report):
+        for chunk in _split_message(display_report):
             await _send_formatted(context, chat_id, chunk)
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=t(lang, "followup_hint"),
-        )
+        if next_video:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=t(lang, "followup_hint_next", next_video=next_video),
+                parse_mode=ParseMode.MARKDOWN,
+            )
+        else:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=t(lang, "followup_hint"),
+            )
         await context.bot.send_message(
             chat_id=chat_id,
             text=t(lang, "feedback_prompt"),
@@ -783,6 +779,7 @@ async def handle_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     user_id = query.from_user.id
     context.user_data["user_id"] = user_id
+    await _touch_user(update)
     await _log_event(user_id, event_type)
 
     try:
@@ -802,6 +799,7 @@ async def handle_retry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     user_id = query.from_user.id
     context.user_data["user_id"] = user_id
+    await _touch_user(update)
 
     if not context.user_data.get("pending_video"):
         await query.message.reply_text(
@@ -843,6 +841,7 @@ async def handle_quick_question(
     label = prompts[label_key]
     prompt = prompts[prompt_key]
     context.user_data["user_id"] = query.from_user.id
+    await _touch_user(update)
 
     session = _get_session(context.user_data)
     if not session.get("analysis"):
@@ -882,6 +881,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     user_text = message.text.strip()
     if not user_text:
         return
+
+    await _touch_user(update)
 
     menu_handler = _MENU_HANDLERS.get(user_text)
     if menu_handler:
@@ -983,7 +984,6 @@ def build_application(settings: Settings) -> Application:
 
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("about", about_command))
     app.add_handler(CommandHandler("new", new_command))
     app.add_handler(CommandHandler("reset", new_command))
     app.add_handler(CommandHandler("history", history_command))

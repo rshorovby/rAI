@@ -87,10 +87,12 @@ def report_section_headers(language_code: str) -> dict[str, str]:
         "ru": {
             "summary": "Краткое резюме",
             "top3": "Топ-3 приоритета для тренировки",
+            "next_video": "Следующее видео",
         },
         "en": {
             "summary": "Brief summary",
             "top3": "Top 3 training priorities",
+            "next_video": "Next video",
         },
     }
     return headers.get(base, headers["en"])
@@ -143,21 +145,11 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "последнего видео. Новое видео автоматически начинает новый диалог.\n\n"
             "/new — сбросить текущий диалог без отправки видео"
         ),
-        "about": (
-            "ℹ️ *О RallyAI*\n\n"
-            "Бот использует Google Gemini для анализа видео. "
-            "ИИ оценивает технику ударов, передвижение и баланс, "
-            "выделяет ошибки по критичности и предлагает упражнения.\n\n"
-            "⚠️ Это не замена живого тренера, а вспомогательный инструмент "
-            "для самоанализа и подготовки к тренировке."
-        ),
         "btn_help": "📋 Справка",
-        "btn_about": "ℹ️ О сервисе",
         "btn_new": "🔄 Новый разбор",
         "btn_history": "📊 Мои разборы",
         "cmd_start": "Начать работу",
         "cmd_help": "Справка по использованию",
-        "cmd_about": "О сервисе",
         "cmd_new": "Новый разбор",
         "cmd_history": "Мои прошлые разборы",
         "new_reset": "Диалог сброшен. Отправьте новое видео для разбора.",
@@ -179,6 +171,10 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "video_not_found": "Видео не найдено. Отправьте его заново.",
         "video_not_found_retry": "Видео не найдено — отправьте его заново.",
         "followup_hint": "💬 Можете задавать уточняющие вопросы текстом.",
+        "followup_hint_next": (
+            "📹 *Следующее видео:*\n{next_video}\n\n"
+            "💬 Можете задавать уточняющие вопросы текстом."
+        ),
         "feedback_prompt": "Разбор был полезен?",
         "feedback_useful": "👍 Полезно",
         "feedback_not_useful": "👎 Не помогло",
@@ -214,6 +210,16 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "vi_val_look_footwork": "ноги и баланс",
         "vi_val_look_contact": "точка удара и тайминг",
         "vi_val_look_general": "общий разбор",
+        "reminder_with_task": (
+            "🎾 Давно не виделись!\n\n"
+            "Домашнее задание было:\n{task}\n\n"
+            "Снимите 10–20 сек сбоку или сзади и пришлите видео — посмотрим прогресс."
+        ),
+        "reminder_generic": (
+            "🎾 Давно не виделись!\n\n"
+            "Снимите 10–20 сек своего удара (сбоку или сзади) и пришлите — "
+            "разберём, что изменилось."
+        ),
         "retry_status": "⏳ Повторяю разбор — это может занять до минуты...",
         "retry_button": "🔄 Повторить разбор",
         "no_active_analysis": (
@@ -384,21 +390,11 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "of the last video. A new video starts a new dialog automatically.\n\n"
             "/new — reset the current dialog without sending a video"
         ),
-        "about": (
-            "ℹ️ *About RallyAI*\n\n"
-            "The bot uses Google Gemini to analyze video. "
-            "The AI evaluates stroke technique, movement, and balance, "
-            "ranks issues by severity, and suggests drills.\n\n"
-            "⚠️ This is not a replacement for a live coach — "
-            "it's a tool for self-review and training prep."
-        ),
         "btn_help": "📋 Help",
-        "btn_about": "ℹ️ About",
         "btn_new": "🔄 New analysis",
         "btn_history": "📊 My analyses",
         "cmd_start": "Get started",
         "cmd_help": "Usage help",
-        "cmd_about": "About the service",
         "cmd_new": "New analysis",
         "cmd_history": "My past analyses",
         "new_reset": "Dialog reset. Send a new video for analysis.",
@@ -420,6 +416,20 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "video_not_found": "Video not found. Please send it again.",
         "video_not_found_retry": "Video not found — please send it again.",
         "followup_hint": "💬 You can ask follow-up questions in text.",
+        "followup_hint_next": (
+            "📹 *Next video:*\n{next_video}\n\n"
+            "💬 You can ask follow-up questions in text."
+        ),
+        "reminder_with_task": (
+            "🎾 Long time no see!\n\n"
+            "Your homework was:\n{task}\n\n"
+            "Film 10–20 sec from the side or back and send the video — let's check progress."
+        ),
+        "reminder_generic": (
+            "🎾 Long time no see!\n\n"
+            "Film 10–20 sec of your stroke (side or back angle) and send it — "
+            "we'll see what changed."
+        ),
         "feedback_prompt": "Was this analysis useful?",
         "feedback_useful": "👍 Useful",
         "feedback_not_useful": "👎 Not helpful",

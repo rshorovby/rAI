@@ -51,6 +51,9 @@ USER_PROMPT_RU = """\
 ## Топ-3 приоритета для тренировки
 Нумерованный список от самого важного к менее важному. Каждый пункт — одно предложение с конкретным действием.
 
+## Следующее видео
+Обязательная секция (только для внутреннего использования — игроку покажут отдельным сообщением). 2–4 предложения: какой удар снять, с какого ракурса (сбоку / сзади-сбоку), длительность 10–20 сек, на что обратить внимание при съёмке, чтобы проверить прогресс по главному приоритету.
+
 ## Ограничения анализа
 Что невозможно оценить из-за ракурса, длительности или качества видео.
 
@@ -90,6 +93,9 @@ For each observation include:
 ## Top 3 training priorities
 Numbered list from most to least important. Each item — one sentence with a concrete action.
 
+## Next video
+Required section (for internal use only — the player sees it in a separate message). 2–4 sentences: which stroke to film, camera angle (side / back-side), 10–20 seconds, what to focus on when filming to check progress on the main priority.
+
 ## Analysis limitations
 What cannot be assessed due to angle, duration, or video quality.
 
@@ -103,8 +109,9 @@ The user received the report and is asking follow-up questions in chat.
 Rules:
 1. Answer in the context of the given analysis. The video is not available now — rely on the report and tennis knowledge.
 2. If the question concerns a detail not in the analysis, say so honestly and give a cautious hypothesis or ask for another angle.
-3. Explain terms in plain language, suggest specific drills and training focuses.
-4. Be concise: 1–4 paragraphs, without repeating the entire report.
+3. If the report has no "Next video" / "Следующее видео" section — on the first follow-up, suggest what to film (stroke, angle, 10–20 sec).
+4. Explain terms in plain language, suggest specific drills and training focuses.
+5. Be concise: 1–4 paragraphs, without repeating the entire report.
 """
 
 _USER_PROMPTS = {

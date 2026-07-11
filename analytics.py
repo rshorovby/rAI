@@ -9,6 +9,7 @@ EVENT_ANALYSIS_FAILED = "analysis_failed"
 EVENT_FEEDBACK_POSITIVE = "feedback_positive"
 EVENT_FEEDBACK_NEGATIVE = "feedback_negative"
 EVENT_FEEDBACK_CLEAR = "feedback_clear"
+EVENT_REMINDER_SENT = "reminder_sent"
 
 ALL_EVENT_TYPES = (
     EVENT_ONBOARDING_STARTED,
@@ -20,6 +21,7 @@ ALL_EVENT_TYPES = (
     EVENT_FEEDBACK_POSITIVE,
     EVENT_FEEDBACK_NEGATIVE,
     EVENT_FEEDBACK_CLEAR,
+    EVENT_REMINDER_SENT,
 )
 
 
@@ -41,6 +43,7 @@ def format_analytics_report(data: dict) -> str:
     fb_neg = data["events"].get(EVENT_FEEDBACK_NEGATIVE, 0)
     fb_clear = data["events"].get(EVENT_FEEDBACK_CLEAR, 0)
     fb_total = fb_pos + fb_neg + fb_clear
+    reminders = data["events"].get(EVENT_REMINDER_SENT, 0)
 
     lines = [
         "📊 RallyAI — статистика",
@@ -65,6 +68,9 @@ def format_analytics_report(data: dict) -> str:
         f"• 👍 Полезно: {fb_pos} ({_pct(fb_pos, fb_total)})",
         f"• 👎 Не помогло: {fb_neg} ({_pct(fb_neg, fb_total)})",
         f"• ✅ Понятно что делать: {fb_clear} ({_pct(fb_clear, fb_total)})",
+        "",
+        "Напоминания",
+        f"• Отправлено: {reminders}",
         "",
         "Разборы",
         f"• Всего: {data['analyses_total']}",

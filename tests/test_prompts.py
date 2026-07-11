@@ -6,6 +6,11 @@ from prompts import (
 )
 
 
+def test_user_prompt_requires_next_video_section():
+    assert "## Следующее видео" in USER_PROMPT_RU
+    assert "## Next video" in USER_PROMPT_EN
+
+
 def test_no_comment_returns_base_prompt_ru():
     assert build_analysis_prompt("ru") == USER_PROMPT_RU
     assert build_analysis_prompt("ru", None) == USER_PROMPT_RU

@@ -32,7 +32,8 @@ def _init_db(conn: sqlite3.Connection) -> None:
             user_id     INTEGER NOT NULL,
             created_at  TEXT    NOT NULL,
             summary     TEXT    NOT NULL,
-            top3        TEXT    NOT NULL DEFAULT ''
+            top3        TEXT    NOT NULL DEFAULT '',
+            next_video  TEXT    NOT NULL DEFAULT ''
         );
         CREATE INDEX IF NOT EXISTS idx_sessions_user
             ON player_sessions (user_id, created_at DESC);
@@ -54,7 +55,9 @@ def _init_db(conn: sqlite3.Connection) -> None:
             last_name       TEXT,
             language_code   TEXT,
             first_seen_at   TEXT    NOT NULL,
-            last_seen_at    TEXT    NOT NULL
+            last_seen_at    TEXT    NOT NULL,
+            last_analysis_at TEXT,
+            reminder_sent_at TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_users_last_seen
             ON users (last_seen_at DESC);
@@ -72,7 +75,20 @@ def _init_db(conn: sqlite3.Connection) -> None:
             ON events (user_id, created_at DESC);
     """
     )
+    _migrate_schema(conn)
     conn.commit()
+
+
+def _migrate_schema(conn: sqlite3.Connection) -> None:
+    migrations = (
+        ("player_sessions", "next_video", "TEXT NOT NULL DEFAULT ''"),
+        ("users", "last_analysis_at", "TEXT"),
+        ("users", "reminder_sent_at", "TEXT"),
+    )
+    for table, column, typedef in migrations:
+        cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {typedef}")
 
 
 # ---------------------------------------------------------------------------
@@ -91,21 +107,52 @@ def _extract_section(report: str, header: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _extract_report_sections(report: str, language_code: str) -> tuple[str, str]:
+def _extract_report_sections(report: str, language_code: str) -> tuple[str, str, str]:
     headers = report_section_headers(language_code)
     summary = _extract_section(report, headers["summary"])
     top3 = _extract_section(report, headers["top3"])
+    next_video = extract_next_video(report, language_code)
     if summary:
-        return summary, top3
+        return summary, top3, next_video
 
     for alt in ("ru", "en"):
         alt_headers = report_section_headers(alt)
         summary = _extract_section(report, alt_headers["summary"])
         if summary:
             top3 = _extract_section(report, alt_headers["top3"])
-            return summary, top3
+            next_video = extract_next_video(report, language_code)
+            return summary, top3, next_video
 
-    return report[:400], top3
+    return report[:400], top3, next_video
+
+
+def extract_next_video(report: str, language_code: str) -> str:
+    headers = report_section_headers(language_code)
+    text = _extract_section(report, headers["next_video"])
+    if text:
+        return text
+
+    for alt in ("ru", "en"):
+        alt_headers = report_section_headers(alt)
+        text = _extract_section(report, alt_headers["next_video"])
+        if text:
+            return text
+    return ""
+
+
+def strip_next_video_section(report: str, language_code: str) -> str:
+    """Убирает секцию «Следующее видео» из текста для отправки в Telegram."""
+    result = report
+    checked: set[str] = set()
+    for lang in (language_code, "ru", "en"):
+        base = lang if lang in ("ru", "en") else "en"
+        if base in checked:
+            continue
+        checked.add(base)
+        header = report_section_headers(base)["next_video"]
+        pattern = rf"\n?##\s*{re.escape(header)}\s*\n.*?(?=\n##\s|\Z)"
+        result = re.sub(pattern, "", result, flags=re.DOTALL)
+    return result.strip()
 
 
 def save_session(
@@ -113,16 +160,18 @@ def save_session(
     report: str,
     language_code: str = DEFAULT_LANG,
 ) -> None:
-    """Сохраняет краткое резюме и топ-3 из отчёта в историю игрока."""
-    summary, top3 = _extract_report_sections(report, language_code)
+    """Сохраняет краткое резюме, топ-3 и задание на следующее видео."""
+    summary, top3, next_video = _extract_report_sections(report, language_code)
     created_at = datetime.now().strftime("%d %b %Y")
 
     with _connect() as conn:
         _init_db(conn)
         conn.execute(
-            "INSERT INTO player_sessions (user_id, created_at, summary, top3)"
-            " VALUES (?, ?, ?, ?)",
-            (user_id, created_at, summary, top3),
+            """
+            INSERT INTO player_sessions (user_id, created_at, summary, top3, next_video)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (user_id, created_at, summary, top3, next_video),
         )
         conn.commit()
 
@@ -257,7 +306,8 @@ def upsert_user(
                     first_name = ?,
                     last_name = ?,
                     language_code = ?,
-                    last_seen_at = ?
+                    last_seen_at = ?,
+                    reminder_sent_at = NULL
                 WHERE user_id = ?
                 """,
                 (username, first_name, last_name, language_code, now, user_id),
@@ -437,3 +487,43 @@ def format_history_for_user(
             lines.append(t(ui_lang, "history_priorities", top3=s["top3"]))
         lines.append("")
     return "\n".join(lines).strip()
+
+
+def get_users_for_reminder(days: int = 7) -> list[dict]:
+    """Пользователи для напоминания: N дней без взаимодействия с ботом."""
+    with _connect() as conn:
+        _init_db(conn)
+        rows = conn.execute(
+            """
+            SELECT
+                u.user_id,
+                u.language_code,
+                (
+                    SELECT ps.next_video
+                    FROM player_sessions ps
+                    WHERE ps.user_id = u.user_id
+                    ORDER BY ps.id DESC
+                    LIMIT 1
+                ) AS next_video
+            FROM users u
+            WHERE u.last_seen_at IS NOT NULL
+              AND date(u.last_seen_at) = date('now', ?)
+              AND (
+                  u.reminder_sent_at IS NULL
+                  OR datetime(u.reminder_sent_at) < datetime(u.last_seen_at)
+              )
+            """,
+            (f"-{days} days",),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def mark_reminder_sent(user_id: int) -> None:
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            "UPDATE users SET reminder_sent_at = ? WHERE user_id = ?",
+            (now, user_id),
+        )
+        conn.commit()

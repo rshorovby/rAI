@@ -11,6 +11,7 @@ from analytics import (
     EVENT_ONBOARDING_COMPLETED,
     EVENT_ONBOARDING_SKIPPED,
     EVENT_ONBOARDING_STARTED,
+    EVENT_REMINDER_SENT,
     EVENT_VIDEO_SENT,
     format_analytics_report,
 )
@@ -69,6 +70,7 @@ def test_format_analytics_report_contains_sections():
                 EVENT_FEEDBACK_POSITIVE: 3,
                 EVENT_FEEDBACK_NEGATIVE: 1,
                 EVENT_FEEDBACK_CLEAR: 2,
+                EVENT_REMINDER_SENT: 4,
             },
             "recent_users": [],
         }
@@ -79,6 +81,8 @@ def test_format_analytics_report_contains_sections():
     assert "👍 Полезно: 3" in report
     assert "👎 Не помогло: 1" in report
     assert "✅ Понятно что делать: 2" in report
+    assert "Напоминания" in report
+    assert "Отправлено: 4" in report
 
 
 def test_feedback_events_in_summary(tmp_path):

@@ -29,7 +29,64 @@ SAMPLE_REPORT = """\
 
 ## Ограничения анализа
 Качество видео ограниченное.
+
+## Следующее видео
+Сними форхенд сбоку, 15 секунд. Следи за переносом веса.
 """
+
+
+def test_strip_next_video_section():
+    stripped = storage.strip_next_video_section(SAMPLE_REPORT, "ru")
+    assert "## Следующее видео" not in stripped
+    assert "форхенд" not in stripped or "Ограничения" in stripped
+    assert "форхенд" in storage.extract_next_video(SAMPLE_REPORT, "ru")
+
+
+def test_extract_and_save_next_video(tmp_path):
+    with _tmp_db(tmp_path):
+        storage.upsert_user(42, None, "A", None, "ru")
+        storage.save_session(42, SAMPLE_REPORT)
+        with storage._connect() as conn:
+            row = conn.execute(
+                "SELECT next_video FROM player_sessions WHERE user_id = 42"
+            ).fetchone()
+        assert "форхенд" in row["next_video"]
+        assert storage.extract_next_video(SAMPLE_REPORT, "ru") == row["next_video"]
+
+
+def test_get_users_for_reminder(tmp_path):
+    with _tmp_db(tmp_path):
+        storage.upsert_user(1, None, "Ann", None, "ru")
+        storage.save_session(1, SAMPLE_REPORT)
+        with storage._connect() as conn:
+            conn.execute(
+                """
+                UPDATE users SET last_seen_at = datetime('now', '-7 days')
+                WHERE user_id = 1
+                """
+            )
+            conn.commit()
+        users = storage.get_users_for_reminder(days=7)
+    assert len(users) == 1
+    assert users[0]["user_id"] == 1
+    assert "форхенд" in users[0]["next_video"]
+
+
+def test_reminder_not_sent_twice(tmp_path):
+    with _tmp_db(tmp_path):
+        storage.upsert_user(2, None, "Bob", None, "en")
+        storage.save_session(2, SAMPLE_REPORT)
+        with storage._connect() as conn:
+            conn.execute(
+                """
+                UPDATE users SET last_seen_at = datetime('now', '-7 days')
+                WHERE user_id = 2
+                """
+            )
+            conn.commit()
+        assert len(storage.get_users_for_reminder(days=7)) == 1
+        storage.mark_reminder_sent(2)
+        assert len(storage.get_users_for_reminder(days=7)) == 0
 
 
 def test_save_and_retrieve(tmp_path):
