@@ -27,6 +27,9 @@ import storage
 from analytics import (
     EVENT_ANALYSIS_FAILED,
     EVENT_ANALYSIS_SUCCESS,
+    EVENT_FEEDBACK_CLEAR,
+    EVENT_FEEDBACK_NEGATIVE,
+    EVENT_FEEDBACK_POSITIVE,
     EVENT_ONBOARDING_COMPLETED,
     EVENT_ONBOARDING_SKIPPED,
     EVENT_ONBOARDING_STARTED,
@@ -58,6 +61,18 @@ from onboarding import (
     onboarding_keyboard,
     profile_edit_keyboard,
     start_onboarding_state,
+)
+from video_intake import (
+    advance_intake_step,
+    build_video_context,
+    clear_intake_state,
+    get_intake_answers,
+    get_intake_step,
+    intake_keyboard,
+    is_intake_active,
+    is_intake_skip_text,
+    match_intake_answer,
+    start_intake_state,
 )
 
 logger = logging.getLogger(__name__)
@@ -208,6 +223,33 @@ def _retry_keyboard(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [[InlineKeyboardButton(t(lang, "retry_button"), callback_data="retry")]]
     )
+
+
+def _feedback_keyboard(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    t(lang, "feedback_useful"), callback_data="fb:pos"
+                ),
+                InlineKeyboardButton(
+                    t(lang, "feedback_not_useful"), callback_data="fb:neg"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    t(lang, "feedback_actionable"), callback_data="fb:clear"
+                ),
+            ],
+        ]
+    )
+
+
+_FEEDBACK_EVENTS = {
+    "pos": EVENT_FEEDBACK_POSITIVE,
+    "neg": EVENT_FEEDBACK_NEGATIVE,
+    "clear": EVENT_FEEDBACK_CLEAR,
+}
 
 
 def _quick_questions_keyboard(lang: str) -> InlineKeyboardMarkup:
@@ -458,6 +500,8 @@ async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def new_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     lang = _lang_from_update(update, context)
     _clear_session(context.user_data)
+    clear_intake_state(context.user_data)
+    context.user_data.pop("pending_video", None)
     await update.message.reply_text(
         t(lang, "new_reset"),
         reply_markup=_main_menu_keyboard(lang),
@@ -509,7 +553,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     data = await asyncio.to_thread(storage.get_analytics_summary)
     report = format_analytics_report(data)
-    await update.message.reply_text(report, parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(report)
 
 
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -518,7 +562,6 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     lang = _lang_from_update(update, context)
-    language_code = _language_code_from_context(context)
 
     if is_onboarding_active(context.user_data):
         step = get_onboarding_step(context.user_data)
@@ -558,15 +601,88 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "file_id": video.file_id,
         "mime_type": mime_type,
         "comment": user_comment,
+        "video_context": None,
     }
-
-    status_key = "status_analyzing_comment" if user_comment else "status_analyzing"
-    status_message = await message.reply_text(t(lang, status_key))
+    clear_intake_state(context.user_data)
+    start_intake_state(context.user_data)
     await _log_event(user_id, EVENT_VIDEO_SENT)
 
+    await message.reply_text(
+        f"{t(lang, 'vi_got_video')}\n\n{t(lang, 'vi_question_stroke')}",
+        reply_markup=intake_keyboard(lang, "stroke"),
+    )
+
+
+async def _begin_analysis_after_intake(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    lang: str,
+    language_code: str,
+) -> None:
+    message = update.message
+    user_id = message.from_user.id
+    answers = get_intake_answers(context.user_data)
+    pending = context.user_data.get("pending_video")
+    if pending is not None:
+        pending["video_context"] = build_video_context(answers)
+    clear_intake_state(context.user_data)
+
+    status_key = (
+        "status_analyzing_comment"
+        if pending and pending.get("comment")
+        else "status_analyzing"
+    )
+    status_message = await message.reply_text(
+        t(lang, status_key),
+        reply_markup=_main_menu_keyboard(lang),
+    )
     await _run_video_analysis(
         context, message.chat_id, user_id, status_message, lang, language_code
     )
+
+
+async def _handle_video_intake_text(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    lang: str,
+    language_code: str,
+    user_text: str,
+) -> None:
+    message = update.message
+    step = get_intake_step(context.user_data)
+    if not step:
+        return
+
+    if not context.user_data.get("pending_video"):
+        clear_intake_state(context.user_data)
+        await message.reply_text(
+            t(lang, "video_not_found"),
+            reply_markup=_main_menu_keyboard(lang),
+        )
+        return
+
+    if is_intake_skip_text(lang, user_text):
+        await _begin_analysis_after_intake(update, context, lang, language_code)
+        return
+
+    value = match_intake_answer(lang, step, user_text)
+    if not value:
+        await message.reply_text(
+            t(lang, "vi_invalid"),
+            reply_markup=intake_keyboard(lang, step),
+        )
+        return
+
+    get_intake_answers(context.user_data)[step] = value
+    next_step = advance_intake_step(context.user_data)
+    if next_step:
+        await message.reply_text(
+            t(lang, f"vi_question_{next_step}"),
+            reply_markup=intake_keyboard(lang, next_step),
+        )
+        return
+
+    await _begin_analysis_after_intake(update, context, lang, language_code)
 
 
 async def _run_video_analysis(
@@ -584,6 +700,7 @@ async def _run_video_analysis(
 
     mime_type = pending["mime_type"]
     user_comment = pending.get("comment")
+    video_context = pending.get("video_context")
 
     await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
 
@@ -611,6 +728,7 @@ async def _run_video_analysis(
             player_history,
             language_code,
             player_profile,
+            video_context,
         )
 
         _save_analysis(context.user_data, report)
@@ -623,6 +741,11 @@ async def _run_video_analysis(
         await context.bot.send_message(
             chat_id=chat_id,
             text=t(lang, "followup_hint"),
+        )
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=t(lang, "feedback_prompt"),
+            reply_markup=_feedback_keyboard(lang),
         )
         await _log_event(user_id, EVENT_ANALYSIS_SUCCESS)
 
@@ -643,6 +766,29 @@ async def _run_video_analysis(
     finally:
         if temp_path and temp_path.exists():
             temp_path.unlink(missing_ok=True)
+
+
+async def handle_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query or not query.data:
+        return
+
+    await query.answer()
+
+    lang = sync_user_lang(context.user_data, query.from_user.language_code)
+    key = query.data.removeprefix("fb:")
+    event_type = _FEEDBACK_EVENTS.get(key)
+    if not event_type:
+        return
+
+    user_id = query.from_user.id
+    context.user_data["user_id"] = user_id
+    await _log_event(user_id, event_type)
+
+    try:
+        await query.edit_message_text(t(lang, "feedback_thanks"))
+    except BadRequest:
+        await query.message.reply_text(t(lang, "feedback_thanks"))
 
 
 async def handle_retry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -756,6 +902,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await _handle_onboarding_text(update, context, lang, user_text)
         return
 
+    if is_intake_active(context.user_data):
+        await _handle_video_intake_text(update, context, lang, language_code, user_text)
+        return
+
     session = _get_session(context.user_data)
     analysis = session.get("analysis")
     if not analysis:
@@ -839,6 +989,7 @@ def build_application(settings: Settings) -> Application:
     app.add_handler(CommandHandler("history", history_command))
     app.add_handler(CommandHandler("profile", profile_command))
     app.add_handler(CommandHandler("stats", stats_command))
+    app.add_handler(CallbackQueryHandler(handle_feedback, pattern=r"^fb:"))
     app.add_handler(CallbackQueryHandler(handle_quick_question, pattern=r"^q:"))
     app.add_handler(CallbackQueryHandler(handle_retry, pattern=r"^retry$"))
     app.add_handler(MessageHandler(filters.VIDEO | filters.VIDEO_NOTE, handle_video))

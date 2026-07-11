@@ -28,6 +28,8 @@ USER_PROMPT_RU = """\
 
 ## Что происходит на видео
 - Длительность и ракурсы (если можно определить)
+- **Что реально видно на ролике** (удар / серия ударов / розыгрыш — по факту, не по ожиданию игрока)
+- Если игрок указал другой удар или формат — явно отметь расхождение («вы указали X, на видео — Y»)
 - Какие удары/действия выполняет игрок
 - Уровень игры (любитель / продвинутый любитель / соревновательный — по видимым признакам)
 
@@ -65,6 +67,8 @@ Response format (strictly follow this structure):
 
 ## What happens in the video
 - Duration and camera angles (if determinable)
+- **What is actually visible** (stroke / rally / point — based on footage, not player expectation)
+- If the player indicated a different stroke or format — note the mismatch explicitly ("you selected X, video shows Y")
 - Which strokes/actions the player performs
 - Skill level (recreational / advanced recreational / competitive — based on visible cues)
 
@@ -199,19 +203,153 @@ def get_user_prompt_body(language_code: str) -> str:
     return f"{USER_PROMPT_EN}\n\n{extra}"
 
 
+_STROKE_RUBRICS = {
+    "forehand": (
+        "Forehand checklist (prioritize visible items): unit turn / shoulder "
+        "rotation; preparation early enough; contact point ahead of the body; "
+        "weight transfer into the shot; follow-through over the shoulder; "
+        "non-hitting arm and balance."
+    ),
+    "backhand": (
+        "Backhand checklist (1H or 2H as visible): unit turn; preparation; "
+        "contact height and point relative to the body; hip/shoulder rotation; "
+        "extension through contact; recovery step."
+    ),
+    "serve": (
+        "Serve checklist: toss consistency and placement; trophy position; "
+        "knee bend and upward drive; contact height; pronation / racket path; "
+        "landing and balance into the court."
+    ),
+    "volley": (
+        "Volley checklist: ready position and split step; compact punch "
+        "(minimal backswing); contact in front; firm wrist; recovery and "
+        "court position after the volley."
+    ),
+    "footwork": (
+        "Footwork checklist: split step timing; first step to the ball; "
+        "adjustment steps; balance at contact; recovery to the center / "
+        "next ready position."
+    ),
+    "rally": (
+        "Rally / point checklist: identify each visible stroke in sequence; "
+        "note transitions and recovery between hits; prioritize the weakest "
+        "link in the rally; footwork between shots; do not analyze a stroke "
+        "type the player did not actually perform."
+    ),
+}
+
+_LOOK_INSTRUCTIONS = {
+    "technique": (
+        "Player priority: stroke technique (grip cues if visible, preparation, "
+        "swing path, contact, follow-through). Footwork only if it clearly "
+        "causes the main technique issue."
+    ),
+    "footwork": (
+        "Player priority: footwork and movement (split step, approach, "
+        "balance, recovery). Mention stroke technique only if it blocks "
+        "good footwork."
+    ),
+    "contact": (
+        "Player priority: contact point, timing, and racket face at contact. "
+        "Tie other observations back to whether contact is early/late/close."
+    ),
+    "general": (
+        "Player priority: general review — still pick ONE main error and ONE "
+        "primary drill; avoid equal-weight laundry lists."
+    ),
+}
+
+
+def build_video_context_block(
+    video_context: Optional[dict],
+    language_code: str = "en",
+) -> str:
+    if not video_context:
+        return ""
+    stroke = video_context.get("stroke")
+    look = video_context.get("look")
+    if not stroke and not look:
+        return ""
+
+    base = normalize_language_code(language_code)
+    if base == "ru":
+        header = "УТОЧНЕНИЕ ОТ ИГРОКА ПЕРЕД РАЗБОРОМ:"
+        stroke_l = "Удар для фокуса (со слов игрока)"
+        look_l = "Смотреть в первую очередь"
+        rules = [
+            "Выбор игрока — только ориентир приоритизации, не истина о содержимом ролика.",
+            "Сначала по видео определи, что реально видно (удар, серия ударов, розыгрыш, движение без удара).",
+            "Если на видео явно другой удар или формат, чем указал игрок — в разделе «Что происходит на видео» явно напиши: что видно на самом деле; что указал игрок; что расхождение есть. Не разбирай указанный удар, если его нет на видео — строй анализ по факту.",
+            "Если игрок указал «серия ударов / розыгрыш», а на ролике один удар — назови реальный удар и разбери его.",
+            "Если игрок указал один удар, а на ролике розыгрыш — назови это и разбери розыгрыш (или главный удар в серии).",
+            "В «Топ-3» пункт №1 — по тому, что реально на видео, с учётом выбранного фокуса (техника / ноги / контакт).",
+        ]
+    else:
+        header = "PLAYER CLARIFICATION BEFORE ANALYSIS:"
+        stroke_l = "Stroke to focus on (player said)"
+        look_l = "Look at first"
+        rules = [
+            "The player's choice is a prioritization hint only — not ground truth about the footage.",
+            "First determine what is actually visible (stroke, rally, point, movement without a hit).",
+            "If the video clearly shows a different stroke or format than the player selected — in "
+            "'What happens in the video' explicitly state: what is actually visible; what the player "
+            "selected; that there is a mismatch. Do not analyze the selected stroke if it is not on "
+            "the video — build the analysis from what is visible.",
+            "If the player selected rally/point but only one stroke is visible — name the actual "
+            "stroke and analyze it.",
+            "If the player selected one stroke but a rally is visible — say so and analyze the rally "
+            "(or the main stroke in the sequence).",
+            "Top-3 item #1 must reflect what is actually on the video, weighted by the chosen focus.",
+        ]
+
+    from video_intake import intake_value_label
+
+    ui_lang = "ru" if base == "ru" else "en"
+    lines = [
+        "─────────────────────────────────────────",
+        header,
+        "",
+    ]
+    if stroke:
+        lines.append(f"• {stroke_l}: {intake_value_label(ui_lang, 'stroke', stroke)}")
+    if look:
+        lines.append(f"• {look_l}: {intake_value_label(ui_lang, 'look', look)}")
+    lines.append("")
+
+    rubric = _STROKE_RUBRICS.get(stroke or "")
+    if rubric:
+        lines.append(f"Rubric: {rubric}")
+        lines.append("")
+    look_rule = _LOOK_INSTRUCTIONS.get(look or "")
+    if look_rule:
+        lines.append(look_rule)
+        lines.append("")
+
+    lines.extend(rules)
+    lines.append("─────────────────────────────────────────")
+    return "\n".join(lines)
+
+
 def build_analysis_prompt(
     language_code: str = "en",
     user_comment: Optional[str] = None,
+    video_context: Optional[dict] = None,
 ) -> str:
-    body = get_user_prompt_body(language_code)
+    parts: list[str] = []
+    ctx = build_video_context_block(video_context, language_code)
+    if ctx:
+        parts.append(ctx)
+
     if user_comment and user_comment.strip():
         comment_label = (
             "Player comment on the video (consider in the analysis)"
             if normalize_language_code(language_code) != "ru"
             else "Комментарий игрока к видео (учти при разборе)"
         )
-        return f'{comment_label}:\n"{user_comment.strip()}"\n\n' f"{body}"
-    return body
+        parts.append(f'{comment_label}:\n"{user_comment.strip()}"')
+
+    parts.append(get_user_prompt_body(language_code))
+    return "\n\n".join(parts)
 
 
 def build_coach_context(history: list[dict], language_code: str = "en") -> str:

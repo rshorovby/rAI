@@ -49,6 +49,7 @@ class VideoAnalyzer:
         player_history: Optional[list] = None,
         language_code: str = DEFAULT_LANG,
         player_profile: Optional[dict] = None,
+        video_context: Optional[dict] = None,
     ) -> str:
         uploaded = self._client.files.upload(file=str(video_path))
         uploaded = self._wait_until_active(uploaded)
@@ -64,7 +65,9 @@ class VideoAnalyzer:
                                 mime_type=uploaded.mime_type,
                             ),
                             types.Part.from_text(
-                                text=build_analysis_prompt(language_code, user_comment)
+                                text=build_analysis_prompt(
+                                    language_code, user_comment, video_context
+                                )
                             ),
                         ],
                     )

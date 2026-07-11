@@ -1,4 +1,9 @@
-from bot import _split_message
+from analytics import (
+    EVENT_FEEDBACK_CLEAR,
+    EVENT_FEEDBACK_NEGATIVE,
+    EVENT_FEEDBACK_POSITIVE,
+)
+from bot import _FEEDBACK_EVENTS, _feedback_keyboard, _split_message
 
 
 def test_short_text_single_chunk():
@@ -18,3 +23,16 @@ def test_split_preserves_all_lines():
     rejoined = "\n".join(chunks)
     for i in range(500):
         assert f"line{i}" in rejoined
+
+
+def test_feedback_keyboard_has_three_buttons():
+    markup = _feedback_keyboard("ru")
+    buttons = [btn for row in markup.inline_keyboard for btn in row]
+    assert len(buttons) == 3
+    assert {btn.callback_data for btn in buttons} == {"fb:pos", "fb:neg", "fb:clear"}
+
+
+def test_feedback_events_mapping():
+    assert _FEEDBACK_EVENTS["pos"] == EVENT_FEEDBACK_POSITIVE
+    assert _FEEDBACK_EVENTS["neg"] == EVENT_FEEDBACK_NEGATIVE
+    assert _FEEDBACK_EVENTS["clear"] == EVENT_FEEDBACK_CLEAR

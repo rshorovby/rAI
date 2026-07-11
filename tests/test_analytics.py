@@ -5,6 +5,9 @@ import storage
 from analytics import (
     EVENT_ANALYSIS_FAILED,
     EVENT_ANALYSIS_SUCCESS,
+    EVENT_FEEDBACK_CLEAR,
+    EVENT_FEEDBACK_NEGATIVE,
+    EVENT_FEEDBACK_POSITIVE,
     EVENT_ONBOARDING_COMPLETED,
     EVENT_ONBOARDING_SKIPPED,
     EVENT_ONBOARDING_STARTED,
@@ -63,9 +66,29 @@ def test_format_analytics_report_contains_sections():
                 EVENT_VIDEO_SENT: 5,
                 EVENT_ANALYSIS_SUCCESS: 4,
                 EVENT_ANALYSIS_FAILED: 1,
+                EVENT_FEEDBACK_POSITIVE: 3,
+                EVENT_FEEDBACK_NEGATIVE: 1,
+                EVENT_FEEDBACK_CLEAR: 2,
             },
             "recent_users": [],
         }
     )
     assert "статистика" in report.lower()
     assert "Воронка" in report
+    assert "Фидбек" in report
+    assert "👍 Полезно: 3" in report
+    assert "👎 Не помогло: 1" in report
+    assert "✅ Понятно что делать: 2" in report
+
+
+def test_feedback_events_in_summary(tmp_path):
+    with _tmp_db(tmp_path):
+        storage.upsert_user(20, None, "Ann", None, "ru")
+        storage.log_event(20, EVENT_FEEDBACK_POSITIVE)
+        storage.log_event(20, EVENT_FEEDBACK_NEGATIVE)
+        storage.log_event(20, EVENT_FEEDBACK_CLEAR)
+        data = storage.get_analytics_summary()
+
+    assert data["events"][EVENT_FEEDBACK_POSITIVE] == 1
+    assert data["events"][EVENT_FEEDBACK_NEGATIVE] == 1
+    assert data["events"][EVENT_FEEDBACK_CLEAR] == 1
