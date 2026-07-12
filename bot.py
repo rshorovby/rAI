@@ -33,6 +33,7 @@ from analytics import (
     EVENT_ONBOARDING_COMPLETED,
     EVENT_ONBOARDING_SKIPPED,
     EVENT_ONBOARDING_STARTED,
+    EVENT_PROFILE_RESET,
     EVENT_VIDEO_SENT,
     format_analytics_report,
 )
@@ -51,15 +52,22 @@ from onboarding import (
     advance_step,
     build_profile_dict,
     clear_onboarding_state,
+    clear_reset_pending,
     get_onboarding_answers,
     get_onboarding_step,
     is_edit_profile_text,
     is_injuries_none_text,
     is_onboarding_active,
+    is_reset_confirm_no,
+    is_reset_confirm_yes,
+    is_reset_pending,
+    is_reset_profile_text,
     is_skip_text,
     match_step_answer,
     onboarding_keyboard,
-    profile_edit_keyboard,
+    profile_actions_keyboard,
+    profile_reset_confirm_keyboard,
+    set_reset_pending,
     start_onboarding_state,
 )
 from video_intake import (
@@ -157,6 +165,44 @@ async def _touch_user(update: Update) -> None:
 
 async def _log_event(user_id: int, event_type: str, payload: str = "") -> None:
     await asyncio.to_thread(storage.log_event, user_id, event_type, payload)
+
+
+def _clear_user_state(user_data: dict) -> None:
+    _clear_session(user_data)
+    clear_intake_state(user_data)
+    clear_onboarding_state(user_data)
+    clear_reset_pending(user_data)
+    user_data.pop("pending_video", None)
+
+
+async def _execute_profile_reset(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    lang: str,
+    user_id: int,
+) -> None:
+    message = update.message
+    if not message:
+        return
+
+    await asyncio.to_thread(storage.reset_player_data, user_id)
+    await _log_event(user_id, EVENT_PROFILE_RESET)
+    _clear_user_state(context.user_data)
+    await _begin_onboarding(context, user_id, is_new_user=True)
+    await _send_onboarding_question(message, lang, "level", intro=t(lang, "ob_intro"))
+
+
+async def _show_profile(
+    message,
+    lang: str,
+    user_id: int,
+) -> None:
+    text = await asyncio.to_thread(storage.format_profile_for_user, user_id, lang)
+    await message.reply_text(
+        text,
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=profile_actions_keyboard(lang),
+    )
 
 
 async def _begin_onboarding(
@@ -516,13 +562,9 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     lang = _lang_from_update(update, context)
     user_id = update.message.from_user.id
     context.user_data["user_id"] = user_id
+    clear_reset_pending(context.user_data)
     await _touch_user(update)
-    text = await asyncio.to_thread(storage.format_profile_for_user, user_id, lang)
-    await update.message.reply_text(
-        text,
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=profile_edit_keyboard(lang),
-    )
+    await _show_profile(update.message, lang, user_id)
 
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -548,6 +590,14 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     lang = _lang_from_update(update, context)
+
+    if is_reset_pending(context.user_data):
+        await message.reply_text(
+            t(lang, "profile_reset_confirm_prompt"),
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=profile_reset_confirm_keyboard(lang),
+        )
+        return
 
     if is_onboarding_active(context.user_data):
         step = get_onboarding_step(context.user_data)
@@ -889,7 +939,34 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await menu_handler(update, context)
         return
 
+    if is_reset_pending(context.user_data):
+        user_id = message.from_user.id
+        context.user_data["user_id"] = user_id
+        if is_reset_confirm_yes(user_text):
+            await _execute_profile_reset(update, context, lang, user_id)
+            return
+        if is_reset_confirm_no(user_text):
+            clear_reset_pending(context.user_data)
+            await _show_profile(message, lang, user_id)
+            return
+        await message.reply_text(
+            t(lang, "profile_reset_confirm_prompt"),
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=profile_reset_confirm_keyboard(lang),
+        )
+        return
+
+    if is_reset_profile_text(user_text):
+        set_reset_pending(context.user_data)
+        await message.reply_text(
+            t(lang, "profile_reset_confirm_prompt"),
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=profile_reset_confirm_keyboard(lang),
+        )
+        return
+
     if is_edit_profile_text(user_text):
+        clear_reset_pending(context.user_data)
         start_onboarding_state(context.user_data)
         await _send_onboarding_question(
             message,

@@ -8,6 +8,7 @@ from i18n import UI_LANGS, t
 
 ONBOARDING_KEY = "onboarding"
 ONBOARDING_ANSWERS_KEY = "onboarding_answers"
+PROFILE_RESET_PENDING_KEY = "profile_reset_pending"
 
 STEPS = ("level", "focus", "hand", "injuries")
 
@@ -130,16 +131,67 @@ def onboarding_keyboard(lang: str, step: str) -> ReplyKeyboardMarkup:
     return _step_keyboard(lang, step)
 
 
-def profile_edit_keyboard(lang: str) -> ReplyKeyboardMarkup:
+def profile_actions_keyboard(lang: str) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
-        [[KeyboardButton(t(lang, "ob_edit_profile"))]],
+        [
+            [KeyboardButton(t(lang, "ob_edit_profile"))],
+            [KeyboardButton(t(lang, "ob_reset_profile"))],
+        ],
         resize_keyboard=True,
     )
+
+
+def profile_edit_keyboard(lang: str) -> ReplyKeyboardMarkup:
+    return profile_actions_keyboard(lang)
+
+
+def profile_reset_confirm_keyboard(lang: str) -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        [
+            [KeyboardButton(t(lang, "profile_reset_confirm_yes"))],
+            [KeyboardButton(t(lang, "profile_reset_confirm_no"))],
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+    )
+
+
+def set_reset_pending(user_data: dict) -> None:
+    user_data[PROFILE_RESET_PENDING_KEY] = True
+
+
+def is_reset_pending(user_data: dict) -> bool:
+    return bool(user_data.get(PROFILE_RESET_PENDING_KEY))
+
+
+def clear_reset_pending(user_data: dict) -> None:
+    user_data.pop(PROFILE_RESET_PENDING_KEY, None)
 
 
 def is_edit_profile_text(text: str) -> bool:
     for lang in UI_LANGS:
         if text == t(lang, "ob_edit_profile"):
+            return True
+    return False
+
+
+def is_reset_profile_text(text: str) -> bool:
+    for lang in UI_LANGS:
+        if text == t(lang, "ob_reset_profile"):
+            return True
+    return False
+
+
+def is_reset_confirm_yes(text: str) -> bool:
+    for lang in UI_LANGS:
+        if text == t(lang, "profile_reset_confirm_yes"):
+            return True
+    return False
+
+
+def is_reset_confirm_no(text: str) -> bool:
+    for lang in UI_LANGS:
+        if text == t(lang, "profile_reset_confirm_no"):
             return True
     return False
 

@@ -284,6 +284,24 @@ def mark_profile_skipped(user_id: int) -> None:
     )
 
 
+def reset_player_data(user_id: int) -> None:
+    """Удаляет профиль и историю разборов — как для нового пользователя."""
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute("DELETE FROM player_profiles WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM player_sessions WHERE user_id = ?", (user_id,))
+        conn.execute(
+            """
+            UPDATE users SET
+                reminder_sent_at = NULL,
+                last_analysis_at = NULL
+            WHERE user_id = ?
+            """,
+            (user_id,),
+        )
+        conn.commit()
+
+
 def upsert_user(
     user_id: int,
     username: Optional[str],

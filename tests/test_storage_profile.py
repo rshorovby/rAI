@@ -62,6 +62,33 @@ def test_format_profile_skipped(tmp_path):
     assert "пропущен" in text.lower() or "не заполнен" in text.lower()
 
 
+def test_reset_player_data(tmp_path):
+    with _tmp_db(tmp_path):
+        storage.upsert_user(1, "alice", "Alice", None, "ru")
+        storage.save_player_profile(
+            1,
+            {
+                "level": "recreational",
+                "focus": "strokes",
+                "hand": "right",
+                "injuries": "",
+                "skipped": False,
+            },
+        )
+        storage.save_session(
+            1,
+            "## Краткое резюме\nТест.\n\n## Топ-3\n1. A",
+            "ru",
+        )
+
+        storage.reset_player_data(1)
+
+        assert storage.has_profile_record(1) is False
+        assert storage.get_player_history(1) == []
+        profile = storage.get_player_profile(1)
+        assert profile is None
+
+
 def test_format_profile_complete(tmp_path):
     with _tmp_db(tmp_path):
         storage.save_player_profile(

@@ -306,6 +306,18 @@ _MESSAGES: dict[str, dict[str, str]] = {
         ),
         "ob_injuries_none": "Нет",
         "ob_edit_profile": "✏️ Изменить профиль",
+        "ob_reset_profile": "🔄 Начать с нуля",
+        "profile_reset_confirm_prompt": (
+            "⚠️ *Сбросить профиль и все разборы?*\n\n"
+            "Будут удалены:\n"
+            "• ваш профиль (уровень, цели, травмы)\n"
+            "• история всех прошлых разборов\n"
+            "• текущий активный разбор\n\n"
+            "После сброса вы пройдёте настройку заново — как при первом входе.\n\n"
+            "Подтвердите действие:"
+        ),
+        "profile_reset_confirm_yes": "✅ Да, сбросить всё",
+        "profile_reset_confirm_no": "❌ Отмена",
         "ob_in_progress_video": (
             "Сначала завершите настройку профиля — ответьте на вопрос выше "
             "или нажмите «Пропустить настройку»."
@@ -327,7 +339,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "• Рука: {hand}\n"
             "• Травмы/ограничения: {injuries}\n"
             "• Обновлён: {updated_at}\n\n"
-            "Нажмите «Изменить профиль», чтобы обновить данные."
+            "«Изменить профиль» — обновить данные.\n"
+            "«Начать с нуля» — удалить профиль и историю и пройти настройку заново."
         ),
         "profile_edit_prompt": "Давайте обновим профиль. Вопрос 1 из 4:",
         "ob_opt_level_beginner": "🌱 Начинающий",
@@ -548,6 +561,18 @@ _MESSAGES: dict[str, dict[str, str]] = {
         ),
         "ob_injuries_none": "No",
         "ob_edit_profile": "✏️ Edit profile",
+        "ob_reset_profile": "🔄 Start over",
+        "profile_reset_confirm_prompt": (
+            "⚠️ *Reset profile and all analyses?*\n\n"
+            "This will delete:\n"
+            "• your profile (level, goals, injuries)\n"
+            "• history of all past analyses\n"
+            "• the current active analysis\n\n"
+            "After reset you'll go through setup again — like your first visit.\n\n"
+            "Confirm:"
+        ),
+        "profile_reset_confirm_yes": "✅ Yes, reset everything",
+        "profile_reset_confirm_no": "❌ Cancel",
         "ob_in_progress_video": (
             "Please finish profile setup first — answer the question above "
             "or tap Skip setup."
@@ -567,7 +592,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "• Hand: {hand}\n"
             "• Injuries/limitations: {injuries}\n"
             "• Updated: {updated_at}\n\n"
-            "Tap Edit profile to update."
+            "Edit profile — update your details.\n"
+            "Start over — delete profile and history and set up again."
         ),
         "profile_edit_prompt": "Let's update your profile. Question 1 of 4:",
         "ob_opt_level_beginner": "🌱 Beginner",
