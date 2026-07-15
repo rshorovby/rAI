@@ -66,3 +66,12 @@ def test_cleanup_overlay(tmp_path):
     assert not path.exists()
     cleanup_overlay(None)
     cleanup_overlay(PoseOverlayResult())
+
+
+def test_transcode_without_ffmpeg_returns_src(tmp_path):
+    src = tmp_path / "raw.mp4"
+    src.write_bytes(b"not-real-but-ok")
+    with patch("pose_analysis.shutil.which", return_value=None):
+        out = pose_analysis._transcode_for_telegram(src)
+    assert out == src
+    assert src.exists()

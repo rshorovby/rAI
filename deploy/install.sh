@@ -25,7 +25,7 @@ fi
 
 echo "==> Устанавливаю системные пакеты..."
 apt-get update -qq
-apt-get install -y -qq git python3 python3-venv python3-pip \
+apt-get install -y -qq git python3 python3-venv python3-pip ffmpeg \
   libgl1 libglib2.0-0 libsm6 libxext6 libxrender1 \
   libgles2 libegl1 libopengl0
 

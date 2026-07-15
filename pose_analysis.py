@@ -2,6 +2,8 @@
 
 import logging
 import os
+import shutil
+import subprocess
 import tempfile
 import time
 from dataclasses import dataclass
@@ -18,6 +20,7 @@ MAX_SECONDS = 12.0
 MAX_OUTPUT_FRAMES = 144
 MAX_WALL_SEC = 25.0
 MIN_POSE_FRAMES = 1
+FFMPEG_TIMEOUT_SEC = 40
 
 
 @dataclass
@@ -44,6 +47,72 @@ def create_pose_overlay(video_path: Path) -> PoseOverlayResult:
     except Exception as exc:
         logger.exception("Pose overlay failed for %s", video_path)
         return PoseOverlayResult(error=str(exc)[:300])
+
+
+def _transcode_for_telegram(src: Path) -> Path:
+    """mp4v от OpenCV часто не играет в Telegram Mobile — перекодируем в H.264.
+
+    Если ffmpeg нет или упал — возвращаем исходник (десктоп всё равно играет).
+    """
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        logger.warning(
+            "ffmpeg не найден — отправляем mp4v (может не играть на телефоне)"
+        )
+        return src
+
+    fd, out_name = tempfile.mkstemp(suffix=".mp4", prefix="pose_tg_")
+    out_path = Path(out_name)
+    try:
+        os.close(fd)
+    except OSError:
+        pass
+
+    cmd = [
+        ffmpeg,
+        "-y",
+        "-i",
+        str(src),
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        "-profile:v",
+        "baseline",
+        "-level",
+        "3.0",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "28",
+        "-movflags",
+        "+faststart",
+        "-an",
+        str(out_path),
+    ]
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            timeout=FFMPEG_TIMEOUT_SEC,
+            check=False,
+        )
+        if (
+            proc.returncode != 0
+            or not out_path.exists()
+            or out_path.stat().st_size < 100
+        ):
+            err = (proc.stderr or b"").decode("utf-8", errors="replace")[-400:]
+            logger.warning("ffmpeg reencode failed: %s", err)
+            out_path.unlink(missing_ok=True)
+            return src
+        src.unlink(missing_ok=True)
+        logger.info("Pose overlay re-encoded to H.264 for Telegram Mobile")
+        return out_path
+    except Exception:
+        logger.exception("ffmpeg reencode error")
+        out_path.unlink(missing_ok=True)
+        return src
 
 
 def _create_pose_overlay(video_path: Path) -> PoseOverlayResult:
@@ -182,15 +251,17 @@ def _create_pose_overlay(video_path: Path) -> PoseOverlayResult:
             error="no pose detected",
         )
 
+    final_path = _transcode_for_telegram(out_path)
+
     logger.info(
         "Pose overlay ready: frames=%s with_pose=%s src_sampled_every=%s path=%s",
         frames_processed,
         frames_with_pose,
         sample_every,
-        out_path,
+        final_path,
     )
     return PoseOverlayResult(
-        overlay_path=out_path,
+        overlay_path=final_path,
         frames_processed=frames_processed,
         frames_with_pose=frames_with_pose,
     )

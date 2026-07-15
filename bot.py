@@ -8,6 +8,7 @@ from telegram import (
     BotCommand,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    InputFile,
     KeyboardButton,
     ReplyKeyboardMarkup,
     Update,
@@ -756,7 +757,7 @@ async def _send_pose_overlay(
             with pose_result.overlay_path.open("rb") as video_file:
                 await context.bot.send_video(
                     chat_id=chat_id,
-                    video=video_file,
+                    video=InputFile(video_file, filename="pose_overlay.mp4"),
                     caption=t(lang, "pose_caption"),
                     supports_streaming=True,
                 )
