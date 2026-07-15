@@ -24,6 +24,25 @@ from telegram.ext import (
 )
 
 import storage
+from analysis_dialog import (
+    clear_dialog,
+    current_error_text,
+    format_error_card,
+    format_section_title,
+    format_summary_message,
+    get_dialog,
+    keyboard_after_drills,
+    keyboard_after_error_deep,
+    keyboard_after_next,
+    keyboard_after_prio,
+    keyboard_after_video,
+    keyboard_categories,
+    keyboard_error,
+    keyboard_finish,
+    keyboard_summary,
+    keyboard_top3,
+    start_dialog,
+)
 from analytics import (
     EVENT_ANALYSIS_FAILED,
     EVENT_ANALYSIS_SUCCESS,
@@ -70,6 +89,7 @@ from onboarding import (
     set_reset_pending,
     start_onboarding_state,
 )
+from pose_analysis import cleanup_overlay, create_pose_overlay
 from video_intake import (
     advance_intake_step,
     build_video_context,
@@ -172,6 +192,7 @@ def _clear_user_state(user_data: dict) -> None:
     clear_intake_state(user_data)
     clear_onboarding_state(user_data)
     clear_reset_pending(user_data)
+    clear_dialog(user_data)
     user_data.pop("pending_video", None)
 
 
@@ -533,6 +554,7 @@ async def new_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     lang = _lang_from_update(update, context)
     _clear_session(context.user_data)
     clear_intake_state(context.user_data)
+    clear_dialog(context.user_data)
     context.user_data.pop("pending_video", None)
     await update.message.reply_text(
         t(lang, "new_reset"),
@@ -721,6 +743,428 @@ async def _handle_video_intake_text(
     await _begin_analysis_after_intake(update, context, lang, language_code)
 
 
+async def _send_pose_overlay(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    lang: str,
+    pose_result,
+) -> None:
+    if pose_result is None:
+        return
+    if pose_result.ok and pose_result.overlay_path:
+        try:
+            with pose_result.overlay_path.open("rb") as video_file:
+                await context.bot.send_video(
+                    chat_id=chat_id,
+                    video=video_file,
+                    caption=t(lang, "pose_caption"),
+                    supports_streaming=True,
+                )
+            return
+        except Exception:
+            logger.exception("Не удалось отправить pose overlay")
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=t(lang, "pose_unavailable"),
+    )
+
+
+async def _reply_dialog(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    text: str,
+    reply_markup=None,
+) -> None:
+    chunks = _split_message(text)
+    for i, chunk in enumerate(chunks):
+        markup = reply_markup if i == len(chunks) - 1 else None
+        html = markdown_to_html(chunk)
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=html,
+                parse_mode=ParseMode.HTML,
+                reply_markup=markup,
+            )
+        except BadRequest:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=chunk,
+                reply_markup=markup,
+            )
+
+
+async def _send_next_video_and_prompt_feedback(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    lang: str,
+    state: dict,
+) -> None:
+    next_video = (state.get("sections") or {}).get("next_video") or ""
+    if next_video:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=t(lang, "followup_hint_next", next_video=next_video),
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=keyboard_after_next(lang),
+        )
+    else:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=t(lang, "followup_hint"),
+            reply_markup=keyboard_after_next(lang),
+        )
+    state["step"] = "next"
+
+
+async def _send_feedback_step(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    lang: str,
+    user_data: dict,
+) -> None:
+    clear_dialog(user_data)
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=t(lang, "feedback_prompt"),
+        reply_markup=_feedback_keyboard(lang),
+    )
+
+
+async def _run_lazy_skeleton(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    lang: str,
+    state: dict,
+) -> None:
+    file_id = state.get("video_file_id")
+    mime_type = state.get("video_mime") or "video/mp4"
+    if not file_id:
+        await context.bot.send_message(
+            chat_id=chat_id, text=t(lang, "pose_unavailable")
+        )
+        return
+
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=t(lang, "dialog_skeleton_explain"),
+        parse_mode=ParseMode.MARKDOWN,
+    )
+    status = await context.bot.send_message(
+        chat_id=chat_id, text=t(lang, "dialog_skeleton_working")
+    )
+
+    suffix = ".mp4"
+    if mime_type == "video/quicktime":
+        suffix = ".mov"
+    elif mime_type == "video/webm":
+        suffix = ".webm"
+
+    temp_path: Optional[Path] = None
+    pose_result = None
+    try:
+        telegram_file = await context.bot.get_file(file_id)
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            temp_path = Path(tmp.name)
+            await telegram_file.download_to_drive(custom_path=str(temp_path))
+        pose_result = await asyncio.to_thread(create_pose_overlay, temp_path)
+        try:
+            await status.delete()
+        except BadRequest:
+            pass
+        await _send_pose_overlay(context, chat_id, lang, pose_result)
+        state["skeleton_shown"] = True
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=t(lang, "dialog_continue"),
+            reply_markup=keyboard_summary(lang, state),
+        )
+    except Exception:
+        logger.exception("Lazy skeleton failed")
+        try:
+            await status.edit_text(t(lang, "pose_unavailable"))
+        except BadRequest:
+            await context.bot.send_message(
+                chat_id=chat_id, text=t(lang, "pose_unavailable")
+            )
+    finally:
+        cleanup_overlay(pose_result)
+        if temp_path and temp_path.exists():
+            temp_path.unlink(missing_ok=True)
+
+
+async def handle_dialog(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query or not query.data:
+        return
+
+    await query.answer()
+    lang = sync_user_lang(context.user_data, query.from_user.language_code)
+    language_code = _language_code_from_context(context)
+    chat_id = query.message.chat_id
+    user_id = query.from_user.id
+    context.user_data["user_id"] = user_id
+    await _touch_user(update)
+
+    state = get_dialog(context.user_data)
+    if not state:
+        await context.bot.send_message(chat_id=chat_id, text=t(lang, "dialog_stale"))
+        return
+
+    action = query.data.removeprefix("d:")
+    sections = state.get("sections") or {}
+
+    if action == "summary":
+        state["step"] = "summary"
+        await _reply_dialog(
+            context,
+            chat_id,
+            format_summary_message(lang, state),
+            keyboard_summary(lang, state),
+        )
+        return
+
+    if action == "video":
+        state["step"] = "video"
+        await _reply_dialog(
+            context,
+            chat_id,
+            format_section_title(lang, "dialog_title_video", sections.get("video", "")),
+            keyboard_after_video(lang),
+        )
+        return
+
+    if action == "errors":
+        errors = sections.get("errors") or []
+        if not errors:
+            await context.bot.send_message(
+                chat_id=chat_id, text=t(lang, "dialog_no_errors")
+            )
+            return
+        state["step"] = "errors"
+        state["error_index"] = 0
+        await _reply_dialog(
+            context,
+            chat_id,
+            format_error_card(lang, state),
+            keyboard_error(lang, state),
+        )
+        return
+
+    if action == "err:next":
+        errors = sections.get("errors") or []
+        idx = int(state.get("error_index") or 0) + 1
+        if idx >= len(errors):
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=t(lang, "dialog_errors_done"),
+                reply_markup=keyboard_finish(lang),
+            )
+            return
+        state["error_index"] = idx
+        state["step"] = "errors"
+        await _reply_dialog(
+            context,
+            chat_id,
+            format_error_card(lang, state),
+            keyboard_error(lang, state),
+        )
+        return
+
+    if action == "err:done":
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=t(lang, "dialog_errors_done"),
+            reply_markup=keyboard_finish(lang),
+        )
+        return
+
+    if action == "err:deep":
+        item = current_error_text(state)
+        if not item:
+            await context.bot.send_message(
+                chat_id=chat_id, text=t(lang, "dialog_no_errors")
+            )
+            return
+        if lang == "ru":
+            prompt = (
+                "Это одна ошибка из разбора техники (по приоритету). "
+                "Дай короткую рекомендацию: что изменить на тренировке и одно "
+                f"конкретное упражнение (пока без ссылки на видео):\n{item}"
+            )
+        else:
+            prompt = (
+                "This is one technique error from the analysis (by priority). "
+                "Give a short tip: what to change in practice and one specific "
+                f"drill (no video link yet):\n{item}"
+            )
+        try:
+            await _process_followup(
+                context,
+                context.user_data,
+                chat_id,
+                prompt,
+                question_label=t(lang, "dialog_btn_err_deep"),
+                lang=lang,
+                language_code=language_code,
+            )
+        except Exception:
+            logger.exception("dialog err deep failed")
+        await context.bot.send_message(
+            chat_id=chat_id, text=t(lang, "dialog_drill_soon")
+        )
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=t(lang, "dialog_continue"),
+            reply_markup=keyboard_after_error_deep(lang, state),
+        )
+        return
+
+    if action == "cats":
+        cats = sections.get("categories") or []
+        if not cats:
+            await context.bot.send_message(
+                chat_id=chat_id, text=t(lang, "dialog_no_cats")
+            )
+            return
+        state["step"] = "cats"
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=t(lang, "dialog_title_cats"),
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=keyboard_categories(lang, state),
+        )
+        return
+
+    if action.startswith("cat:"):
+        try:
+            idx = int(action.split(":", 1)[1])
+        except ValueError:
+            return
+        cats = sections.get("categories") or []
+        if idx < 0 or idx >= len(cats):
+            await context.bot.send_message(
+                chat_id=chat_id, text=t(lang, "dialog_no_cats")
+            )
+            return
+        cat = cats[idx]
+        visited = state.setdefault("visited_categories", [])
+        if idx not in visited:
+            visited.append(idx)
+        state["step"] = "cats"
+        body = f"**{cat['title']}**\n\n{cat['body']}"
+        await _reply_dialog(context, chat_id, body, keyboard_categories(lang, state))
+        return
+
+    if action == "top3":
+        state["step"] = "top3"
+        await _reply_dialog(
+            context,
+            chat_id,
+            format_section_title(lang, "dialog_title_top3", sections.get("top3", "")),
+            keyboard_top3(lang, state),
+        )
+        return
+
+    if action.startswith("prio:"):
+        try:
+            n = int(action.split(":", 1)[1])
+        except ValueError:
+            return
+        items = sections.get("top3_items") or []
+        if n < 1 or n > len(items):
+            await context.bot.send_message(
+                chat_id=chat_id, text=t(lang, "dialog_no_prio")
+            )
+            return
+        item = items[n - 1]
+        state["step"] = "top3"
+        if lang == "ru":
+            prompt = (
+                "Сделай подробный разбор этого приоритета из анализа "
+                f"(что именно не так и как исправить на тренировке):\n{item}"
+            )
+        else:
+            prompt = (
+                "Give a detailed breakdown of this training priority from the analysis "
+                f"(what's wrong and how to fix it):\n{item}"
+            )
+        title = t(lang, "dialog_title_prio", n=n)
+        await _reply_dialog(context, chat_id, f"{title}\n\n{item}")
+        try:
+            await _process_followup(
+                context,
+                context.user_data,
+                chat_id,
+                prompt,
+                question_label=title,
+                lang=lang,
+                language_code=language_code,
+            )
+        except Exception:
+            logger.exception("dialog prio deepen failed")
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=t(lang, "dialog_continue"),
+            reply_markup=keyboard_after_prio(lang),
+        )
+        return
+
+    if action == "drills":
+        state["step"] = "drills"
+        prompts = _QUICK_PROMPTS.get(lang, _QUICK_PROMPTS["en"])
+        label = prompts["quick_exercises_label"]
+        prompt = prompts["quick_exercises_prompt"]
+        try:
+            await _process_followup(
+                context,
+                context.user_data,
+                chat_id,
+                prompt,
+                question_label=label,
+                lang=lang,
+                language_code=language_code,
+            )
+        except Exception:
+            logger.exception("dialog drills failed")
+            await context.bot.send_message(
+                chat_id=chat_id, text=t(lang, "quick_question_failed")
+            )
+            return
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=t(lang, "dialog_continue"),
+            reply_markup=keyboard_after_drills(lang),
+        )
+        return
+
+    if action == "finish":
+        state["step"] = "finish"
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=t(lang, "dialog_title_finish"),
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=keyboard_finish(lang),
+        )
+        return
+
+    if action in ("next", "done"):
+        await _send_next_video_and_prompt_feedback(context, chat_id, lang, state)
+        return
+
+    if action == "ask":
+        await context.bot.send_message(chat_id=chat_id, text=t(lang, "dialog_ask_hint"))
+        return
+
+    if action == "fb":
+        await _send_feedback_step(context, chat_id, lang, context.user_data)
+        return
+
+    if action == "skeleton":
+        await _run_lazy_skeleton(context, chat_id, lang, state)
+        return
+
+
 async def _run_video_analysis(
     context: ContextTypes.DEFAULT_TYPE,
     chat_id: int,
@@ -737,6 +1181,7 @@ async def _run_video_analysis(
     mime_type = pending["mime_type"]
     user_comment = pending.get("comment")
     video_context = pending.get("video_context")
+    video_file_id = pending["file_id"]
 
     await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
 
@@ -750,13 +1195,14 @@ async def _run_video_analysis(
 
     temp_path: Optional[Path] = None
     try:
-        telegram_file = await context.bot.get_file(pending["file_id"])
+        telegram_file = await context.bot.get_file(video_file_id)
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             temp_path = Path(tmp.name)
             await telegram_file.download_to_drive(custom_path=str(temp_path))
 
         player_history = await asyncio.to_thread(storage.get_player_history, user_id)
         player_profile = await asyncio.to_thread(storage.get_player_profile, user_id)
+
         report = await asyncio.to_thread(
             analyzer.analyze,
             temp_path,
@@ -771,27 +1217,20 @@ async def _run_video_analysis(
         await asyncio.to_thread(storage.save_session, user_id, report, language_code)
         context.user_data.pop("pending_video", None)
 
-        next_video = storage.extract_next_video(report, language_code)
-        display_report = storage.strip_next_video_section(report, language_code)
+        state = start_dialog(
+            context.user_data,
+            report,
+            language_code,
+            video_file_id=video_file_id,
+            video_mime=mime_type,
+        )
 
         await status_message.delete()
-        for chunk in _split_message(display_report):
-            await _send_formatted(context, chat_id, chunk)
-        if next_video:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=t(lang, "followup_hint_next", next_video=next_video),
-                parse_mode=ParseMode.MARKDOWN,
-            )
-        else:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=t(lang, "followup_hint"),
-            )
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=t(lang, "feedback_prompt"),
-            reply_markup=_feedback_keyboard(lang),
+        await _reply_dialog(
+            context,
+            chat_id,
+            format_summary_message(lang, state),
+            keyboard_summary(lang, state),
         )
         await _log_event(user_id, EVENT_ANALYSIS_SUCCESS)
 
@@ -1067,6 +1506,7 @@ def build_application(settings: Settings) -> Application:
     app.add_handler(CommandHandler("profile", profile_command))
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(CallbackQueryHandler(handle_feedback, pattern=r"^fb:"))
+    app.add_handler(CallbackQueryHandler(handle_dialog, pattern=r"^d:"))
     app.add_handler(CallbackQueryHandler(handle_quick_question, pattern=r"^q:"))
     app.add_handler(CallbackQueryHandler(handle_retry, pattern=r"^retry$"))
     app.add_handler(MessageHandler(filters.VIDEO | filters.VIDEO_NOTE, handle_video))

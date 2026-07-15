@@ -86,13 +86,19 @@ def report_section_headers(language_code: str) -> dict[str, str]:
     headers = {
         "ru": {
             "summary": "Краткое резюме",
+            "video": "Что происходит на видео",
+            "categories": "Разбор по категориям",
             "top3": "Топ-3 приоритета для тренировки",
             "next_video": "Следующее видео",
+            "limitations": "Ограничения анализа",
         },
         "en": {
             "summary": "Brief summary",
+            "video": "What happens in the video",
+            "categories": "Breakdown by category",
             "top3": "Top 3 training priorities",
             "next_video": "Next video",
+            "limitations": "Analysis limitations",
         },
     }
     return headers.get(base, headers["en"])
@@ -167,6 +173,56 @@ _MESSAGES: dict[str, dict[str, str]] = {
         ),
         "status_analyzing_comment": (
             "⏳ Видео и комментарий получены. Анализирую — это может занять до минуты..."
+        ),
+        "pose_caption": "🦴 Ваша биомеханика на видео (приблизительно)",
+        "pose_unavailable": ("🦴 Не удалось наложить скелет — разбор ниже как обычно."),
+        "dialog_ready": "✅ *Готово.* Кратко по видео:",
+        "dialog_section_empty": "_В отчёте нет этой секции._",
+        "dialog_title_video": "📹 *Подробнее про видео*",
+        "dialog_title_cats": ("🔎 *Углублённый анализ*\nВыберите категорию:"),
+        "dialog_title_top3": "📋 *Советы на тренировку*",
+        "dialog_title_prio": "📌 *Совет {n}*",
+        "dialog_title_error": ("🔴 *Ошибка {n} из {total}*\n\n{text}"),
+        "dialog_title_finish": (
+            "✅ *Завершить разбор*\n\n"
+            "Можете взять задание на следующее видео или оценить разбор."
+        ),
+        "dialog_btn_video": "📹 Подробнее про видео",
+        "dialog_btn_errors": "🔴 Разбор ошибок",
+        "dialog_btn_cats": "🔎 Углублённый анализ",
+        "dialog_btn_top3": "📋 Советы на тренировку",
+        "dialog_btn_skeleton": "🦴 Показать скелет",
+        "dialog_btn_drills": "🏋️ Упражнения",
+        "dialog_btn_next": "📹 Что снять дальше",
+        "dialog_btn_finish": "✅ Завершить разбор",
+        "dialog_btn_enough": "✅ Достаточно",
+        "dialog_btn_back": "↩️ К резюме",
+        "dialog_btn_ask": "💬 Задать вопрос текстом",
+        "dialog_btn_feedback": "⭐ Оценить разбор",
+        "dialog_btn_err_deep": "🔍 Углубиться / рекомендация",
+        "dialog_btn_err_next": "➡️ Следующая ошибка",
+        "dialog_btn_err_done": "✅ Ошибки закончились",
+        "dialog_errors_done": (
+            "✅ Все приоритетные ошибки разобрали.\n"
+            "Можете вернуться к резюме или завершить разбор."
+        ),
+        "dialog_no_errors": "В отчёте не нашлось приоритетных ошибок.",
+        "dialog_skeleton_explain": (
+            "🦴 *Что это такое*\n\n"
+            "Это *приблизительная* биомеханика: точки суставов поверх вашего видео.\n\n"
+            "*Зачем:* увидеть, где тело в момент удара, и сопоставить это с текстом "
+            "разбора. Можно сохранить и показать тренеру.\n\n"
+            "Это не Hawk-Eye и не меддиагноз — ориентир для глаз."
+        ),
+        "dialog_skeleton_working": "🦴 Накладываю скелет — до ~30 сек…",
+        "dialog_continue": "Куда дальше?",
+        "dialog_ask_hint": "💬 Напишите вопрос текстом — я помню этот разбор.",
+        "dialog_stale": "Разбор уже закрыт. Отправьте новое видео или /new.",
+        "dialog_no_cats": "В отчёте не нашлось разбивки по категориям.",
+        "dialog_no_prio": "Этот пункт приоритета не найден.",
+        "dialog_drill_soon": (
+            "🏋️ Видео-примеры упражнений появятся в следующей версии — "
+            "пока держитесь текстовой рекомендации выше."
         ),
         "video_not_found": "Видео не найдено. Отправьте его заново.",
         "video_not_found_retry": "Видео не найдено — отправьте его заново.",
@@ -425,6 +481,57 @@ _MESSAGES: dict[str, dict[str, str]] = {
         ),
         "status_analyzing_comment": (
             "⏳ Video and caption received. Analyzing — this may take up to a minute..."
+        ),
+        "pose_caption": "🦴 Your biomechanics on video (approximate)",
+        "pose_unavailable": (
+            "🦴 Could not overlay the skeleton — analysis below as usual."
+        ),
+        "dialog_ready": "✅ *Done.* Brief take on the video:",
+        "dialog_section_empty": "_This section is missing from the report._",
+        "dialog_title_video": "📹 *More about the video*",
+        "dialog_title_cats": "🔎 *Deep dive*\nPick a category:",
+        "dialog_title_top3": "📋 *Practice tips*",
+        "dialog_title_prio": "📌 *Tip {n}*",
+        "dialog_title_error": "🔴 *Error {n} of {total}*\n\n{text}",
+        "dialog_title_finish": (
+            "✅ *Finish analysis*\n\n" "Get a next-video task or rate this analysis."
+        ),
+        "dialog_btn_video": "📹 More about the video",
+        "dialog_btn_errors": "🔴 Error walkthrough",
+        "dialog_btn_cats": "🔎 Deep dive",
+        "dialog_btn_top3": "📋 Practice tips",
+        "dialog_btn_skeleton": "🦴 Show skeleton",
+        "dialog_btn_drills": "🏋️ Drills",
+        "dialog_btn_next": "📹 What to film next",
+        "dialog_btn_finish": "✅ Finish analysis",
+        "dialog_btn_enough": "✅ Enough",
+        "dialog_btn_back": "↩️ Back to summary",
+        "dialog_btn_ask": "💬 Ask in text",
+        "dialog_btn_feedback": "⭐ Rate the analysis",
+        "dialog_btn_err_deep": "🔍 Go deeper / tip",
+        "dialog_btn_err_next": "➡️ Next error",
+        "dialog_btn_err_done": "✅ Errors done",
+        "dialog_errors_done": (
+            "✅ All priority errors covered.\n"
+            "You can go back to the summary or finish."
+        ),
+        "dialog_no_errors": "No priority errors found in the report.",
+        "dialog_skeleton_explain": (
+            "🦴 *What this is*\n\n"
+            "Approximate biomechanics: joint points overlaid on your video.\n\n"
+            "*Why:* see where the body is at contact and match it with the written "
+            "analysis. You can save it and show your coach.\n\n"
+            "Not Hawk-Eye and not a medical diagnosis — a visual guide."
+        ),
+        "dialog_skeleton_working": "🦴 Building skeleton overlay — up to ~30 sec…",
+        "dialog_continue": "Where next?",
+        "dialog_ask_hint": "💬 Type your question — I still have this analysis.",
+        "dialog_stale": "This analysis is closed. Send a new video or /new.",
+        "dialog_no_cats": "No category breakdown found in the report.",
+        "dialog_no_prio": "That priority item was not found.",
+        "dialog_drill_soon": (
+            "🏋️ Video drill examples will arrive in a later version — "
+            "use the written tip above for now."
         ),
         "video_not_found": "Video not found. Please send it again.",
         "video_not_found_retry": "Video not found — please send it again.",
