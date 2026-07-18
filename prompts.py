@@ -174,13 +174,19 @@ def build_system_prompt(
     language_code: str,
     player_history: Optional[list] = None,
     player_profile: Optional[dict] = None,
+    stroke: Optional[str] = None,
 ) -> str:
+    from wiki_context import build_knowledge_block
+
     coach_ctx = build_coach_context(player_history or [], language_code)
     player_ctx = build_player_context(player_profile, language_code)
+    knowledge_ctx = build_knowledge_block(stroke, language_code)
     lang_rule = language_instruction(language_code)
     parts = [SYSTEM_PROMPT_BASE.strip(), lang_rule]
     if player_ctx:
         parts.append(player_ctx)
+    if knowledge_ctx:
+        parts.append(knowledge_ctx)
     if coach_ctx:
         parts.append(coach_ctx)
     return "\n\n".join(parts)
@@ -190,13 +196,19 @@ def build_follow_up_system_prompt(
     language_code: str,
     player_history: Optional[list] = None,
     player_profile: Optional[dict] = None,
+    stroke: Optional[str] = None,
 ) -> str:
+    from wiki_context import build_knowledge_block
+
     coach_ctx = build_coach_context(player_history or [], language_code)
     player_ctx = build_player_context(player_profile, language_code)
+    knowledge_ctx = build_knowledge_block(stroke, language_code)
     lang_rule = language_instruction(language_code)
     parts = [FOLLOW_UP_SYSTEM_PROMPT_BASE.strip(), lang_rule]
     if player_ctx:
         parts.append(player_ctx)
+    if knowledge_ctx:
+        parts.append(knowledge_ctx)
     if coach_ctx:
         parts.append(coach_ctx)
     return "\n\n".join(parts)
@@ -218,9 +230,11 @@ _STROKE_RUBRICS = {
         "non-hitting arm and balance."
     ),
     "backhand": (
-        "Backhand checklist (1H or 2H as visible): unit turn; preparation; "
-        "contact height and point relative to the body; hip/shoulder rotation; "
-        "extension through contact; recovery step."
+        "Backhand checklist: identify 1HBH vs 2HBH from video. "
+        "1H: unit turn, contact ahead, stable wrist, no flick. "
+        "2H: unit turn without big arm pull; non-dom as motor; hip rotation; "
+        "compact path; Eastern top grip default (SW top ok if already working). "
+        "Contact height/point; extension; recovery."
     ),
     "serve": (
         "Serve checklist: toss consistency and placement; trophy position; "

@@ -255,8 +255,12 @@ def _clear_session(user_data: dict) -> None:
     user_data.pop(SESSION_KEY, None)
 
 
-def _save_analysis(user_data: dict, report: str) -> None:
-    user_data[SESSION_KEY] = {"analysis": report, "history": []}
+def _save_analysis(user_data: dict, report: str, stroke: Optional[str] = None) -> None:
+    user_data[SESSION_KEY] = {
+        "analysis": report,
+        "history": [],
+        "stroke": stroke,
+    }
 
 
 def _get_user_id(user_data: dict) -> Optional[int]:
@@ -509,6 +513,7 @@ async def _process_followup(
         player_history,
         model_lang,
         player_profile,
+        session.get("stroke"),
     )
     logger.info("Ответ ИИ получен (%s символов)", len(reply))
     history.append({"user": user_text, "assistant": reply})
@@ -1214,7 +1219,8 @@ async def _run_video_analysis(
             video_context,
         )
 
-        _save_analysis(context.user_data, report)
+        stroke = (video_context or {}).get("stroke") if video_context else None
+        _save_analysis(context.user_data, report, stroke=stroke)
         await asyncio.to_thread(storage.save_session, user_id, report, language_code)
         context.user_data.pop("pending_video", None)
 

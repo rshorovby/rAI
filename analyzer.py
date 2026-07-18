@@ -12,6 +12,7 @@ from prompts import (
     build_follow_up_system_prompt,
     build_system_prompt,
 )
+from video_mute import strip_audio_for_upload
 
 MAX_CHAT_TURNS = 10
 
@@ -51,10 +52,12 @@ class VideoAnalyzer:
         player_profile: Optional[dict] = None,
         video_context: Optional[dict] = None,
     ) -> str:
-        uploaded = self._client.files.upload(file=str(video_path))
-        uploaded = self._wait_until_active(uploaded)
-
+        upload_path, mute_tmp = strip_audio_for_upload(video_path)
+        uploaded = None
         try:
+            uploaded = self._client.files.upload(file=str(upload_path))
+            uploaded = self._wait_until_active(uploaded)
+
             response = self._generate_with_retry(
                 contents=[
                     types.Content(
@@ -74,13 +77,24 @@ class VideoAnalyzer:
                 ],
                 config=types.GenerateContentConfig(
                     system_instruction=build_system_prompt(
-                        language_code, player_history, player_profile
+                        language_code,
+                        player_history,
+                        player_profile,
+                        stroke=(video_context or {}).get("stroke"),
                     ),
                     temperature=0.4,
                 ),
             )
         finally:
-            self._safe_delete(uploaded.name)
+            if uploaded is not None:
+                self._safe_delete(uploaded.name)
+            if mute_tmp is not None:
+                try:
+                    mute_tmp.unlink(missing_ok=True)
+                except OSError:
+                    logger.warning(
+                        "Не удалось удалить локальный mute-файл: %s", mute_tmp
+                    )
 
         return self._extract_text(response)
 
@@ -111,6 +125,7 @@ class VideoAnalyzer:
         player_history: Optional[list] = None,
         language_code: str = DEFAULT_LANG,
         player_profile: Optional[dict] = None,
+        stroke: Optional[str] = None,
     ) -> str:
         ui_lang = "ru" if normalize_language_code(language_code) == "ru" else "en"
         report_intro = (
@@ -155,7 +170,7 @@ class VideoAnalyzer:
             contents=contents,
             config=types.GenerateContentConfig(
                 system_instruction=build_follow_up_system_prompt(
-                    language_code, player_history, player_profile
+                    language_code, player_history, player_profile, stroke=stroke
                 ),
                 temperature=0.5,
             ),

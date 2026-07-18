@@ -1,0 +1,8 @@
+workspace.json
+workspace-mobile.json
+graph.json
+cache
+plugins
+themes
+snippets
+*.bak
