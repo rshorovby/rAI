@@ -1,20 +1,18 @@
 """Strip audio from video before Gemini upload to avoid ~32 tok/s audio billing."""
 
-from __future__ import annotations
-
 import logging
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 FFMPEG_TIMEOUT_SEC = 60
 
 
-def strip_audio_for_upload(video_path: Path) -> Tuple[Path, Optional[Path]]:
+def strip_audio_for_upload(video_path: Path) -> tuple[Path, Optional[Path]]:
     """Return (path_to_upload, temp_file_to_delete_or_None).
 
     On success, path_to_upload is a mute copy and the caller must delete the temp.
