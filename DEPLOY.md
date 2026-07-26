@@ -124,8 +124,12 @@ nano /home/rallyai/rAI/.env
 ```env
 TELEGRAM_BOT_TOKEN=123456789:AAH...
 GEMINI_API_KEY=AIzaSy...
-GEMINI_MODEL=gemini-2.0-flash
+GEMINI_MODEL_PRO=gemini-3.1-pro-preview
+GEMINI_MODEL_FREE=gemini-3.5-flash
 ```
+
+Модели можно не указывать — в `config.py` заданы те же дефолты. Старая переменная
+`GEMINI_MODEL` продолжает работать и переопределяет обе модели сразу.
 
 Сохранить: `Ctrl+O`, Enter. Выход: `Ctrl+X`.
 

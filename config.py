@@ -5,6 +5,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# gemini-2.0-flash отключён Google 01.06.2026 — дефолты держим на актуальных моделях
+DEFAULT_MODEL_PRO = "gemini-3.1-pro-preview"
+DEFAULT_MODEL_FREE = "gemini-3.5-flash"
+
 
 def _parse_admin_user_ids() -> tuple[int, ...]:
     raw = os.getenv("ADMIN_USER_IDS", "").strip()
@@ -22,14 +26,24 @@ def _parse_admin_user_ids() -> tuple[int, ...]:
 class Settings:
     telegram_token: str
     gemini_api_key: str
-    gemini_model: str
+    gemini_model_pro: str
+    gemini_model_free: str
     admin_user_ids: tuple[int, ...]
+
+    def model_for(self, is_pro: bool) -> str:
+        return self.gemini_model_pro if is_pro else self.gemini_model_free
 
 
 def load_settings() -> Settings:
     telegram_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
-    gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip()
+    legacy_model = os.getenv("GEMINI_MODEL", "").strip()
+    gemini_model_pro = (
+        os.getenv("GEMINI_MODEL_PRO", "").strip() or legacy_model or DEFAULT_MODEL_PRO
+    )
+    gemini_model_free = (
+        os.getenv("GEMINI_MODEL_FREE", "").strip() or legacy_model or DEFAULT_MODEL_FREE
+    )
     admin_user_ids = _parse_admin_user_ids()
 
     missing = []
@@ -47,6 +61,7 @@ def load_settings() -> Settings:
     return Settings(
         telegram_token=telegram_token,
         gemini_api_key=gemini_api_key,
-        gemini_model=gemini_model,
+        gemini_model_pro=gemini_model_pro,
+        gemini_model_free=gemini_model_free,
         admin_user_ids=admin_user_ids,
     )

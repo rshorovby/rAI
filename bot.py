@@ -1491,7 +1491,7 @@ async def _setup_bot_menu(application: Application) -> None:
 def build_application(settings: Settings) -> Application:
     analyzer = VideoAnalyzer(
         api_key=settings.gemini_api_key,
-        model=settings.gemini_model,
+        model=settings.gemini_model_free,
     )
 
     app = (

@@ -9,10 +9,10 @@ from config import load_settings
 
 def main() -> None:
     settings = load_settings()
-    print(f"Модель: {settings.gemini_model}")
+    print(f"Модель: {settings.gemini_model_pro}")
     print(f"Ключ: {settings.gemini_api_key[:8]}...")
 
-    client = VideoAnalyzer(settings.gemini_api_key, settings.gemini_model)
+    client = VideoAnalyzer(settings.gemini_api_key, settings.gemini_model_pro)
 
     if len(sys.argv) > 1:
         video_path = Path(sys.argv[1])
@@ -27,7 +27,7 @@ def main() -> None:
         api = genai.Client(api_key=settings.gemini_api_key)
         print("Тест текстового запроса (без видео)...")
         r = api.models.generate_content(
-            model=settings.gemini_model,
+            model=settings.gemini_model_pro,
             contents="Ответь одним словом: работает",
         )
         report = r.text or ""

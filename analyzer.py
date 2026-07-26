@@ -98,11 +98,15 @@ class VideoAnalyzer:
 
         return self._extract_text(response)
 
-    def _generate_with_retry(self, **kwargs) -> types.GenerateContentResponse:
+    def _generate_with_retry(
+        self, model: Optional[str] = None, **kwargs
+    ) -> types.GenerateContentResponse:
         attempt = 0
         while True:
             try:
-                return self._client.models.generate_content(model=self._model, **kwargs)
+                return self._client.models.generate_content(
+                    model=model or self._model, **kwargs
+                )
             except Exception as exc:
                 if attempt >= MAX_GENERATE_RETRIES or not _is_transient_error(exc):
                     raise
