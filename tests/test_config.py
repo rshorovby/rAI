@@ -52,11 +52,12 @@ def test_explicit_models_win_over_legacy(env):
     assert settings.gemini_model_free == "free-model"
 
 
-def test_model_for_selects_by_plan(env):
+def test_model_for_always_best_regardless_of_plan(env):
     settings = load_settings()
 
     assert settings.model_for(is_pro=True) == settings.gemini_model_pro
-    assert settings.model_for(is_pro=False) == settings.gemini_model_free
+    assert settings.model_for(is_pro=False) == settings.gemini_model_pro
+    assert settings.gemini_model == settings.gemini_model_pro
 
 
 def test_admin_ids_parsed(env):

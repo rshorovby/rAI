@@ -1,4 +1,4 @@
-from analysis_dialog import parse_report, start_dialog, clear_dialog, get_dialog
+from analysis_dialog import clear_dialog, get_dialog, parse_report, start_dialog
 
 SAMPLE = """\
 ## Краткое резюме

@@ -125,11 +125,13 @@ nano /home/rallyai/rAI/.env
 TELEGRAM_BOT_TOKEN=123456789:AAH...
 GEMINI_API_KEY=AIzaSy...
 GEMINI_MODEL_PRO=gemini-3.1-pro-preview
-GEMINI_MODEL_FREE=gemini-3.5-flash
 ```
 
-Модели можно не указывать — в `config.py` заданы те же дефолты. Старая переменная
-`GEMINI_MODEL` продолжает работать и переопределяет обе модели сразу.
+Модель одна для всех тарифов (качество не режется). Тарифы Free/Pro ограничивают
+только число разборов и длину видео. `GEMINI_MODEL_PRO` можно не указывать —
+есть дефолт в `config.py`. Старая `GEMINI_MODEL` тоже работает как fallback.
+
+`GEMINI_MODEL_FREE` больше не используется для маршрутизации (можно удалить из `.env`).
 
 Сохранить: `Ctrl+O`, Enter. Выход: `Ctrl+X`.
 
@@ -235,10 +237,31 @@ bash /home/rallyai/rAI/deploy/install.sh git@github.com:ВАШ_ЛОГИН/rAI.gi
 /home/rallyai/rAI/data/rally.db
 ```
 
+Ежедневный бэкап с ротацией 14 дней (cron от root):
+
+```bash
+# crontab -e
+15 3 * * * root bash /home/rallyai/rAI/deploy/backup_db.sh
+```
+
+Бэкапы: `/home/rallyai/rAI/data/backups/rally_YYYYMMDD_HHMMSS.db`
+
 Скачать на Mac:
 
 ```bash
 scp -i ~/.ssh/digitalocean_rallyai root@ВАШ_IP:/home/rallyai/rAI/data/rally.db ./rally-backup.db
+```
+
+Истечение Pro и напоминания о продлении:
+
+```bash
+30 9 * * * root bash /home/rallyai/rAI/deploy/expire_subscriptions.sh
+```
+
+Недельный дайджест:
+
+```bash
+0 10 * * 1 root sudo -u rallyai /home/rallyai/rAI/.venv/bin/python /home/rallyai/rAI/remind.py digest
 ```
 
 ---
@@ -254,7 +277,7 @@ scp -i ~/.ssh/digitalocean_rallyai root@ВАШ_IP:/home/rallyai/rAI/data/rally.d
 | `503 UNAVAILABLE` | Временная перегрузка Gemini — подождите, отправьте видео снова |
 | `Не заданы переменные окружения` | Проверьте `/home/rallyai/rAI/.env` |
 | Нет денег на аккаунте | **Billing** в DigitalOcean — пополните баланс |
-| После рестарта «забыл» диалог | Нормально: активный чат в памяти; история разборов в SQLite сохраняется |
+| После рестарта «забыл» диалог | Активный диалог теперь в `active_sessions` (TTL 7 дней); история — в `player_sessions` |
 
 ---
 

@@ -10,6 +10,7 @@ from telegram import (
     InlineKeyboardMarkup,
     InputFile,
     KeyboardButton,
+    LabeledPrice,
     ReplyKeyboardMarkup,
     Update,
 )
@@ -21,9 +22,12 @@ from telegram.ext import (
     CommandHandler,
     ContextTypes,
     MessageHandler,
+    PreCheckoutQueryHandler,
     filters,
 )
 
+import billing
+import drills
 import storage
 from analysis_dialog import (
     clear_dialog,
@@ -50,15 +54,19 @@ from analytics import (
     EVENT_FEEDBACK_CLEAR,
     EVENT_FEEDBACK_NEGATIVE,
     EVENT_FEEDBACK_POSITIVE,
+    EVENT_INVOICE_SENT,
     EVENT_ONBOARDING_COMPLETED,
     EVENT_ONBOARDING_SKIPPED,
     EVENT_ONBOARDING_STARTED,
+    EVENT_PAYMENT_SUCCESS,
+    EVENT_PAYWALL_SHOWN,
     EVENT_PROFILE_RESET,
     EVENT_VIDEO_SENT,
     format_analytics_report,
 )
 from analyzer import VideoAnalyzer
 from config import Settings
+from error_reporting import alert_admins, report_failure
 from errors import format_analysis_error
 from formatting import markdown_to_html
 from i18n import (
@@ -91,6 +99,8 @@ from onboarding import (
     start_onboarding_state,
 )
 from pose_analysis import cleanup_overlay, create_pose_overlay
+from pricing import cost_for_usage
+from report_parser import format_scores_line, parse_report, sparkline
 from video_intake import (
     advance_intake_step,
     build_video_context,
@@ -247,12 +257,34 @@ def _language_code_from_context(context: ContextTypes.DEFAULT_TYPE) -> str:
     return get_stored_language_code(context.user_data)
 
 
+def _get_user_id(user_data: dict) -> Optional[int]:
+    return user_data.get("user_id")
+
+
+def _persist_session(user_data: dict) -> None:
+    user_id = _get_user_id(user_data)
+    session = user_data.get(SESSION_KEY)
+    if user_id and session:
+        storage.save_active_session(user_id, session)
+
+
 def _get_session(user_data: dict) -> dict:
+    if SESSION_KEY in user_data and user_data[SESSION_KEY]:
+        return user_data[SESSION_KEY]
+    user_id = _get_user_id(user_data)
+    if user_id:
+        loaded = storage.load_active_session(user_id)
+        if loaded:
+            user_data[SESSION_KEY] = loaded
+            return loaded
     return user_data.setdefault(SESSION_KEY, {"analysis": None, "history": []})
 
 
 def _clear_session(user_data: dict) -> None:
     user_data.pop(SESSION_KEY, None)
+    user_id = _get_user_id(user_data)
+    if user_id:
+        storage.clear_active_session(user_id)
 
 
 def _save_analysis(user_data: dict, report: str, stroke: Optional[str] = None) -> None:
@@ -261,16 +293,22 @@ def _save_analysis(user_data: dict, report: str, stroke: Optional[str] = None) -
         "history": [],
         "stroke": stroke,
     }
+    _persist_session(user_data)
 
 
-def _get_user_id(user_data: dict) -> Optional[int]:
-    return user_data.get("user_id")
+def _paywall_keyboard(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton(t(lang, "btn_upgrade_pro"), callback_data="pay:pro")]]
+    )
 
 
 def _bot_commands(lang: str) -> list[BotCommand]:
     return [
         BotCommand("start", t(lang, "cmd_start")),
         BotCommand("help", t(lang, "cmd_help")),
+        BotCommand("plan", t(lang, "cmd_plan")),
+        BotCommand("progress", t(lang, "cmd_progress")),
+        BotCommand("focus", t(lang, "cmd_focus")),
         BotCommand("profile", t(lang, "cmd_profile")),
         BotCommand("new", t(lang, "cmd_new")),
         BotCommand("history", t(lang, "cmd_history")),
@@ -505,7 +543,13 @@ async def _process_followup(
         else None
     )
 
-    reply = await asyncio.to_thread(
+    settings: Settings = context.application.bot_data.get("settings")
+    use_model = (
+        settings.model_for(billing.is_pro(user_id))
+        if settings and user_id
+        else analyzer._model
+    )
+    result = await asyncio.to_thread(
         analyzer.chat,
         analysis,
         history,
@@ -514,10 +558,25 @@ async def _process_followup(
         model_lang,
         player_profile,
         session.get("stroke"),
+        use_model,
     )
+    reply = result.text
     logger.info("Ответ ИИ получен (%s символов)", len(reply))
+    if user_id:
+        await asyncio.to_thread(
+            storage.log_usage,
+            user_id,
+            "chat",
+            result.model,
+            result.usage.input_tokens,
+            result.usage.output_tokens,
+            result.usage.thinking_tokens,
+            None,
+            cost_for_usage(result.usage, result.model),
+        )
     history.append({"user": user_text, "assistant": reply})
     session["history"] = history[-MAX_HISTORY_TURNS:]
+    _persist_session(user_data)
 
     prefix = f"↳ {question_label}\n\n" if question_label else ""
     chunks = _split_message(reply)
@@ -647,12 +706,39 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         )
         return
 
+    plan = await asyncio.to_thread(billing.get_plan, user_id)
+    if plan.analyses_left <= 0:
+        await _log_event(user_id, EVENT_PAYWALL_SHOWN)
+        await message.reply_text(
+            t(
+                lang,
+                "paywall_text",
+                used=plan.analyses_used,
+                limit=plan.analyses_limit,
+            ),
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=_paywall_keyboard(lang),
+        )
+        return
+
     video = message.video or message.video_note
     if not video:
         return
 
     if video.file_size and video.file_size > MAX_VIDEO_SIZE_MB * 1024 * 1024:
         await message.reply_text(t(lang, "video_too_large", max_mb=MAX_VIDEO_SIZE_MB))
+        return
+
+    duration = getattr(video, "duration", None) or 0
+    if duration and duration > plan.max_video_seconds:
+        await message.reply_text(
+            t(
+                lang,
+                "video_too_long",
+                max_sec=plan.max_video_seconds,
+                plan=plan.plan,
+            )
+        )
         return
 
     mime_type = getattr(video, "mime_type", None) or "video/mp4"
@@ -666,6 +752,7 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "mime_type": mime_type,
         "comment": user_comment,
         "video_context": None,
+        "duration": duration,
     }
     clear_intake_state(context.user_data)
     start_intake_state(context.user_data)
@@ -1206,10 +1293,31 @@ async def _run_video_analysis(
             temp_path = Path(tmp.name)
             await telegram_file.download_to_drive(custom_path=str(temp_path))
 
+        # квота ещё раз перед дорогим вызовом (гонка / ретраи)
+        plan = await asyncio.to_thread(billing.get_plan, user_id)
+        if plan.analyses_left <= 0:
+            await _log_event(user_id, EVENT_PAYWALL_SHOWN)
+            await status_message.edit_text(
+                t(
+                    lang,
+                    "paywall_text",
+                    used=plan.analyses_used,
+                    limit=plan.analyses_limit,
+                ),
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=_paywall_keyboard(lang),
+            )
+            return
+
         player_history = await asyncio.to_thread(storage.get_player_history, user_id)
         player_profile = await asyncio.to_thread(storage.get_player_profile, user_id)
+        focus_row = await asyncio.to_thread(storage.get_player_focus, user_id)
+        active_focus = (focus_row or {}).get("focus")
+        drills_catalog = await asyncio.to_thread(drills.catalog_for_prompt)
+        settings: Settings = context.application.bot_data.get("settings")
+        use_model = settings.model_for(plan.is_pro) if settings else analyzer._model
 
-        report = await asyncio.to_thread(
+        result = await asyncio.to_thread(
             analyzer.analyze,
             temp_path,
             user_comment,
@@ -1217,11 +1325,42 @@ async def _run_video_analysis(
             language_code,
             player_profile,
             video_context,
+            use_model,
+            active_focus,
+            drills_catalog,
+        )
+        parsed = parse_report(result.text)
+        report = parsed.text
+        stroke = (video_context or {}).get("stroke") if video_context else None
+        video_seconds = pending.get("duration")
+
+        await asyncio.to_thread(
+            storage.log_usage,
+            user_id,
+            "analyze",
+            result.model,
+            result.usage.input_tokens,
+            result.usage.output_tokens,
+            result.usage.thinking_tokens,
+            float(video_seconds) if video_seconds else None,
+            cost_for_usage(result.usage, result.model),
         )
 
-        stroke = (video_context or {}).get("stroke") if video_context else None
+        focus_text = parsed.focus or ""
         _save_analysis(context.user_data, report, stroke=stroke)
-        await asyncio.to_thread(storage.save_session, user_id, report, language_code)
+        await asyncio.to_thread(
+            storage.save_session,
+            user_id,
+            report,
+            language_code,
+            parsed.scores,
+            focus_text,
+            stroke or "",
+        )
+        if focus_text:
+            await asyncio.to_thread(
+                storage.set_player_focus, user_id, focus_text, stroke, 7
+            )
         context.user_data.pop("pending_video", None)
 
         state = start_dialog(
@@ -1233,15 +1372,35 @@ async def _run_video_analysis(
         )
 
         await status_message.delete()
+        summary = format_summary_message(lang, state)
+        if parsed.scores:
+            summary = f"{summary}\n\n{format_scores_line(parsed.scores, lang)}"
         await _reply_dialog(
             context,
             chat_id,
-            format_summary_message(lang, state),
+            summary,
             keyboard_summary(lang, state),
         )
+
+        picked = await asyncio.to_thread(drills.pick_drills, parsed.drill_ids, None, 2)
+        for drill in picked:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=drills.format_drill_message(drill, lang),
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            file_id = drill.get("telegram_file_id")
+            if file_id:
+                try:
+                    await context.bot.send_video(chat_id=chat_id, video=file_id)
+                except BadRequest:
+                    pass
+
         await _log_event(user_id, EVENT_ANALYSIS_SUCCESS)
 
-    except TimeoutError:
+    except TimeoutError as exc:
+        # квота не списывается — сессия не сохранена
+        report_failure(exc, "TimeoutError при анализе")
         await _log_event(user_id, EVENT_ANALYSIS_FAILED, "TimeoutError")
         await status_message.edit_text(
             format_analysis_error(TimeoutError(), lang),
@@ -1249,6 +1408,14 @@ async def _run_video_analysis(
         )
     except Exception as exc:
         logger.exception("Ошибка анализа видео для user_id=%s", user_id)
+        report_failure(exc)
+        admin_ids = context.application.bot_data.get("admin_user_ids") or ()
+        if admin_ids:
+            await alert_admins(
+                context.bot,
+                admin_ids,
+                f"Ошибка анализа user_id={user_id}: {type(exc).__name__}: {exc}"[:500],
+            )
         await _log_event(user_id, EVENT_ANALYSIS_FAILED, str(exc)[:200])
         await status_message.edit_text(
             format_analysis_error(exc, lang),
@@ -1488,11 +1655,167 @@ async def _setup_bot_menu(application: Application) -> None:
     )
 
 
+async def plan_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if not message:
+        return
+    lang = _lang_from_update(update, context)
+    user_id = message.from_user.id
+    context.user_data["user_id"] = user_id
+    await _touch_user(update)
+    plan = await asyncio.to_thread(billing.get_plan, user_id)
+    reset = plan.reset_at.strftime("%Y-%m-%d")
+    expires = plan.expires_at or "—"
+    text = t(
+        lang,
+        "plan_status",
+        plan=("Pro" if plan.is_pro else "Free"),
+        used=plan.analyses_used,
+        limit=plan.analyses_limit,
+        left=plan.analyses_left,
+        reset=reset,
+        expires=expires,
+    )
+    markup = None if plan.is_pro else _paywall_keyboard(lang)
+    await message.reply_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=markup)
+
+
+async def focus_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if not message:
+        return
+    lang = _lang_from_update(update, context)
+    user_id = message.from_user.id
+    context.user_data["user_id"] = user_id
+    await _touch_user(update)
+    focus = await asyncio.to_thread(storage.get_player_focus, user_id)
+    if not focus:
+        await message.reply_text(t(lang, "focus_empty"))
+        return
+    await message.reply_text(
+        t(
+            lang,
+            "focus_status",
+            focus=focus["focus"],
+            stroke=focus.get("stroke") or "—",
+            expires=focus.get("expires_at") or "—",
+        ),
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+
+async def progress_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if not message:
+        return
+    lang = _lang_from_update(update, context)
+    user_id = message.from_user.id
+    context.user_data["user_id"] = user_id
+    await _touch_user(update)
+    rows = await asyncio.to_thread(storage.get_progress_scores, user_id, 90)
+    if not rows:
+        await message.reply_text(t(lang, "progress_empty"))
+        return
+    from report_parser import SKILL_KEYS
+
+    lines = [t(lang, "progress_header")]
+    for key in SKILL_KEYS:
+        values = [r["scores"][key] for r in rows if key in r["scores"]]
+        if not values:
+            continue
+        label = format_scores_line({key: values[-1]}, lang).split()[0]
+        lines.append(
+            f"• {label}: {sparkline(values)} "
+            f"({values[0]:.0f}→{values[-1]:.0f}, n={len(values)})"
+        )
+    recent = rows[-1]
+    if recent.get("focus"):
+        lines.append("")
+        lines.append(t(lang, "progress_last_focus", focus=recent["focus"]))
+    await message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
+
+
+async def send_pro_invoice(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, lang: str, user_id: int
+) -> None:
+    chat = update.effective_chat
+    if not chat:
+        return
+    payload = billing.stars_payload(user_id)
+    title = t(lang, "invoice_title")
+    description = t(lang, "invoice_description")
+    await context.bot.send_invoice(
+        chat_id=chat.id,
+        title=title,
+        description=description,
+        payload=payload,
+        provider_token="",  # Stars
+        currency=billing.STARS_CURRENCY,
+        prices=[LabeledPrice(label=title, amount=billing.DEFAULT_STARS_PRICE)],
+    )
+    await _log_event(user_id, EVENT_INVOICE_SENT)
+
+
+async def handle_pay_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    query = update.callback_query
+    if not query:
+        return
+    await query.answer()
+    lang = sync_user_lang(context.user_data, query.from_user.language_code)
+    user_id = query.from_user.id
+    context.user_data["user_id"] = user_id
+    await _touch_user(update)
+    await send_pro_invoice(update, context, lang, user_id)
+
+
+async def handle_precheckout(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    query = update.pre_checkout_query
+    if not query:
+        return
+    user_id = billing.parse_stars_payload(query.invoice_payload or "")
+    if user_id is None or user_id != query.from_user.id:
+        await query.answer(ok=False, error_message="Invalid payment payload")
+        return
+    await query.answer(ok=True)
+
+
+async def handle_successful_payment(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    message = update.message
+    if not message or not message.successful_payment:
+        return
+    lang = _lang_from_update(update, context)
+    user_id = message.from_user.id
+    context.user_data["user_id"] = user_id
+    payment = message.successful_payment
+    payment_id = (
+        payment.telegram_payment_charge_id or payment.provider_payment_charge_id
+    )
+    await asyncio.to_thread(
+        billing.grant_pro,
+        user_id,
+        1,
+        billing.PROVIDER_STARS,
+        payment_id,
+    )
+    await _log_event(user_id, EVENT_PAYMENT_SUCCESS, payment_id or "")
+    await message.reply_text(t(lang, "payment_success"), parse_mode=ParseMode.MARKDOWN)
+
+
 def build_application(settings: Settings) -> Application:
     analyzer = VideoAnalyzer(
         api_key=settings.gemini_api_key,
-        model=settings.gemini_model_free,
+        model=settings.gemini_model_pro,
     )
+    try:
+        drills.sync_drills_from_wiki()
+    except Exception:
+        logger.exception("Не удалось синхронизировать drills из wiki")
 
     app = (
         Application.builder()
@@ -1501,12 +1824,16 @@ def build_application(settings: Settings) -> Application:
         .build()
     )
     app.bot_data["analyzer"] = analyzer
+    app.bot_data["settings"] = settings
     app.bot_data["admin_user_ids"] = settings.admin_user_ids
     if not settings.admin_user_ids:
         logger.warning("ADMIN_USER_IDS не задан — команда /stats недоступна")
 
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("plan", plan_command))
+    app.add_handler(CommandHandler("focus", focus_command))
+    app.add_handler(CommandHandler("progress", progress_command))
     app.add_handler(CommandHandler("new", new_command))
     app.add_handler(CommandHandler("reset", new_command))
     app.add_handler(CommandHandler("history", history_command))
@@ -1516,6 +1843,11 @@ def build_application(settings: Settings) -> Application:
     app.add_handler(CallbackQueryHandler(handle_dialog, pattern=r"^d:"))
     app.add_handler(CallbackQueryHandler(handle_quick_question, pattern=r"^q:"))
     app.add_handler(CallbackQueryHandler(handle_retry, pattern=r"^retry$"))
+    app.add_handler(CallbackQueryHandler(handle_pay_callback, pattern=r"^pay:"))
+    app.add_handler(PreCheckoutQueryHandler(handle_precheckout))
+    app.add_handler(
+        MessageHandler(filters.SUCCESSFUL_PAYMENT, handle_successful_payment)
+    )
     app.add_handler(MessageHandler(filters.VIDEO | filters.VIDEO_NOTE, handle_video))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_unsupported))

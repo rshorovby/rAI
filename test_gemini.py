@@ -20,7 +20,12 @@ def main() -> None:
             print(f"Файл не найден: {video_path}")
             sys.exit(1)
         print(f"Анализ видео: {video_path}")
-        report = client.analyze(video_path)
+        result = client.analyze(video_path)
+        report = result.text
+        print(
+            f"usage: in={result.usage.input_tokens} out={result.usage.output_tokens} "
+            f"think={result.usage.thinking_tokens}"
+        )
     else:
         from google import genai
 

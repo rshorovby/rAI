@@ -1,8 +1,9 @@
 """Постоянное хранилище истории сессий игрока (SQLite)."""
 
+import json
 import re
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -10,6 +11,7 @@ from i18n import DEFAULT_LANG, report_section_headers, t
 
 DB_PATH = Path(__file__).parent / "data" / "rally.db"
 MAX_HISTORY_SESSIONS = 5  # столько последних сессий попадает в контекст тренера
+ACTIVE_SESSION_TTL_DAYS = 7
 
 
 # ---------------------------------------------------------------------------
@@ -73,6 +75,70 @@ def _init_db(conn: sqlite3.Connection) -> None:
             ON events (event_type, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_events_user
             ON events (user_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS usage_log (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id         INTEGER NOT NULL,
+            kind            TEXT    NOT NULL,
+            model           TEXT    NOT NULL,
+            input_tokens    INTEGER NOT NULL DEFAULT 0,
+            output_tokens   INTEGER NOT NULL DEFAULT 0,
+            thinking_tokens INTEGER NOT NULL DEFAULT 0,
+            video_seconds   REAL,
+            cost_usd        REAL    NOT NULL DEFAULT 0,
+            created_at      TEXT    NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_usage_created
+            ON usage_log (created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_usage_user
+            ON usage_log (user_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS active_sessions (
+            user_id    INTEGER PRIMARY KEY,
+            payload    TEXT    NOT NULL,
+            updated_at TEXT    NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS subscriptions (
+            user_id         INTEGER PRIMARY KEY,
+            plan            TEXT    NOT NULL DEFAULT 'free',
+            status          TEXT    NOT NULL DEFAULT 'active',
+            started_at      TEXT    NOT NULL,
+            expires_at      TEXT,
+            provider        TEXT,
+            last_payment_id TEXT,
+            reminder_sent_at TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS payments (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id             INTEGER NOT NULL,
+            provider            TEXT    NOT NULL,
+            provider_payment_id TEXT    UNIQUE,
+            amount              INTEGER NOT NULL,
+            currency            TEXT    NOT NULL,
+            status              TEXT    NOT NULL,
+            created_at          TEXT    NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_payments_user
+            ON payments (user_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS drills (
+            id                TEXT PRIMARY KEY,
+            title             TEXT NOT NULL,
+            description       TEXT NOT NULL DEFAULT '',
+            tags              TEXT NOT NULL DEFAULT '[]',
+            telegram_file_id  TEXT,
+            language          TEXT NOT NULL DEFAULT 'ru'
+        );
+
+        CREATE TABLE IF NOT EXISTS player_focus (
+            user_id     INTEGER PRIMARY KEY,
+            focus       TEXT    NOT NULL,
+            stroke      TEXT,
+            set_at      TEXT    NOT NULL,
+            expires_at  TEXT
+        );
     """
     )
     _migrate_schema(conn)
@@ -82,10 +148,22 @@ def _init_db(conn: sqlite3.Connection) -> None:
 def _migrate_schema(conn: sqlite3.Connection) -> None:
     migrations = (
         ("player_sessions", "next_video", "TEXT NOT NULL DEFAULT ''"),
+        ("player_sessions", "scores", "TEXT NOT NULL DEFAULT ''"),
+        ("player_sessions", "focus", "TEXT NOT NULL DEFAULT ''"),
+        ("player_sessions", "stroke", "TEXT NOT NULL DEFAULT ''"),
         ("users", "last_analysis_at", "TEXT"),
         ("users", "reminder_sent_at", "TEXT"),
+        ("users", "digest_sent_at", "TEXT"),
+        ("users", "streak_weeks", "INTEGER NOT NULL DEFAULT 0"),
+        ("subscriptions", "reminder_sent_at", "TEXT"),
     )
     for table, column, typedef in migrations:
+        tables = {
+            row[0]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        if table not in tables:
+            continue
         cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
         if column not in cols:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {typedef}")
@@ -159,19 +237,33 @@ def save_session(
     user_id: int,
     report: str,
     language_code: str = DEFAULT_LANG,
+    scores: Optional[dict] = None,
+    focus: str = "",
+    stroke: str = "",
 ) -> None:
     """Сохраняет краткое резюме, топ-3 и задание на следующее видео."""
     summary, top3, next_video = _extract_report_sections(report, language_code)
-    created_at = datetime.now().strftime("%d %b %Y")
+    created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    scores_json = json.dumps(scores or {}, ensure_ascii=False)
 
     with _connect() as conn:
         _init_db(conn)
         conn.execute(
             """
-            INSERT INTO player_sessions (user_id, created_at, summary, top3, next_video)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO player_sessions
+                (user_id, created_at, summary, top3, next_video, scores, focus, stroke)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (user_id, created_at, summary, top3, next_video),
+            (
+                user_id,
+                created_at,
+                summary,
+                top3,
+                next_video,
+                scores_json,
+                focus or "",
+                stroke or "",
+            ),
         )
         conn.commit()
 
@@ -182,15 +274,24 @@ def get_player_history(user_id: int) -> list[dict]:
         _init_db(conn)
         rows = conn.execute(
             """
-            SELECT created_at, summary, top3
+            SELECT created_at, summary, top3, scores, focus, stroke
             FROM player_sessions
             WHERE user_id = ?
-            ORDER BY created_at DESC
+            ORDER BY id DESC
             LIMIT ?
             """,
             (user_id, MAX_HISTORY_SESSIONS),
         ).fetchall()
-    return [dict(r) for r in reversed(rows)]
+    result = []
+    for row in reversed(rows):
+        item = dict(row)
+        raw = item.get("scores") or ""
+        try:
+            item["scores"] = json.loads(raw) if raw else {}
+        except json.JSONDecodeError:
+            item["scores"] = {}
+        result.append(item)
+    return result
 
 
 def get_session_count(user_id: int) -> int:
@@ -455,6 +556,8 @@ def get_analytics_summary(recent_limit: int = 10) -> dict:
         "analyses_total": analyses_total,
         "events": events,
         "recent_users": recent_users,
+        "usage": get_usage_summary(30),
+        "retention": get_retention_cohorts(8),
     }
 
 
@@ -544,4 +647,427 @@ def mark_reminder_sent(user_id: int) -> None:
             "UPDATE users SET reminder_sent_at = ? WHERE user_id = ?",
             (now, user_id),
         )
+        conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Usage / cost telemetry
+# ---------------------------------------------------------------------------
+
+
+def log_usage(
+    user_id: int,
+    kind: str,
+    model: str,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    thinking_tokens: int = 0,
+    video_seconds: Optional[float] = None,
+    cost_usd: float = 0.0,
+) -> None:
+    created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            """
+            INSERT INTO usage_log
+                (user_id, kind, model, input_tokens, output_tokens,
+                 thinking_tokens, video_seconds, cost_usd, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user_id,
+                kind,
+                model,
+                int(input_tokens or 0),
+                int(output_tokens or 0),
+                int(thinking_tokens or 0),
+                video_seconds,
+                float(cost_usd or 0.0),
+                created_at,
+            ),
+        )
+        conn.commit()
+
+
+def get_usage_summary(days: int = 30) -> dict:
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            """
+            SELECT
+                COUNT(*) AS calls,
+                COALESCE(SUM(CASE WHEN kind = 'analyze' THEN 1 ELSE 0 END), 0)
+                    AS analyses,
+                COALESCE(SUM(input_tokens), 0) AS input_tokens,
+                COALESCE(SUM(output_tokens), 0) AS output_tokens,
+                COALESCE(SUM(thinking_tokens), 0) AS thinking_tokens,
+                COALESCE(SUM(cost_usd), 0) AS cost_usd,
+                COUNT(DISTINCT user_id) AS active_users
+            FROM usage_log
+            WHERE datetime(created_at) >= datetime('now', ?)
+            """,
+            (f"-{days} days",),
+        ).fetchone()
+    analyses = int(row["analyses"] or 0)
+    cost = float(row["cost_usd"] or 0.0)
+    users = int(row["active_users"] or 0)
+    return {
+        "days": days,
+        "calls": int(row["calls"] or 0),
+        "analyses": analyses,
+        "input_tokens": int(row["input_tokens"] or 0),
+        "output_tokens": int(row["output_tokens"] or 0),
+        "thinking_tokens": int(row["thinking_tokens"] or 0),
+        "cost_usd": cost,
+        "active_users": users,
+        "avg_cost_per_analysis": (cost / analyses) if analyses else 0.0,
+        "cost_per_active_user": (cost / users) if users else 0.0,
+        "avg_input_tokens": (
+            int(row["input_tokens"] or 0) / analyses if analyses else 0
+        ),
+        "avg_output_tokens": (
+            (int(row["output_tokens"] or 0) + int(row["thinking_tokens"] or 0))
+            / analyses
+            if analyses
+            else 0
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Active dialog sessions (survives process restart)
+# ---------------------------------------------------------------------------
+
+
+def save_active_session(user_id: int, payload: dict) -> None:
+    updated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            """
+            INSERT INTO active_sessions (user_id, payload, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                payload = excluded.payload,
+                updated_at = excluded.updated_at
+            """,
+            (user_id, json.dumps(payload, ensure_ascii=False), updated_at),
+        )
+        conn.commit()
+
+
+def load_active_session(user_id: int) -> Optional[dict]:
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            """
+            SELECT payload, updated_at FROM active_sessions WHERE user_id = ?
+            """,
+            (user_id,),
+        ).fetchone()
+    if not row:
+        return None
+    try:
+        updated = datetime.strptime(row["updated_at"], "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        updated = datetime.now()
+    if datetime.now() - updated > timedelta(days=ACTIVE_SESSION_TTL_DAYS):
+        clear_active_session(user_id)
+        return None
+    try:
+        return json.loads(row["payload"])
+    except json.JSONDecodeError:
+        return None
+
+
+def clear_active_session(user_id: int) -> None:
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute("DELETE FROM active_sessions WHERE user_id = ?", (user_id,))
+        conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Focus of the week
+# ---------------------------------------------------------------------------
+
+
+def set_player_focus(
+    user_id: int,
+    focus: str,
+    stroke: Optional[str] = None,
+    days: int = 7,
+) -> None:
+    set_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    expires_at = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            """
+            INSERT INTO player_focus (user_id, focus, stroke, set_at, expires_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                focus = excluded.focus,
+                stroke = excluded.stroke,
+                set_at = excluded.set_at,
+                expires_at = excluded.expires_at
+            """,
+            (user_id, focus, stroke, set_at, expires_at),
+        )
+        conn.commit()
+
+
+def get_player_focus(user_id: int) -> Optional[dict]:
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            "SELECT focus, stroke, set_at, expires_at FROM player_focus WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+    if not row:
+        return None
+    if row["expires_at"]:
+        try:
+            if (
+                datetime.strptime(row["expires_at"], "%Y-%m-%d %H:%M:%S")
+                < datetime.now()
+            ):
+                clear_player_focus(user_id)
+                return None
+        except ValueError:
+            pass
+    return dict(row)
+
+
+def clear_player_focus(user_id: int) -> None:
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute("DELETE FROM player_focus WHERE user_id = ?", (user_id,))
+        conn.commit()
+
+
+def get_progress_scores(user_id: int, days: int = 90) -> list[dict]:
+    with _connect() as conn:
+        _init_db(conn)
+        rows = conn.execute(
+            """
+            SELECT created_at, scores, focus, stroke
+            FROM player_sessions
+            WHERE user_id = ?
+              AND datetime(created_at) >= datetime('now', ?)
+              AND scores != ''
+            ORDER BY id ASC
+            """,
+            (user_id, f"-{days} days"),
+        ).fetchall()
+    result = []
+    for row in rows:
+        try:
+            scores = json.loads(row["scores"] or "{}")
+        except json.JSONDecodeError:
+            scores = {}
+        if not scores:
+            continue
+        result.append(
+            {
+                "created_at": row["created_at"],
+                "scores": scores,
+                "focus": row["focus"] or "",
+                "stroke": row["stroke"] or "",
+            }
+        )
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Drills catalog
+# ---------------------------------------------------------------------------
+
+
+def upsert_drill(
+    drill_id: str,
+    title: str,
+    description: str = "",
+    tags: Optional[list] = None,
+    telegram_file_id: Optional[str] = None,
+    language: str = "ru",
+) -> None:
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            """
+            INSERT INTO drills (id, title, description, tags, telegram_file_id, language)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                title = excluded.title,
+                description = excluded.description,
+                tags = excluded.tags,
+                telegram_file_id = COALESCE(excluded.telegram_file_id, drills.telegram_file_id),
+                language = excluded.language
+            """,
+            (
+                drill_id,
+                title,
+                description,
+                json.dumps(tags or [], ensure_ascii=False),
+                telegram_file_id,
+                language,
+            ),
+        )
+        conn.commit()
+
+
+def list_drills(language: Optional[str] = None) -> list[dict]:
+    with _connect() as conn:
+        _init_db(conn)
+        if language:
+            rows = conn.execute(
+                "SELECT * FROM drills WHERE language = ? ORDER BY id",
+                (language,),
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM drills ORDER BY id").fetchall()
+    result = []
+    for row in rows:
+        item = dict(row)
+        try:
+            item["tags"] = json.loads(item.get("tags") or "[]")
+        except json.JSONDecodeError:
+            item["tags"] = []
+        result.append(item)
+    return result
+
+
+def get_drill(drill_id: str) -> Optional[dict]:
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute("SELECT * FROM drills WHERE id = ?", (drill_id,)).fetchone()
+    if not row:
+        return None
+    item = dict(row)
+    try:
+        item["tags"] = json.loads(item.get("tags") or "[]")
+    except json.JSONDecodeError:
+        item["tags"] = []
+    return item
+
+
+def count_analyses_in_period(user_id: int, since: datetime) -> int:
+    since_s = since.strftime("%Y-%m-%d %H:%M:%S")
+    with _connect() as conn:
+        _init_db(conn)
+        return conn.execute(
+            """
+            SELECT COUNT(*) FROM player_sessions
+            WHERE user_id = ? AND datetime(created_at) >= datetime(?)
+            """,
+            (user_id, since_s),
+        ).fetchone()[0]
+
+
+def get_retention_cohorts(max_cohorts: int = 8) -> list[dict]:
+    """D1/D7/D30 по когортам first_seen (неделя)."""
+    with _connect() as conn:
+        _init_db(conn)
+        cohorts = conn.execute(
+            """
+            SELECT strftime('%Y-%W', first_seen_at) AS cohort,
+                   COUNT(*) AS size
+            FROM users
+            WHERE first_seen_at IS NOT NULL
+            GROUP BY cohort
+            ORDER BY cohort DESC
+            LIMIT ?
+            """,
+            (max_cohorts,),
+        ).fetchall()
+        result = []
+        for c in cohorts:
+            cohort = c["cohort"]
+            size = int(c["size"])
+            if size == 0:
+                continue
+
+            def _retained(days: int, cohort_key: str = cohort) -> int:
+                return conn.execute(
+                    """
+                    SELECT COUNT(DISTINCT u.user_id)
+                    FROM users u
+                    JOIN events e ON e.user_id = u.user_id
+                    WHERE strftime('%Y-%W', u.first_seen_at) = ?
+                      AND e.event_type IN ('video_sent', 'analysis_success')
+                      AND julianday(e.created_at) - julianday(u.first_seen_at)
+                          BETWEEN ? AND ?
+                    """,
+                    (cohort_key, days - 0.5, days + 1.5),
+                ).fetchone()[0]
+
+            d1 = _retained(1)
+            d7 = _retained(7)
+            d30 = _retained(30)
+            result.append(
+                {
+                    "cohort": cohort,
+                    "size": size,
+                    "d1": d1,
+                    "d7": d7,
+                    "d30": d30,
+                    "d1_pct": round(100 * d1 / size) if size else 0,
+                    "d7_pct": round(100 * d7 / size) if size else 0,
+                    "d30_pct": round(100 * d30 / size) if size else 0,
+                }
+            )
+    return list(reversed(result))
+
+
+def get_users_for_digest() -> list[dict]:
+    """Пользователи с активностью за 14 дней, без дайджеста за последние 6 дней."""
+    with _connect() as conn:
+        _init_db(conn)
+        rows = conn.execute(
+            """
+            SELECT
+                u.user_id,
+                u.language_code,
+                COALESCE(u.streak_weeks, 0) AS streak_weeks,
+                (
+                    SELECT COUNT(*) FROM player_sessions s
+                    WHERE s.user_id = u.user_id
+                      AND datetime(s.created_at) >= datetime('now', '-7 days')
+                ) AS analyses_week
+            FROM users u
+            WHERE datetime(u.last_seen_at) >= datetime('now', '-14 days')
+              AND (
+                  u.digest_sent_at IS NULL
+                  OR datetime(u.digest_sent_at) < datetime('now', '-6 days')
+              )
+            """
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def mark_digest_sent(user_id: int, had_analysis: bool) -> None:
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with _connect() as conn:
+        _init_db(conn)
+        if had_analysis:
+            conn.execute(
+                """
+                UPDATE users
+                SET digest_sent_at = ?,
+                    streak_weeks = COALESCE(streak_weeks, 0) + 1
+                WHERE user_id = ?
+                """,
+                (now, user_id),
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE users
+                SET digest_sent_at = ?, streak_weeks = 0
+                WHERE user_id = ?
+                """,
+                (now, user_id),
+            )
         conn.commit()

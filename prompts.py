@@ -57,6 +57,20 @@ USER_PROMPT_RU = """\
 ## Ограничения анализа
 Что невозможно оценить из-за ракурса, длительности или качества видео.
 
+## Метаданные (служебно)
+В самом конце ответа добавь JSON-блок в тройных backticks с типом json.
+Оцени навыки по шкале 0–10 (только по видимому на видео):
+- footwork — работа ног
+- contact — точка контакта
+- preparation — подготовка
+- follow_through — проводка
+Поле focus — один короткий фокус недели (одно действие).
+Поле drills — массив id упражнений из списка в системном промпте (0–2 штуки).
+Пример:
+```json
+{"scores":{"footwork":6,"contact":5,"preparation":7,"follow_through":6},"focus":"Повернуться до отскока","drills":["count-for-more-time"]}
+```
+
 Важно: если на видео нет теннисных действий или контент не подходит для разбора — вежливо сообщи об этом вместо выдуманного анализа.
 """
 
@@ -98,6 +112,20 @@ Required section (for internal use only — the player sees it in a separate mes
 
 ## Analysis limitations
 What cannot be assessed due to angle, duration, or video quality.
+
+## Metadata (internal)
+At the very end, add a JSON block in triple backticks with type json.
+Score skills 0–10 based only on what is visible:
+- footwork
+- contact
+- preparation
+- follow_through
+Field focus — one short weekly focus (one action).
+Field drills — array of drill ids from the system prompt catalog (0–2 items).
+Example:
+```json
+{"scores":{"footwork":6,"contact":5,"preparation":7,"follow_through":6},"focus":"Turn before the bounce","drills":["count-for-more-time"]}
+```
 
 Important: if the video shows no tennis actions or content is unsuitable — say so politely instead of inventing an analysis.
 """
@@ -175,6 +203,8 @@ def build_system_prompt(
     player_history: Optional[list] = None,
     player_profile: Optional[dict] = None,
     stroke: Optional[str] = None,
+    active_focus: Optional[str] = None,
+    drills_catalog: Optional[str] = None,
 ) -> str:
     from wiki_context import build_knowledge_block
 
@@ -189,6 +219,27 @@ def build_system_prompt(
         parts.append(knowledge_ctx)
     if coach_ctx:
         parts.append(coach_ctx)
+    if active_focus:
+        parts.append(
+            "Active weekly focus to verify on this video:\n"
+            f'"{active_focus}"\n'
+            "In the summary, explicitly say whether it improved, stayed the same, or got worse."
+        )
+    if drills_catalog:
+        parts.append(
+            "Available drills (pick 0–2 ids for the metadata JSON):\n" + drills_catalog
+        )
+    # scores history for continuity
+    history = player_history or []
+    score_lines = []
+    for s in history:
+        scores = s.get("scores") or {}
+        if scores:
+            score_lines.append(
+                f"- {s.get('created_at', '?')} [{s.get('stroke') or '?'}]: {scores}"
+            )
+    if score_lines:
+        parts.append("Recent skill scores (for continuity):\n" + "\n".join(score_lines))
     return "\n\n".join(parts)
 
 

@@ -1,5 +1,6 @@
 import logging
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -7,6 +8,7 @@ from google import genai
 from google.genai import types
 
 from i18n import DEFAULT_LANG, normalize_language_code, t
+from pricing import Usage, usage_from_response
 from prompts import (
     build_analysis_prompt,
     build_follow_up_system_prompt,
@@ -38,6 +40,13 @@ def _is_transient_error(exc: Exception) -> bool:
     return any(marker in msg for marker in _TRANSIENT_MARKERS)
 
 
+@dataclass(frozen=True)
+class AnalysisResult:
+    text: str
+    usage: Usage
+    model: str
+
+
 class VideoAnalyzer:
     def __init__(self, api_key: str, model: str) -> None:
         self._client = genai.Client(api_key=api_key)
@@ -51,7 +60,11 @@ class VideoAnalyzer:
         language_code: str = DEFAULT_LANG,
         player_profile: Optional[dict] = None,
         video_context: Optional[dict] = None,
-    ) -> str:
+        model: Optional[str] = None,
+        active_focus: Optional[str] = None,
+        drills_catalog: Optional[str] = None,
+    ) -> AnalysisResult:
+        use_model = model or self._model
         upload_path, mute_tmp = strip_audio_for_upload(video_path)
         uploaded = None
         try:
@@ -59,6 +72,7 @@ class VideoAnalyzer:
             uploaded = self._wait_until_active(uploaded)
 
             response = self._generate_with_retry(
+                model=use_model,
                 contents=[
                     types.Content(
                         role="user",
@@ -81,6 +95,8 @@ class VideoAnalyzer:
                         player_history,
                         player_profile,
                         stroke=(video_context or {}).get("stroke"),
+                        active_focus=active_focus,
+                        drills_catalog=drills_catalog,
                     ),
                     temperature=0.4,
                 ),
@@ -96,7 +112,9 @@ class VideoAnalyzer:
                         "Не удалось удалить локальный mute-файл: %s", mute_tmp
                     )
 
-        return self._extract_text(response)
+        text = self._extract_text(response)
+        usage = usage_from_response(response, use_model)
+        return AnalysisResult(text=text, usage=usage, model=use_model)
 
     def _generate_with_retry(
         self, model: Optional[str] = None, **kwargs
@@ -130,7 +148,9 @@ class VideoAnalyzer:
         language_code: str = DEFAULT_LANG,
         player_profile: Optional[dict] = None,
         stroke: Optional[str] = None,
-    ) -> str:
+        model: Optional[str] = None,
+    ) -> AnalysisResult:
+        use_model = model or self._model
         ui_lang = "ru" if normalize_language_code(language_code) == "ru" else "en"
         report_intro = (
             "Вот отчёт по видео теннисиста, который мы уже разобрали:\n\n"
@@ -171,6 +191,7 @@ class VideoAnalyzer:
         )
 
         response = self._generate_with_retry(
+            model=use_model,
             contents=contents,
             config=types.GenerateContentConfig(
                 system_instruction=build_follow_up_system_prompt(
@@ -179,7 +200,9 @@ class VideoAnalyzer:
                 temperature=0.5,
             ),
         )
-        return self._extract_text(response)
+        text = self._extract_text(response)
+        usage = usage_from_response(response, use_model)
+        return AnalysisResult(text=text, usage=usage, model=use_model)
 
     def _extract_text(self, response: types.GenerateContentResponse) -> str:
         text = (response.text or "").strip()

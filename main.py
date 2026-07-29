@@ -2,6 +2,7 @@ import logging
 
 from bot import build_application
 from config import load_settings
+from error_reporting import init_sentry
 
 
 def main() -> None:
@@ -12,9 +13,16 @@ def main() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
 
+    init_sentry()
     settings = load_settings()
     app = build_application(settings)
-    app.run_polling(allowed_updates=["message", "callback_query"])
+    app.run_polling(
+        allowed_updates=[
+            "message",
+            "callback_query",
+            "pre_checkout_query",
+        ]
+    )
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Рассылка напоминаний «пришли видео» через N дней после разбора."""
+"""Рассылка напоминаний и недельных дайджестов."""
 
 import asyncio
 import logging
@@ -43,16 +43,54 @@ async def run_reminders(days: int = 7) -> int:
     return sent
 
 
+async def run_digests() -> int:
+    settings = load_settings()
+    bot = Bot(settings.telegram_token)
+    users = storage.get_users_for_digest()
+    sent = 0
+    for row in users:
+        user_id = int(row["user_id"])
+        lang = _ui_lang(row.get("language_code") or "")
+        focus_row = storage.get_player_focus(user_id)
+        focus = (focus_row or {}).get("focus") or "—"
+        analyses = int(row.get("analyses_week") or 0)
+        streak = int(row.get("streak_weeks") or 0)
+        # если на этой неделе был разбор — стрик продолжится в mark_digest_sent
+        text = t(
+            lang,
+            "digest_weekly",
+            focus=focus,
+            streak=streak + (1 if analyses else 0),
+            analyses=analyses,
+        )
+        try:
+            await bot.send_message(chat_id=user_id, text=text, parse_mode="Markdown")
+            storage.mark_digest_sent(user_id, had_analysis=analyses > 0)
+            sent += 1
+            logger.info("Дайджест отправлен user_id=%s", user_id)
+        except Exception:
+            logger.exception("Не удалось отправить дайджест user_id=%s", user_id)
+    return sent
+
+
 def main() -> None:
     logging.basicConfig(
         format="%(asctime)s — %(name)s — %(levelname)s — %(message)s",
         level=logging.INFO,
     )
+    mode = "remind"
     days = 7
     if len(sys.argv) > 1:
-        days = int(sys.argv[1])
-    count = asyncio.run(run_reminders(days=days))
-    print(f"Отправлено напоминаний: {count}")
+        if sys.argv[1] == "digest":
+            mode = "digest"
+        else:
+            days = int(sys.argv[1])
+    if mode == "digest":
+        count = asyncio.run(run_digests())
+        print(f"Отправлено дайджестов: {count}")
+    else:
+        count = asyncio.run(run_reminders(days))
+        print(f"Отправлено напоминаний: {count}")
 
 
 if __name__ == "__main__":

@@ -11,6 +11,10 @@ EVENT_FEEDBACK_NEGATIVE = "feedback_negative"
 EVENT_FEEDBACK_CLEAR = "feedback_clear"
 EVENT_REMINDER_SENT = "reminder_sent"
 EVENT_PROFILE_RESET = "profile_reset"
+EVENT_PAYWALL_SHOWN = "paywall_shown"
+EVENT_INVOICE_SENT = "invoice_sent"
+EVENT_PAYMENT_SUCCESS = "payment_success"
+EVENT_SUBSCRIPTION_EXPIRED = "subscription_expired"
 
 ALL_EVENT_TYPES = (
     EVENT_ONBOARDING_STARTED,
@@ -24,6 +28,10 @@ ALL_EVENT_TYPES = (
     EVENT_FEEDBACK_CLEAR,
     EVENT_REMINDER_SENT,
     EVENT_PROFILE_RESET,
+    EVENT_PAYWALL_SHOWN,
+    EVENT_INVOICE_SENT,
+    EVENT_PAYMENT_SUCCESS,
+    EVENT_SUBSCRIPTION_EXPIRED,
 )
 
 
@@ -46,6 +54,10 @@ def format_analytics_report(data: dict) -> str:
     fb_clear = data["events"].get(EVENT_FEEDBACK_CLEAR, 0)
     fb_total = fb_pos + fb_neg + fb_clear
     reminders = data["events"].get(EVENT_REMINDER_SENT, 0)
+    paywall = data["events"].get(EVENT_PAYWALL_SHOWN, 0)
+    invoices = data["events"].get(EVENT_INVOICE_SENT, 0)
+    payments = data["events"].get(EVENT_PAYMENT_SUCCESS, 0)
+    expired = data["events"].get(EVENT_SUBSCRIPTION_EXPIRED, 0)
 
     lines = [
         "📊 RallyAI — статистика",
@@ -65,6 +77,12 @@ def format_analytics_report(data: dict) -> str:
         f"• Разбор успешен: {success} ({_pct(success, videos)})",
         f"• Разбор с ошибкой: {failed} ({_pct(failed, videos)})",
         "",
+        "Оплата",
+        f"• Paywall показан: {paywall}",
+        f"• Инвойс отправлен: {invoices} ({_pct(invoices, paywall)})",
+        f"• Оплата успешна: {payments} ({_pct(payments, invoices)})",
+        f"• Подписок истекло: {expired}",
+        "",
         "Фидбек",
         f"• Всего ответов: {fb_total}",
         f"• 👍 Полезно: {fb_pos} ({_pct(fb_pos, fb_total)})",
@@ -78,6 +96,31 @@ def format_analytics_report(data: dict) -> str:
         f"• Всего: {data['analyses_total']}",
         f"• Уникальных пользователей: {data['users_with_videos']}",
     ]
+
+    usage = data.get("usage") or {}
+    if usage:
+        lines += [
+            "",
+            f"API / себестоимость ({usage.get('days', 30)} дн.)",
+            f"• Вызовов: {usage.get('calls', 0)} (разборов: {usage.get('analyses', 0)})",
+            f"• Токены in/out: {usage.get('input_tokens', 0)} / "
+            f"{usage.get('output_tokens', 0) + usage.get('thinking_tokens', 0)}",
+            f"• Средние токены / разбор: "
+            f"in {usage.get('avg_input_tokens', 0):.0f}, "
+            f"out {usage.get('avg_output_tokens', 0):.0f}",
+            f"• Cost всего: ${usage.get('cost_usd', 0):.4f}",
+            f"• Cost / разбор: ${usage.get('avg_cost_per_analysis', 0):.4f}",
+            f"• Cost / активный юзер: ${usage.get('cost_per_active_user', 0):.4f}",
+        ]
+
+    retention = data.get("retention") or []
+    if retention:
+        lines += ["", "Retention (когорты по неделе регистрации)"]
+        for c in retention[-6:]:
+            lines.append(
+                f"• {c['cohort']} n={c['size']}: "
+                f"D1 {c['d1_pct']}% · D7 {c['d7_pct']}% · D30 {c['d30_pct']}%"
+            )
 
     recent = data.get("recent_users") or []
     if recent:

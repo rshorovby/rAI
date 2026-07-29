@@ -30,8 +30,13 @@ class Settings:
     gemini_model_free: str
     admin_user_ids: tuple[int, ...]
 
-    def model_for(self, is_pro: bool) -> str:
-        return self.gemini_model_pro if is_pro else self.gemini_model_free
+    def model_for(self, is_pro: bool = False) -> str:
+        """Всегда лучшая модель; тариф влияет только на квоты, не на качество."""
+        return self.gemini_model_pro
+
+    @property
+    def gemini_model(self) -> str:
+        return self.gemini_model_pro
 
 
 def load_settings() -> Settings:

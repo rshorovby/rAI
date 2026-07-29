@@ -73,11 +73,27 @@ def test_format_analytics_report_contains_sections():
                 EVENT_REMINDER_SENT: 4,
             },
             "recent_users": [],
+            "usage": {
+                "days": 30,
+                "calls": 10,
+                "analyses": 8,
+                "input_tokens": 80000,
+                "output_tokens": 20000,
+                "thinking_tokens": 5000,
+                "cost_usd": 0.42,
+                "active_users": 5,
+                "avg_cost_per_analysis": 0.0525,
+                "cost_per_active_user": 0.084,
+                "avg_input_tokens": 10000,
+                "avg_output_tokens": 3125,
+            },
         }
     )
     assert "статистика" in report.lower()
     assert "Воронка" in report
     assert "Фидбек" in report
+    assert "себестоимость" in report.lower()
+    assert "Оплата" in report
     assert "👍 Полезно: 3" in report
     assert "👎 Не помогло: 1" in report
     assert "✅ Понятно что делать: 2" in report

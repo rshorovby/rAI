@@ -156,8 +156,65 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "btn_history": "📊 Мои разборы",
         "cmd_start": "Начать работу",
         "cmd_help": "Справка по использованию",
+        "cmd_plan": "Тариф и лимиты",
+        "cmd_progress": "Мой прогресс",
+        "cmd_focus": "Фокус недели",
         "cmd_new": "Новый разбор",
         "cmd_history": "Мои прошлые разборы",
+        "btn_upgrade_pro": "⭐ Открыть Pro",
+        "paywall_text": (
+            "🔒 *Лимит разборов исчерпан*\n\n"
+            "В этом месяце использовано {used} из {limit}.\n"
+            "Pro даёт больше разборов, память прогресса и фокус недели.\n\n"
+            "Оплата через Telegram Stars — одним нажатием."
+        ),
+        "video_too_long": (
+            "Видео длиннее лимита тарифа ({max_sec} сек для {plan}). "
+            "Обрежьте ролик или откройте Pro."
+        ),
+        "plan_status": (
+            "📦 *Тариф: {plan}*\n\n"
+            "• Разборы в этом месяце: {used}/{limit} (осталось {left})\n"
+            "• Сброс квоты: {reset}\n"
+            "• Pro действует до: {expires}"
+        ),
+        "focus_empty": (
+            "Фокус недели ещё не задан. Сделайте разбор — бот выберет главный фокус."
+        ),
+        "focus_status": (
+            "🎯 *Фокус недели*\n\n"
+            "{focus}\n\n"
+            "Удар: {stroke}\n"
+            "До: {expires}\n\n"
+            "Снимите следующее видео с этим фокусом — проверим, стало ли лучше."
+        ),
+        "progress_empty": (
+            "Пока мало данных для прогресса. Сделайте 2–3 разбора одного удара."
+        ),
+        "progress_header": "📈 *Прогресс за 90 дней*",
+        "progress_last_focus": "Последний фокус: {focus}",
+        "invoice_title": "RallyMind Pro — 1 месяц",
+        "invoice_description": (
+            "Больше разборов, фокус недели, память прогресса и упражнения."
+        ),
+        "payment_success": (
+            "✅ *Pro активирован!*\n\n"
+            "Лимит разборов увеличен. Отправьте видео — продолжим."
+        ),
+        "subscription_expiring": (
+            "⏳ Pro заканчивается {expires}.\n"
+            "Продлите подписку, чтобы не потерять лимит разборов."
+        ),
+        "subscription_expired": (
+            "📭 Pro закончился. Вы снова на Free.\n" "Можно продлить — кнопка ниже."
+        ),
+        "digest_weekly": (
+            "📅 *Недельный дайджест*\n\n"
+            "Фокус: {focus}\n"
+            "Стрик: {streak} нед. подряд\n"
+            "Разборов за неделю: {analyses}\n\n"
+            "Снимите короткое видео и проверим прогресс."
+        ),
         "new_reset": "Диалог сброшен. Отправьте новое видео для разбора.",
         "history_empty": (
             "У вас пока нет сохранённых разборов. Отправьте видео — и я его запомню."
@@ -464,8 +521,62 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "btn_history": "📊 My analyses",
         "cmd_start": "Get started",
         "cmd_help": "Usage help",
+        "cmd_plan": "Plan and limits",
+        "cmd_progress": "My progress",
+        "cmd_focus": "Weekly focus",
         "cmd_new": "New analysis",
         "cmd_history": "My past analyses",
+        "btn_upgrade_pro": "⭐ Unlock Pro",
+        "paywall_text": (
+            "🔒 *Analysis limit reached*\n\n"
+            "This month you used {used} of {limit}.\n"
+            "Pro unlocks more analyses, weekly focus, and progress memory.\n\n"
+            "Pay with Telegram Stars in one tap."
+        ),
+        "video_too_long": (
+            "Video exceeds your plan limit ({max_sec}s for {plan}). "
+            "Trim it or upgrade to Pro."
+        ),
+        "plan_status": (
+            "📦 *Plan: {plan}*\n\n"
+            "• Analyses this month: {used}/{limit} ({left} left)\n"
+            "• Quota resets: {reset}\n"
+            "• Pro valid until: {expires}"
+        ),
+        "focus_empty": ("No weekly focus yet. Send a video — the coach will set one."),
+        "focus_status": (
+            "🎯 *Weekly focus*\n\n"
+            "{focus}\n\n"
+            "Stroke: {stroke}\n"
+            "Until: {expires}\n\n"
+            "Film your next clip with this focus — we'll check if it improved."
+        ),
+        "progress_empty": (
+            "Not enough data yet. Send 2–3 analyses of the same stroke."
+        ),
+        "progress_header": "📈 *Progress (90 days)*",
+        "progress_last_focus": "Latest focus: {focus}",
+        "invoice_title": "RallyMind Pro — 1 month",
+        "invoice_description": (
+            "More analyses, weekly focus, progress memory, and drills."
+        ),
+        "payment_success": (
+            "✅ *Pro activated!*\n\n"
+            "Your analysis limit is higher. Send a video to continue."
+        ),
+        "subscription_expiring": (
+            "⏳ Pro ends on {expires}.\n" "Renew to keep your higher analysis limit."
+        ),
+        "subscription_expired": (
+            "📭 Pro ended. You're back on Free.\n" "Renew anytime — button below."
+        ),
+        "digest_weekly": (
+            "📅 *Weekly digest*\n\n"
+            "Focus: {focus}\n"
+            "Streak: {streak} weeks\n"
+            "Analyses this week: {analyses}\n\n"
+            "Film a short clip and we'll check your progress."
+        ),
         "new_reset": "Dialog reset. Send a new video for analysis.",
         "history_empty": (
             "You don't have any saved analyses yet. Send a video — I'll remember it."
