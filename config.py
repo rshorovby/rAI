@@ -46,9 +46,9 @@ def load_settings() -> Settings:
     gemini_model_pro = (
         os.getenv("GEMINI_MODEL_PRO", "").strip() or legacy_model or DEFAULT_MODEL_PRO
     )
-    gemini_model_free = (
-        os.getenv("GEMINI_MODEL_FREE", "").strip() or legacy_model or DEFAULT_MODEL_FREE
-    )
+    # Запасная модель для fallback при 503 — не берём legacy GEMINI_MODEL
+    # (часто это тот же pro).
+    gemini_model_free = os.getenv("GEMINI_MODEL_FREE", "").strip() or DEFAULT_MODEL_FREE
     admin_user_ids = _parse_admin_user_ids()
 
     missing = []

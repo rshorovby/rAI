@@ -32,13 +32,13 @@ def test_defaults_are_current_models(env):
     )
 
 
-def test_legacy_gemini_model_overrides_both(env):
+def test_legacy_gemini_model_overrides_pro_only(env):
     env.setenv("GEMINI_MODEL", "gemini-legacy")
 
     settings = load_settings()
 
     assert settings.gemini_model_pro == "gemini-legacy"
-    assert settings.gemini_model_free == "gemini-legacy"
+    assert settings.gemini_model_free == DEFAULT_MODEL_FREE
 
 
 def test_explicit_models_win_over_legacy(env):
