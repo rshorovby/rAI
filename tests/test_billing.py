@@ -29,6 +29,21 @@ def test_grant_pro_and_idempotent(tmp_path):
         assert plan.analyses_limit == billing.PRO_ANALYSES_PER_MONTH
 
 
+def test_admin_grant_pro_without_payment(tmp_path):
+    with _tmp_db(tmp_path):
+        sub = billing.grant_pro(
+            42, months=2, provider=billing.PROVIDER_ADMIN, payment_id=None
+        )
+        assert sub["plan"] == billing.PLAN_PRO
+        assert sub["provider"] == billing.PROVIDER_ADMIN
+        assert sub["last_payment_id"] is None
+        assert billing.is_pro(42)
+        with storage._connect() as conn:
+            storage._init_db(conn)
+            n = conn.execute("SELECT COUNT(*) AS c FROM payments").fetchone()["c"]
+        assert n == 0
+
+
 def test_quota_decreases_with_sessions(tmp_path):
     with _tmp_db(tmp_path):
         storage.save_session(3, "## Краткое резюме\nx\n")

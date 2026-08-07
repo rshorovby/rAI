@@ -258,6 +258,18 @@ scp -i ~/.ssh/digitalocean_rallyai root@ВАШ_IP:/home/rallyai/rAI/data/rally.d
 30 9 * * * root bash /home/rallyai/rAI/deploy/expire_subscriptions.sh
 ```
 
+Выдать Pro вручную (нужен `ADMIN_USER_IDS` в `.env`):
+
+```text
+/grant <telegram_user_id> [months]
+```
+
+Или с сервера:
+
+```bash
+sudo -u rallyai /home/rallyai/rAI/.venv/bin/python /home/rallyai/rAI/grant_pro.py 123456789 1
+```
+
 Practice pre/post (каждый час; окна 09:00 / 20:00 МСК внутри кода) + 7-дневный remind:
 
 ```bash

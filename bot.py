@@ -657,21 +657,73 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await _show_profile(update.message, lang, user_id)
 
 
-async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+def _admin_gate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[str]:
+    """None если ок; иначе текст ошибки для ответа админу/юзеру."""
     admin_ids = context.application.bot_data.get("admin_user_ids", ())
     user_id = update.message.from_user.id
     if not admin_ids:
-        await update.message.reply_text(
-            "⚠️ ADMIN_USER_IDS не задан в `.env` на сервере."
-        )
-        return
+        return "⚠️ ADMIN_USER_IDS не задан в `.env` на сервере."
     if user_id not in admin_ids:
-        await update.message.reply_text("⛔ Команда только для администратора.")
+        return "⛔ Команда только для администратора."
+    return None
+
+
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    denied = _admin_gate(update, context)
+    if denied:
+        await update.message.reply_text(denied)
         return
 
     data = await asyncio.to_thread(storage.get_analytics_summary)
     report = format_analytics_report(data)
     await update.message.reply_text(report)
+
+
+async def grant_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Админ: /grant <user_id> [months] — выдать Pro."""
+    denied = _admin_gate(update, context)
+    if denied:
+        await update.message.reply_text(denied)
+        return
+
+    args = context.args or []
+    if not args:
+        await update.message.reply_text(
+            "Использование: /grant <user_id> [months]\nПример: /grant 123456789 1"
+        )
+        return
+    try:
+        target_id = int(args[0])
+    except ValueError:
+        await update.message.reply_text("user_id должен быть числом.")
+        return
+    months = billing.PRO_MONTHS_DEFAULT
+    if len(args) > 1:
+        try:
+            months = max(1, int(args[1]))
+        except ValueError:
+            await update.message.reply_text("months должен быть числом.")
+            return
+
+    sub = await asyncio.to_thread(
+        billing.grant_pro,
+        target_id,
+        months,
+        billing.PROVIDER_ADMIN,
+        None,
+    )
+    expires = sub.get("expires_at") or "—"
+    await update.message.reply_text(
+        f"✅ Pro выдан user_id={target_id} на {months} мес.\nДо: {expires}"
+    )
+    try:
+        await context.bot.send_message(
+            chat_id=target_id,
+            text=t("ru", "payment_success"),
+            parse_mode=ParseMode.MARKDOWN,
+        )
+    except Exception:
+        logger.exception("Не удалось уведомить user_id=%s о grant Pro", target_id)
 
 
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -2038,7 +2090,7 @@ def build_application(settings: Settings) -> Application:
     app.bot_data["settings"] = settings
     app.bot_data["admin_user_ids"] = settings.admin_user_ids
     if not settings.admin_user_ids:
-        logger.warning("ADMIN_USER_IDS не задан — команда /stats недоступна")
+        logger.warning("ADMIN_USER_IDS не задан — команды /stats и /grant недоступны")
 
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("help", help_command))
@@ -2050,6 +2102,7 @@ def build_application(settings: Settings) -> Application:
     app.add_handler(CommandHandler("history", history_command))
     app.add_handler(CommandHandler("profile", profile_command))
     app.add_handler(CommandHandler("stats", stats_command))
+    app.add_handler(CommandHandler("grant", grant_command))
     app.add_handler(CallbackQueryHandler(handle_feedback, pattern=r"^fb:"))
     app.add_handler(CallbackQueryHandler(handle_practice, pattern=r"^p:"))
     app.add_handler(CallbackQueryHandler(handle_dialog, pattern=r"^d:"))

@@ -16,6 +16,7 @@ STATUS_CANCELED = "canceled"
 
 PROVIDER_STARS = "stars"
 PROVIDER_WEB = "web"
+PROVIDER_ADMIN = "admin"
 
 # Лимиты P0 (подтверждены планом)
 FREE_ANALYSES_PER_MONTH = 2
