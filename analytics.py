@@ -15,6 +15,10 @@ EVENT_PAYWALL_SHOWN = "paywall_shown"
 EVENT_INVOICE_SENT = "invoice_sent"
 EVENT_PAYMENT_SUCCESS = "payment_success"
 EVENT_SUBSCRIPTION_EXPIRED = "subscription_expired"
+EVENT_PRACTICE_DATE_SET = "practice_date_set"
+EVENT_PRACTICE_PRE_SENT = "practice_pre_sent"
+EVENT_PRACTICE_POST_SENT = "practice_post_sent"
+EVENT_PRACTICE_POST_ANSWERED = "practice_post_answered"
 
 ALL_EVENT_TYPES = (
     EVENT_ONBOARDING_STARTED,
@@ -32,6 +36,10 @@ ALL_EVENT_TYPES = (
     EVENT_INVOICE_SENT,
     EVENT_PAYMENT_SUCCESS,
     EVENT_SUBSCRIPTION_EXPIRED,
+    EVENT_PRACTICE_DATE_SET,
+    EVENT_PRACTICE_PRE_SENT,
+    EVENT_PRACTICE_POST_SENT,
+    EVENT_PRACTICE_POST_ANSWERED,
 )
 
 
@@ -54,6 +62,10 @@ def format_analytics_report(data: dict) -> str:
     fb_clear = data["events"].get(EVENT_FEEDBACK_CLEAR, 0)
     fb_total = fb_pos + fb_neg + fb_clear
     reminders = data["events"].get(EVENT_REMINDER_SENT, 0)
+    practice_dates = data["events"].get(EVENT_PRACTICE_DATE_SET, 0)
+    practice_pre = data["events"].get(EVENT_PRACTICE_PRE_SENT, 0)
+    practice_post = data["events"].get(EVENT_PRACTICE_POST_SENT, 0)
+    practice_answers = data["events"].get(EVENT_PRACTICE_POST_ANSWERED, 0)
     paywall = data["events"].get(EVENT_PAYWALL_SHOWN, 0)
     invoices = data["events"].get(EVENT_INVOICE_SENT, 0)
     payments = data["events"].get(EVENT_PAYMENT_SUCCESS, 0)
@@ -91,6 +103,12 @@ def format_analytics_report(data: dict) -> str:
         "",
         "Напоминания",
         f"• Отправлено: {reminders}",
+        "",
+        "Тренировки (practice)",
+        f"• Дата задана: {practice_dates}",
+        f"• Pre-nudge: {practice_pre}",
+        f"• Post check-in: {practice_post}",
+        f"• Ответов на check-in: {practice_answers}",
         "",
         "Разборы",
         f"• Всего: {data['analyses_total']}",

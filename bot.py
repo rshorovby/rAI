@@ -28,6 +28,7 @@ from telegram.ext import (
 
 import billing
 import drills
+import practice
 import storage
 from analysis_dialog import (
     clear_dialog,
@@ -38,7 +39,6 @@ from analysis_dialog import (
     get_dialog,
     keyboard_after_drills,
     keyboard_after_error_deep,
-    keyboard_after_next,
     keyboard_after_prio,
     keyboard_after_video,
     keyboard_categories,
@@ -60,6 +60,9 @@ from analytics import (
     EVENT_ONBOARDING_STARTED,
     EVENT_PAYMENT_SUCCESS,
     EVENT_PAYWALL_SHOWN,
+    EVENT_PRACTICE_DATE_SET,
+    EVENT_PRACTICE_POST_ANSWERED,
+    EVENT_PRACTICE_PRE_SENT,
     EVENT_PROFILE_RESET,
     EVENT_VIDEO_SENT,
     format_analytics_report,
@@ -899,15 +902,54 @@ async def _send_next_video_and_prompt_feedback(
             chat_id=chat_id,
             text=t(lang, "followup_hint_next", next_video=next_video),
             parse_mode=ParseMode.MARKDOWN,
-            reply_markup=keyboard_after_next(lang),
         )
     else:
         await context.bot.send_message(
             chat_id=chat_id,
             text=t(lang, "followup_hint"),
-            reply_markup=keyboard_after_next(lang),
         )
     state["step"] = "next"
+
+
+async def _ask_next_practice(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    lang: str,
+    user_id: int,
+) -> None:
+    plan = await asyncio.to_thread(storage.get_active_practice_plan, user_id)
+    if not plan:
+        return
+    if plan.get("status") == "scheduled" and plan.get("next_practice_on"):
+        return
+    if plan.get("status") == "snoozed":
+        return
+    focus = (plan.get("focus_text") or "").strip() or "—"
+    drill = (plan.get("drill_text") or "").strip() or "—"
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=t(lang, "practice_ask", focus=focus, drill=drill),
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=practice.keyboard_ask_practice(lang),
+    )
+
+
+async def _send_practice_pre_now(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    lang: str,
+    plan: dict,
+) -> None:
+    focus = (plan.get("focus_text") or "").strip() or "—"
+    drill = (plan.get("drill_text") or "").strip() or "—"
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=t(lang, "practice_pre", focus=focus, drill=drill),
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=practice.keyboard_pre_nudge(lang),
+    )
+    await asyncio.to_thread(storage.mark_practice_pre_sent, int(plan["id"]))
+    await _log_event(chat_id, EVENT_PRACTICE_PRE_SENT)
 
 
 async def _send_feedback_step(
@@ -1237,12 +1279,13 @@ async def handle_dialog(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             chat_id=chat_id,
             text=t(lang, "dialog_title_finish"),
             parse_mode=ParseMode.MARKDOWN,
-            reply_markup=keyboard_finish(lang),
         )
+        await _ask_next_practice(context, chat_id, lang, query.from_user.id)
         return
 
     if action in ("next", "done"):
         await _send_next_video_and_prompt_feedback(context, chat_id, lang, state)
+        await _ask_next_practice(context, chat_id, lang, query.from_user.id)
         return
 
     if action == "ask":
@@ -1396,6 +1439,24 @@ async def _run_video_analysis(
                 except BadRequest:
                     pass
 
+        primary = picked[0] if picked else None
+        drill_text = ""
+        drill_id = None
+        if primary:
+            localized = drills.localize_drill(primary, lang)
+            drill_text = (localized.get("title") or localized.get("id") or "").strip()
+            drill_id = primary.get("id")
+        if not drill_text:
+            top_items = state["sections"].get("top3_items") or []
+            drill_text = (top_items[0] if top_items else focus_text) or ""
+        await asyncio.to_thread(
+            storage.create_practice_plan,
+            user_id,
+            focus_text,
+            drill_text,
+            drill_id,
+        )
+
         await _log_event(user_id, EVENT_ANALYSIS_SUCCESS)
 
     except TimeoutError as exc:
@@ -1480,6 +1541,156 @@ async def handle_retry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         lang,
         language_code,
     )
+
+
+async def handle_practice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query or not query.data:
+        return
+    await query.answer()
+
+    lang = sync_user_lang(context.user_data, query.from_user.language_code)
+    user_id = query.from_user.id
+    chat_id = query.message.chat_id
+    context.user_data["user_id"] = user_id
+    await _touch_user(update)
+
+    parts = query.data.split(":")
+    if len(parts) < 2:
+        return
+    kind = parts[1]
+
+    plan = await asyncio.to_thread(storage.get_active_practice_plan, user_id)
+
+    if kind == "mute":
+        await asyncio.to_thread(storage.snooze_practice_plan, user_id, 7)
+        await query.message.reply_text(t(lang, "practice_muted"))
+        return
+
+    if kind == "date":
+        if not plan or plan.get("status") not in ("awaiting_date", "scheduled"):
+            await query.message.reply_text(t(lang, "practice_no_plan"))
+            return
+        choice = parts[2] if len(parts) > 2 else ""
+        try:
+            practice_day = practice.resolve_practice_date(choice)
+        except ValueError:
+            return
+        skip_pre = False
+        if practice_day is None:
+            practice_day = practice.fallback_practice_date()
+            skip_pre = True
+            await asyncio.to_thread(
+                storage.set_practice_date,
+                int(plan["id"]),
+                practice_day.isoformat(),
+                skip_pre=True,
+            )
+            await _log_event(user_id, EVENT_PRACTICE_DATE_SET, "unknown")
+            await query.message.reply_text(
+                t(lang, "practice_date_unknown"),
+                reply_markup=practice.keyboard_after_date_set(lang),
+            )
+            return
+
+        await asyncio.to_thread(
+            storage.set_practice_date,
+            int(plan["id"]),
+            practice_day.isoformat(),
+            skip_pre=skip_pre,
+        )
+        await _log_event(user_id, EVENT_PRACTICE_DATE_SET, practice_day.isoformat())
+        date_label = practice_day.strftime("%d.%m.%Y")
+        await query.message.reply_text(
+            t(lang, "practice_date_saved", date=date_label),
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=practice.keyboard_after_date_set(lang),
+        )
+        # «сегодня вечером» после 09:00 МСК — pre сразу
+        if practice_day == practice.today_msk() and practice.should_send_pre_now():
+            refreshed = await asyncio.to_thread(
+                storage.get_practice_plan, int(plan["id"])
+            )
+            if refreshed and not refreshed.get("pre_sent_at"):
+                await _send_practice_pre_now(context, chat_id, lang, refreshed)
+        return
+
+    if kind == "pre":
+        if not plan:
+            await query.message.reply_text(t(lang, "practice_no_plan"))
+            return
+        action = parts[2] if len(parts) > 2 else ""
+        if action == "ok":
+            await query.message.reply_text(t(lang, "practice_pre_ok"))
+            return
+        if action == "move":
+            await asyncio.to_thread(
+                storage.create_practice_plan,
+                user_id,
+                plan.get("focus_text") or "",
+                plan.get("drill_text") or "",
+                plan.get("drill_id"),
+            )
+            await _ask_next_practice(context, chat_id, lang, user_id)
+            return
+        return
+
+    if kind == "post":
+        if not plan:
+            await query.message.reply_text(t(lang, "practice_no_plan"))
+            return
+        answer = parts[2] if len(parts) > 2 else ""
+        await asyncio.to_thread(
+            storage.set_practice_post_answer, int(plan["id"]), answer
+        )
+        await _log_event(user_id, EVENT_PRACTICE_POST_ANSWERED, answer)
+
+        if answer == practice.POST_YES:
+            next_video = await asyncio.to_thread(storage.get_latest_next_video, user_id)
+            await query.message.reply_text(
+                t(
+                    lang,
+                    "practice_post_yes",
+                    next_video=next_video or t(lang, "followup_hint"),
+                ),
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            return
+
+        if answer == practice.POST_HARD:
+            cue = (plan.get("focus_text") or "").strip() or "—"
+            alt = await asyncio.to_thread(
+                drills.pick_drills,
+                None,
+                None,
+                2,
+            )
+            current_id = plan.get("drill_id")
+            alt_drill = "—"
+            for d in alt:
+                if d.get("id") != current_id:
+                    alt_drill = drills.localize_drill(d, lang).get("title") or "—"
+                    break
+            if alt_drill == "—" and alt:
+                alt_drill = drills.localize_drill(alt[0], lang).get("title") or "—"
+            await query.message.reply_text(
+                t(lang, "practice_post_hard", cue=cue, alt_drill=alt_drill),
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            return
+
+        if answer == practice.POST_SKIP:
+            await asyncio.to_thread(
+                storage.create_practice_plan,
+                user_id,
+                plan.get("focus_text") or "",
+                plan.get("drill_text") or "",
+                plan.get("drill_id"),
+            )
+            await query.message.reply_text(t(lang, "practice_post_skip"))
+            await _ask_next_practice(context, chat_id, lang, user_id)
+            return
+        return
 
 
 async def handle_quick_question(
@@ -1840,6 +2051,7 @@ def build_application(settings: Settings) -> Application:
     app.add_handler(CommandHandler("profile", profile_command))
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(CallbackQueryHandler(handle_feedback, pattern=r"^fb:"))
+    app.add_handler(CallbackQueryHandler(handle_practice, pattern=r"^p:"))
     app.add_handler(CallbackQueryHandler(handle_dialog, pattern=r"^d:"))
     app.add_handler(CallbackQueryHandler(handle_quick_question, pattern=r"^q:"))
     app.add_handler(CallbackQueryHandler(handle_retry, pattern=r"^retry$"))

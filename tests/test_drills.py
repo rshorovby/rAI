@@ -20,3 +20,14 @@ def test_sync_and_pick(tmp_path):
         assert picked[0]["id"]
         msg = drills.format_drill_message(picked[0], "ru")
         assert "Упражнение" in msg
+        assert "Счёт для большего времени" in msg
+        assert "Count for more time" not in msg
+        en = drills.format_drill_message(picked[0], "en")
+        assert "Count for more time" in en
+
+
+def test_all_drills_have_ru_strings():
+    missing = sorted(
+        set(p.stem for p in drills.DRILLS_DIR.glob("*.md")) - set(drills.DRILL_RU)
+    )
+    assert missing == [], f"Нет RU-перевода для: {missing}"

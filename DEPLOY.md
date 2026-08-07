@@ -258,6 +258,16 @@ scp -i ~/.ssh/digitalocean_rallyai root@ВАШ_IP:/home/rallyai/rAI/data/rally.d
 30 9 * * * root bash /home/rallyai/rAI/deploy/expire_subscriptions.sh
 ```
 
+Practice pre/post (каждый час; окна 09:00 / 20:00 МСК внутри кода) + 7-дневный remind:
+
+```bash
+sudo bash /home/rallyai/rAI/deploy/install_practice_cron.sh
+```
+
+После установки: `sudo -u rallyai crontab -l` и ручной прогон
+`sudo -u rallyai /home/rallyai/rAI/deploy/remind.sh practice`
+(лог: `data/practice.log`). Pre уходит в **день** тренировки после 09:00 МСК, post — после 20:00.
+
 Недельный дайджест:
 
 ```bash
@@ -278,6 +288,7 @@ scp -i ~/.ssh/digitalocean_rallyai root@ВАШ_IP:/home/rallyai/rAI/data/rally.d
 | `Не заданы переменные окружения` | Проверьте `/home/rallyai/rAI/.env` |
 | Нет денег на аккаунте | **Billing** в DigitalOcean — пополните баланс |
 | После рестарта «забыл» диалог | Активный диалог теперь в `active_sessions` (TTL 7 дней); история — в `player_sessions` |
+| Нет уведомления о тренировке | Cron: `install_practice_cron.sh`; лог `data/practice.log`; дата должна быть **сегодня** МСК; pre ≥09:00, post ≥20:00 |
 
 ---
 

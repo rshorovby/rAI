@@ -25,9 +25,8 @@ PRO_MAX_VIDEO_SECONDS = 60
 GRACE_DAYS = 3
 PRO_MONTHS_DEFAULT = 1
 
-# Telegram Stars: ориентир ~$15/мес. 1 Star ≈ $0.013 — около 1150 XTR.
-# Ставим округлённо 1000 Stars (~$13) как стартовую цену; правится в .env.
-DEFAULT_STARS_PRICE = 1000
+# Telegram Stars за месяц Pro.
+DEFAULT_STARS_PRICE = 250
 STARS_CURRENCY = "XTR"
 STARS_PAYLOAD_PREFIX = "rally_pro_month:"
 

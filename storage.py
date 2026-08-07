@@ -139,6 +139,26 @@ def _init_db(conn: sqlite3.Connection) -> None:
             set_at      TEXT    NOT NULL,
             expires_at  TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS practice_plans (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id           INTEGER NOT NULL,
+            created_at        TEXT    NOT NULL,
+            focus_text        TEXT    NOT NULL DEFAULT '',
+            drill_text        TEXT    NOT NULL DEFAULT '',
+            drill_id          TEXT,
+            next_practice_on  TEXT,
+            pre_sent_at       TEXT,
+            post_sent_at      TEXT,
+            post_answer       TEXT,
+            status            TEXT    NOT NULL DEFAULT 'awaiting_date',
+            mute_until        TEXT,
+            skip_pre          INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_practice_user_status
+            ON practice_plans (user_id, status);
+        CREATE INDEX IF NOT EXISTS idx_practice_due
+            ON practice_plans (status, next_practice_on);
     """
     )
     _migrate_schema(conn)
@@ -202,6 +222,21 @@ def _extract_report_sections(report: str, language_code: str) -> tuple[str, str,
             return summary, top3, next_video
 
     return report[:400], top3, next_video
+
+
+def get_latest_next_video(user_id: int) -> str:
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            """
+            SELECT next_video FROM player_sessions
+            WHERE user_id = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (user_id,),
+        ).fetchone()
+    return ((row["next_video"] if row else "") or "").strip()
 
 
 def extract_next_video(report: str, language_code: str) -> str:
@@ -387,6 +422,7 @@ def mark_profile_skipped(user_id: int) -> None:
 
 def reset_player_data(user_id: int) -> None:
     """Удаляет профиль и историю разборов — как для нового пользователя."""
+    cancel_active_practice_plans(user_id)
     with _connect() as conn:
         _init_db(conn)
         conn.execute("DELETE FROM player_profiles WHERE user_id = ?", (user_id,))
@@ -611,7 +647,11 @@ def format_history_for_user(
 
 
 def get_users_for_reminder(days: int = 7) -> list[dict]:
-    """Пользователи для напоминания: N дней без взаимодействия с ботом."""
+    """Пользователи для напоминания: N дней без взаимодействия с ботом.
+
+    Пропускает тех, у кого активна цепочка practice_plans или недавно
+    ответили на post check-in (чтобы не дублировать 7-дневный remind).
+    """
     with _connect() as conn:
         _init_db(conn)
         rows = conn.execute(
@@ -632,6 +672,19 @@ def get_users_for_reminder(days: int = 7) -> list[dict]:
               AND (
                   u.reminder_sent_at IS NULL
                   OR datetime(u.reminder_sent_at) < datetime(u.last_seen_at)
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM practice_plans pp
+                  WHERE pp.user_id = u.user_id
+                    AND (
+                        pp.status IN (
+                            'awaiting_date', 'scheduled', 'pre_done', 'snoozed'
+                        )
+                        OR (
+                            pp.status = 'checked_in'
+                            AND datetime(pp.post_sent_at) >= datetime('now', '-7 days')
+                        )
+                    )
               )
             """,
             (f"-{days} days",),
@@ -1071,3 +1124,231 @@ def mark_digest_sent(user_id: int, had_analysis: bool) -> None:
                 (now, user_id),
             )
         conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Practice plans (возврат вокруг следующей тренировки)
+# ---------------------------------------------------------------------------
+
+_ACTIVE_PRACTICE_STATUSES = (
+    "awaiting_date",
+    "scheduled",
+    "pre_done",
+    "snoozed",
+)
+
+
+def cancel_active_practice_plans(user_id: int) -> None:
+    with _connect() as conn:
+        _init_db(conn)
+        placeholders = ",".join("?" * len(_ACTIVE_PRACTICE_STATUSES))
+        conn.execute(
+            f"""
+            UPDATE practice_plans
+            SET status = 'cancelled'
+            WHERE user_id = ? AND status IN ({placeholders})
+            """,
+            (user_id, *_ACTIVE_PRACTICE_STATUSES),
+        )
+        conn.commit()
+
+
+def create_practice_plan(
+    user_id: int,
+    focus_text: str = "",
+    drill_text: str = "",
+    drill_id: Optional[str] = None,
+) -> int:
+    """Создаёт новую цепочку; предыдущие активные закрывает."""
+    cancel_active_practice_plans(user_id)
+    created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with _connect() as conn:
+        _init_db(conn)
+        cur = conn.execute(
+            """
+            INSERT INTO practice_plans
+                (user_id, created_at, focus_text, drill_text, drill_id, status)
+            VALUES (?, ?, ?, ?, ?, 'awaiting_date')
+            """,
+            (
+                user_id,
+                created_at,
+                (focus_text or "").strip(),
+                (drill_text or "").strip(),
+                drill_id,
+            ),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+
+
+def get_active_practice_plan(user_id: int) -> Optional[dict]:
+    with _connect() as conn:
+        _init_db(conn)
+        placeholders = ",".join("?" * len(_ACTIVE_PRACTICE_STATUSES))
+        row = conn.execute(
+            f"""
+            SELECT * FROM practice_plans
+            WHERE user_id = ? AND status IN ({placeholders})
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (user_id, *_ACTIVE_PRACTICE_STATUSES),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def get_practice_plan(plan_id: int) -> Optional[dict]:
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            "SELECT * FROM practice_plans WHERE id = ?", (plan_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def set_practice_date(
+    plan_id: int,
+    practice_on: Optional[str],
+    *,
+    skip_pre: bool = False,
+) -> None:
+    """practice_on — YYYY-MM-DD или None (не должно вызываться для unknown без даты)."""
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            """
+            UPDATE practice_plans
+            SET next_practice_on = ?,
+                status = 'scheduled',
+                skip_pre = ?,
+                pre_sent_at = NULL,
+                post_sent_at = NULL,
+                post_answer = NULL
+            WHERE id = ?
+            """,
+            (practice_on, 1 if skip_pre else 0, plan_id),
+        )
+        conn.commit()
+
+
+def mark_practice_pre_sent(plan_id: int) -> None:
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            """
+            UPDATE practice_plans
+            SET pre_sent_at = ?, status = 'pre_done'
+            WHERE id = ?
+            """,
+            (now, plan_id),
+        )
+        conn.commit()
+
+
+def mark_practice_post_sent(plan_id: int) -> None:
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            """
+            UPDATE practice_plans
+            SET post_sent_at = ?
+            WHERE id = ?
+            """,
+            (now, plan_id),
+        )
+        conn.commit()
+
+
+def set_practice_post_answer(plan_id: int, answer: str) -> None:
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            """
+            UPDATE practice_plans
+            SET post_answer = ?, status = 'checked_in'
+            WHERE id = ?
+            """,
+            (answer, plan_id),
+        )
+        conn.commit()
+
+
+def snooze_practice_plan(user_id: int, days: int = 7) -> None:
+    mute_until = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    plan = get_active_practice_plan(user_id)
+    if not plan:
+        return
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            """
+            UPDATE practice_plans
+            SET status = 'snoozed', mute_until = ?
+            WHERE id = ?
+            """,
+            (mute_until, plan["id"]),
+        )
+        conn.commit()
+
+
+def auto_schedule_stale_practice_plans(today: str) -> int:
+    """Если юзер не ответил на «когда тренировка?» >1 дня — fallback на сегодня, без pre."""
+    with _connect() as conn:
+        _init_db(conn)
+        cur = conn.execute(
+            """
+            UPDATE practice_plans
+            SET next_practice_on = ?,
+                status = 'scheduled',
+                skip_pre = 1
+            WHERE status = 'awaiting_date'
+              AND date(created_at) < date(?)
+            """,
+            (today, today),
+        )
+        conn.commit()
+        return int(cur.rowcount or 0)
+
+
+def list_due_practice_pre(practice_on: str) -> list[dict]:
+    """Планы, которым пора отправить pre-nudge (дата тренировки = practice_on)."""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with _connect() as conn:
+        _init_db(conn)
+        rows = conn.execute(
+            """
+            SELECT pp.*, u.language_code
+            FROM practice_plans pp
+            LEFT JOIN users u ON u.user_id = pp.user_id
+            WHERE pp.status = 'scheduled'
+              AND pp.skip_pre = 0
+              AND pp.next_practice_on = ?
+              AND pp.pre_sent_at IS NULL
+              AND (pp.mute_until IS NULL OR datetime(pp.mute_until) <= datetime(?))
+            """,
+            (practice_on, now),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def list_due_practice_post(practice_on: str) -> list[dict]:
+    """Планы, которым пора отправить post check-in."""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with _connect() as conn:
+        _init_db(conn)
+        rows = conn.execute(
+            """
+            SELECT pp.*, u.language_code
+            FROM practice_plans pp
+            LEFT JOIN users u ON u.user_id = pp.user_id
+            WHERE pp.status IN ('scheduled', 'pre_done')
+              AND pp.next_practice_on = ?
+              AND pp.post_sent_at IS NULL
+              AND (pp.mute_until IS NULL OR datetime(pp.mute_until) <= datetime(?))
+            """,
+            (practice_on, now),
+        ).fetchall()
+    return [dict(r) for r in rows]

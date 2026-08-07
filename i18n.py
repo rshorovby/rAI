@@ -333,6 +333,52 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "Снимите 10–20 сек своего удара (сбоку или сзади) и пришлите — "
             "разберём, что изменилось."
         ),
+        "practice_ask": (
+            "🎾 *Когда следующая тренировка?*\n\n"
+            "Фокус: {focus}\n"
+            "Упражнение: {drill}\n\n"
+            "Напомню перед занятием, на что смотреть — и спрошу после, получилось ли."
+        ),
+        "practice_btn_today": "Сегодня вечером",
+        "practice_btn_tomorrow": "Завтра",
+        "practice_btn_plus2": "Через 2–3 дня",
+        "practice_btn_weekend": "В эти выходные",
+        "practice_btn_unknown": "Пока не знаю",
+        "practice_btn_mute": "Не беспокоить неделю",
+        "practice_date_saved": (
+            "✅ Записал: тренировка *{date}*.\n"
+            "Перед занятием напомню про фокус и упражнение."
+        ),
+        "practice_date_unknown": (
+            "✅ Ок — напишу завтра вечером и спрошу, получилось ли попробовать упражнение."
+        ),
+        "practice_muted": "👌 Не буду писать неделю. Можно вернуться в любой момент с видео.",
+        "practice_pre": (
+            "🎾 *Сегодня на корте*\n\n"
+            "Фокус: {focus}\n"
+            "Упражнение: {drill}\n\n"
+            "Не надо идеально — 10–15 повторов достаточно."
+        ),
+        "practice_btn_pre_ok": "Понял",
+        "practice_btn_pre_move": "Тренировка перенесена",
+        "practice_pre_ok": "👍 Отлично. Вечером спрошу, как прошло.",
+        "practice_post": ("🎾 Получилось попробовать «{drill}» на тренировке?"),
+        "practice_btn_post_yes": "Да, почувствовал разницу",
+        "practice_btn_post_hard": "Пробовал, пока не легло",
+        "practice_btn_post_skip": "Не успел",
+        "practice_post_yes": (
+            "🔥 Класс. Снимите 10–20 сек того же удара (сбоку или сзади) — "
+            "сравним с прошлым разбором.\n\n"
+            "{next_video}"
+        ),
+        "practice_post_hard": (
+            "Ок — упростим. На ближайшей тренировке делайте только одну вещь:\n"
+            "*{cue}*\n\n"
+            "Другое упражнение: {alt_drill}\n\n"
+            "Когда будет готово — пришлите короткое видео."
+        ),
+        "practice_post_skip": ("Ничего страшного. Когда будет следующая тренировка?"),
+        "practice_no_plan": "Цепочка уже закрыта. Отправьте новое видео или /new.",
         "retry_status": "⏳ Повторяю разбор — это может занять до минуты...",
         "retry_button": "🔄 Повторить разбор",
         "no_active_analysis": (
@@ -661,6 +707,52 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "Film 10–20 sec of your stroke (side or back angle) and send it — "
             "we'll see what changed."
         ),
+        "practice_ask": (
+            "🎾 *When is your next practice?*\n\n"
+            "Focus: {focus}\n"
+            "Drill: {drill}\n\n"
+            "I'll remind you what to work on before practice — and check in after."
+        ),
+        "practice_btn_today": "Tonight",
+        "practice_btn_tomorrow": "Tomorrow",
+        "practice_btn_plus2": "In 2–3 days",
+        "practice_btn_weekend": "This weekend",
+        "practice_btn_unknown": "Not sure yet",
+        "practice_btn_mute": "Don't ping for a week",
+        "practice_date_saved": (
+            "✅ Noted: practice on *{date}*.\n"
+            "I'll remind you about the focus and drill beforehand."
+        ),
+        "practice_date_unknown": (
+            "✅ Got it — I'll check in tomorrow evening and ask if you tried the drill."
+        ),
+        "practice_muted": "👌 I won't message for a week. Send a video anytime to continue.",
+        "practice_pre": (
+            "🎾 *On court today*\n\n"
+            "Focus: {focus}\n"
+            "Drill: {drill}\n\n"
+            "Don't aim for perfect — 10–15 reps is enough."
+        ),
+        "practice_btn_pre_ok": "Got it",
+        "practice_btn_pre_move": "Practice was moved",
+        "practice_pre_ok": "👍 Great. I'll ask how it went this evening.",
+        "practice_post": ("🎾 Did you get to try “{drill}” at practice?"),
+        "practice_btn_post_yes": "Yes — felt a difference",
+        "practice_btn_post_hard": "Tried it, not clicking yet",
+        "practice_btn_post_skip": "Didn't have time",
+        "practice_post_yes": (
+            "🔥 Nice. Film 10–20 sec of the same stroke (side or back) — "
+            "we'll compare with the last analysis.\n\n"
+            "{next_video}"
+        ),
+        "practice_post_hard": (
+            "OK — simplify. On the next practice do just one thing:\n"
+            "*{cue}*\n\n"
+            "Alt drill: {alt_drill}\n\n"
+            "When ready — send a short video."
+        ),
+        "practice_post_skip": ("No worries. When is your next practice?"),
+        "practice_no_plan": "That chain is closed. Send a new video or /new.",
         "feedback_prompt": "Was this analysis useful?",
         "feedback_useful": "👍 Useful",
         "feedback_not_useful": "👎 Not helpful",
