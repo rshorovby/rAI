@@ -17,11 +17,15 @@ mkdir -p "${APP_DIR}/data"
 chown "${APP_USER}:${APP_USER}" "${APP_DIR}/data"
 
 EXISTING=$(sudo -u "${APP_USER}" crontab -l 2>/dev/null || true)
-# убрать старые строки remind/practice, переустановить
-FILTERED=$(echo "${EXISTING}" | grep -v "deploy/remind.sh" || true)
+# убрать старые строки/комменты remind/practice, переустановить
+FILTERED=$(
+  echo "${EXISTING}" | grep -v "deploy/remind.sh" | grep -v "RallyAI: practice" | grep -v "RallyAI: напоминание через 7 дней" || true
+)
 
 {
-  echo "${FILTERED}"
+  if [[ -n "${FILTERED}" ]]; then
+    echo "${FILTERED}"
+  fi
   echo "# RallyAI: practice pre/post (окна 09:00 и 20:00 МСК проверяются в коде)"
   echo "5 * * * * ${APP_DIR}/deploy/remind.sh practice >> ${APP_DIR}/data/practice.log 2>&1"
   echo "# RallyAI: напоминание через 7 дней (10:00 МСК)"
