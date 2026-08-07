@@ -70,7 +70,7 @@ from analytics import (
 from analyzer import VideoAnalyzer
 from config import Settings
 from error_reporting import alert_admins, report_failure
-from errors import format_analysis_error
+from errors import format_analysis_error, is_model_overloaded
 from formatting import markdown_to_html
 from i18n import (
     UI_LANGS,
@@ -328,10 +328,19 @@ def _main_menu_keyboard(lang: str) -> ReplyKeyboardMarkup:
     )
 
 
-def _retry_keyboard(lang: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        [[InlineKeyboardButton(t(lang, "retry_button"), callback_data="retry")]]
-    )
+def _retry_keyboard(lang: str, *, offer_simple: bool = False) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(t(lang, "retry_button"), callback_data="retry")],
+    ]
+    if offer_simple:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    t(lang, "retry_simple_button"), callback_data="retry:simple"
+                )
+            ]
+        )
+    return InlineKeyboardMarkup(rows)
 
 
 def _feedback_keyboard(lang: str) -> InlineKeyboardMarkup:
@@ -1360,6 +1369,7 @@ async def _run_video_analysis(
     status_message,
     lang: str,
     language_code: str,
+    model_override: Optional[str] = None,
 ) -> None:
     pending = context.user_data.get("pending_video")
     if not pending:
@@ -1410,7 +1420,18 @@ async def _run_video_analysis(
         active_focus = (focus_row or {}).get("focus")
         drills_catalog = await asyncio.to_thread(drills.catalog_for_prompt)
         settings: Settings = context.application.bot_data.get("settings")
-        use_model = settings.model_for(plan.is_pro) if settings else analyzer._model
+        if model_override:
+            use_model = model_override
+        elif settings:
+            use_model = settings.model_for(plan.is_pro)
+        else:
+            use_model = analyzer._model
+        used_simple = bool(
+            settings
+            and model_override
+            and model_override == settings.gemini_model_free
+            and model_override != settings.gemini_model_pro
+        )
 
         result = await asyncio.to_thread(
             analyzer.analyze,
@@ -1467,6 +1488,11 @@ async def _run_video_analysis(
         )
 
         await status_message.delete()
+        if used_simple:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=t(lang, "analysis_used_simple_model"),
+            )
         summary = format_summary_message(lang, state)
         if parsed.scores:
             summary = f"{summary}\n\n{format_scores_line(parsed.scores, lang)}"
@@ -1517,23 +1543,26 @@ async def _run_video_analysis(
         await _log_event(user_id, EVENT_ANALYSIS_FAILED, "TimeoutError")
         await status_message.edit_text(
             format_analysis_error(TimeoutError(), lang),
-            reply_markup=_retry_keyboard(lang),
+            reply_markup=_retry_keyboard(lang, offer_simple=True),
         )
     except Exception as exc:
         logger.exception("Ошибка анализа видео для user_id=%s", user_id)
         report_failure(exc)
-        admin_ids = context.application.bot_data.get("admin_user_ids") or ()
-        if admin_ids:
-            await alert_admins(
-                context.bot,
-                admin_ids,
-                f"Ошибка анализа user_id={user_id}: {type(exc).__name__}: {exc}"[:500],
-            )
+        overloaded = is_model_overloaded(exc)
+        if not overloaded:
+            admin_ids = context.application.bot_data.get("admin_user_ids") or ()
+            if admin_ids:
+                await alert_admins(
+                    context.bot,
+                    admin_ids,
+                    f"Ошибка анализа user_id={user_id}: "
+                    f"{type(exc).__name__}: {exc}"[:500],
+                )
         await _log_event(user_id, EVENT_ANALYSIS_FAILED, str(exc)[:200])
         await status_message.edit_text(
             format_analysis_error(exc, lang),
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=_retry_keyboard(lang),
+            parse_mode=ParseMode.MARKDOWN if not overloaded else None,
+            reply_markup=_retry_keyboard(lang, offer_simple=overloaded),
         )
     finally:
         if temp_path and temp_path.exists():
@@ -1584,7 +1613,16 @@ async def handle_retry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         )
         return
 
-    status_message = await query.message.reply_text(t(lang, "retry_status"))
+    use_simple = (query.data or "") == "retry:simple"
+    settings: Settings = context.application.bot_data.get("settings")
+    model_override = None
+    if use_simple and settings:
+        model_override = settings.gemini_model_free
+
+    status_text = (
+        t(lang, "retry_simple_status") if use_simple else t(lang, "retry_status")
+    )
+    status_message = await query.message.reply_text(status_text)
     await _run_video_analysis(
         context,
         query.message.chat_id,
@@ -1592,6 +1630,7 @@ async def handle_retry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         status_message,
         lang,
         language_code,
+        model_override=model_override,
     )
 
 
@@ -2107,7 +2146,7 @@ def build_application(settings: Settings) -> Application:
     app.add_handler(CallbackQueryHandler(handle_practice, pattern=r"^p:"))
     app.add_handler(CallbackQueryHandler(handle_dialog, pattern=r"^d:"))
     app.add_handler(CallbackQueryHandler(handle_quick_question, pattern=r"^q:"))
-    app.add_handler(CallbackQueryHandler(handle_retry, pattern=r"^retry$"))
+    app.add_handler(CallbackQueryHandler(handle_retry, pattern=r"^retry(:simple)?$"))
     app.add_handler(CallbackQueryHandler(handle_pay_callback, pattern=r"^pay:"))
     app.add_handler(PreCheckoutQueryHandler(handle_precheckout))
     app.add_handler(

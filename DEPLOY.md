@@ -296,7 +296,7 @@ sudo bash /home/rallyai/rAI/deploy/install_practice_cron.sh
 | Два бота конфликтуют | Остановите локальный бот на Mac |
 | `Permission denied (publickey)` | SSH-ключ не добавлен в DigitalOcean или неверный путь `-i` |
 | `location is not supported` | Droplet не в EU — пересоздайте в Amsterdam/Frankfurt |
-| `503 UNAVAILABLE` | Временная перегрузка Gemini — подождите, отправьте видео снова |
+| `503 UNAVAILABLE` | Юзеру — человечный текст + кнопки «ещё раз» / «проще»; админов не спамим |
 | `Не заданы переменные окружения` | Проверьте `/home/rallyai/rAI/.env` |
 | Нет денег на аккаунте | **Billing** в DigitalOcean — пополните баланс |
 | После рестарта «забыл» диалог | Активный диалог теперь в `active_sessions` (TTL 7 дней); история — в `player_sessions` |

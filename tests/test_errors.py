@@ -1,4 +1,4 @@
-from errors import format_analysis_error
+from errors import format_analysis_error, is_model_overloaded
 
 
 def test_quota_error_ru():
@@ -17,6 +17,8 @@ def test_503_unavailable_ru():
         lang="ru",
     )
     assert "перегружен" in msg.lower()
+    assert "gemini" not in msg.lower()
+    assert "простой" in msg.lower()
 
 
 def test_503_unavailable_en():
@@ -25,11 +27,17 @@ def test_503_unavailable_en():
         lang="en",
     )
     assert "overloaded" in msg.lower()
+    assert "gemini" not in msg.lower()
+
+
+def test_is_model_overloaded():
+    assert is_model_overloaded(Exception("ServerError: 503 UNAVAILABLE. high demand"))
+    assert not is_model_overloaded(Exception("Invalid API key"))
 
 
 def test_500_internal():
     msg = format_analysis_error(Exception("500 INTERNAL"), lang="en")
-    assert "gemini" in msg.lower()
+    assert "temporary" in msg.lower() or "minute" in msg.lower()
 
 
 def test_region_error_ru():

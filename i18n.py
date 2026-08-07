@@ -380,7 +380,14 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "practice_post_skip": ("Ничего страшного. Когда будет следующая тренировка?"),
         "practice_no_plan": "Цепочка уже закрыта. Отправьте новое видео или /new.",
         "retry_status": "⏳ Повторяю разбор — это может занять до минуты...",
-        "retry_button": "🔄 Повторить разбор",
+        "retry_button": "🔄 Попробовать ещё раз",
+        "retry_simple_button": "⚡ Разобрать проще",
+        "retry_simple_status": (
+            "⏳ Разбираю на запасной модели — обычно отвечает быстрее..."
+        ),
+        "analysis_used_simple_model": (
+            "ℹ️ Разбор сделан на запасной модели: основная сейчас была перегружена."
+        ),
         "no_active_analysis": (
             "Сначала отправьте видео для разбора — после этого можно задавать "
             "вопросы и просить разъяснения. К видео можно добавить подпись с контекстом."
@@ -410,14 +417,13 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "4. Или подключите платный тариф в Google AI Studio"
         ),
         "error_overloaded": (
-            "⚠️ *Gemini сейчас перегружен*\n\n"
-            "Это временно: на стороне Google всплеск нагрузки на модель. "
-            "С вашим видео и ключом всё в порядке.\n\n"
-            "Отправьте видео ещё раз через минуту."
+            "⏳ Сейчас не получается разобрать видео — сервис анализа перегружен.\n\n"
+            "С вашим роликом всё в порядке, это временная нагрузка.\n\n"
+            "Можно подождать и попробовать ещё раз или разобрать на более простой "
+            "модели (чуть проще по деталям, зато обычно отвечает)."
         ),
         "error_internal": (
-            "⚠️ *Внутренняя ошибка Gemini*\n\n"
-            "Временный сбой на стороне Google. Отправьте видео ещё раз через минуту."
+            "⏳ Временный сбой сервиса анализа. Попробуйте ещё раз через минуту."
         ),
         "error_region": (
             "⚠️ *Gemini недоступен в вашем регионе*\n\n"
@@ -787,7 +793,14 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "vi_val_look_contact": "contact point and timing",
         "vi_val_look_general": "general review",
         "retry_status": "⏳ Retrying analysis — this may take up to a minute...",
-        "retry_button": "🔄 Retry analysis",
+        "retry_button": "🔄 Try again",
+        "retry_simple_button": "⚡ Use simpler model",
+        "retry_simple_status": (
+            "⏳ Analyzing with a backup model — usually responds faster..."
+        ),
+        "analysis_used_simple_model": (
+            "ℹ️ Analysis used a backup model because the main one was overloaded."
+        ),
         "no_active_analysis": (
             "Send a video for analysis first — then you can ask questions "
             "and request clarifications. You can add a caption with context."
@@ -817,14 +830,13 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "4. Or enable a paid plan in Google AI Studio"
         ),
         "error_overloaded": (
-            "⚠️ *Gemini is overloaded right now*\n\n"
-            "This is temporary — Google is seeing high demand on the model. "
-            "Your video and API key are fine.\n\n"
-            "Send the video again in about a minute."
+            "⏳ Can't analyze the video right now — the analysis service is overloaded.\n\n"
+            "Your clip is fine; this is temporary load.\n\n"
+            "You can wait and try again, or analyze with a simpler model "
+            "(a bit less detail, but usually responds)."
         ),
         "error_internal": (
-            "⚠️ *Gemini internal error*\n\n"
-            "Temporary failure on Google's side. Send the video again in about a minute."
+            "⏳ Temporary analysis service glitch. Try again in about a minute."
         ),
         "error_region": (
             "⚠️ *Gemini is not available in your region*\n\n"

@@ -1,18 +1,24 @@
 from i18n import DEFAULT_LANG, t
 
 
+def is_model_overloaded(exc: Exception) -> bool:
+    message = str(exc)
+    lower = message.lower()
+    return (
+        "503" in message
+        or "unavailable" in lower
+        or "overloaded" in lower
+        or "high demand" in lower
+    )
+
+
 def format_analysis_error(exc: Exception, lang: str = DEFAULT_LANG) -> str:
     message = str(exc)
 
     if "429" in message or "RESOURCE_EXHAUSTED" in message:
         return t(lang, "error_quota")
 
-    if (
-        "503" in message
-        or "UNAVAILABLE" in message
-        or "overloaded" in message.lower()
-        or "high demand" in message.lower()
-    ):
+    if is_model_overloaded(exc):
         return t(lang, "error_overloaded")
 
     if "500" in message or "INTERNAL" in message:
