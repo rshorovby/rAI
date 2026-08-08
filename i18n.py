@@ -379,6 +379,25 @@ _MESSAGES: dict[str, dict[str, str]] = {
         ),
         "practice_post_skip": ("Ничего страшного. Когда будет следующая тренировка?"),
         "practice_no_plan": "Цепочка уже закрыта. Отправьте новое видео или /new.",
+        "review_received": (
+            "🎾 Видео получил.\n\n"
+            "Разбор сделает наш тренер вместе с AI-помощником. "
+            "Обычно это занимает до суток — иногда быстрее. "
+            "Напишу, как будет готово."
+        ),
+        "review_btn_message_coach": "✉️ Написать тренеру",
+        "review_message_prompt": (
+            "Напишите сообщение тренеру одним текстом — перешлю в кабинет."
+        ),
+        "review_message_sent": "✅ Передал тренеру.",
+        "review_no_open_job": "Сейчас нет разбора в очереди. Отправьте видео.",
+        "review_fallback_banner": (
+            "⚠️ *Это предварительный разбор AI:* тренер не успел проверить вручную. "
+            "Можно опираться на него на тренировке; при следующем видео тренер "
+            "посмотрит приоритетнее."
+        ),
+        "review_coach_notes_block": "*Замечания тренера:*\n{notes}",
+        "review_delivered_coach": "✅ Тренер отправил разбор.",
         "retry_status": "⏳ Повторяю разбор — это может занять до минуты...",
         "retry_button": "🔄 Попробовать ещё раз",
         "retry_simple_button": "⚡ Разобрать проще",
@@ -759,6 +778,24 @@ _MESSAGES: dict[str, dict[str, str]] = {
         ),
         "practice_post_skip": ("No worries. When is your next practice?"),
         "practice_no_plan": "That chain is closed. Send a new video or /new.",
+        "review_received": (
+            "🎾 Got your video.\n\n"
+            "Our coach will review it with an AI assistant. "
+            "Usually within a day — sometimes sooner. "
+            "I'll message you when it's ready."
+        ),
+        "review_btn_message_coach": "✉️ Message the coach",
+        "review_message_prompt": (
+            "Write one message for the coach — I'll forward it to the cabinet."
+        ),
+        "review_message_sent": "✅ Sent to the coach.",
+        "review_no_open_job": "No review in the queue. Please send a video.",
+        "review_fallback_banner": (
+            "⚠️ *This is a preliminary AI review:* a coach didn't check it manually. "
+            "You can still use it at practice; the next video will be prioritized."
+        ),
+        "review_coach_notes_block": "*Coach notes:*\n{notes}",
+        "review_delivered_coach": "✅ The coach sent your review.",
         "feedback_prompt": "Was this analysis useful?",
         "feedback_useful": "👍 Useful",
         "feedback_not_useful": "👎 Not helpful",

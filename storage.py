@@ -159,6 +159,41 @@ def _init_db(conn: sqlite3.Connection) -> None:
             ON practice_plans (user_id, status);
         CREATE INDEX IF NOT EXISTS idx_practice_due
             ON practice_plans (status, next_practice_on);
+
+        CREATE TABLE IF NOT EXISTS player_forum_topics (
+            user_id            INTEGER PRIMARY KEY,
+            forum_chat_id      INTEGER NOT NULL,
+            message_thread_id  INTEGER NOT NULL,
+            title              TEXT    NOT NULL DEFAULT '',
+            created_at         TEXT    NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS review_jobs (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id              INTEGER NOT NULL,
+            reviewer_id          INTEGER,
+            created_at           TEXT    NOT NULL,
+            status               TEXT    NOT NULL DEFAULT 'queued',
+            video_file_id        TEXT    NOT NULL,
+            video_mime           TEXT    NOT NULL DEFAULT 'video/mp4',
+            language_code        TEXT    NOT NULL DEFAULT 'ru',
+            draft_text           TEXT    NOT NULL DEFAULT '',
+            final_text           TEXT    NOT NULL DEFAULT '',
+            coach_notes          TEXT    NOT NULL DEFAULT '',
+            focus_text           TEXT    NOT NULL DEFAULT '',
+            drill_text           TEXT    NOT NULL DEFAULT '',
+            drill_id             TEXT,
+            scores_json          TEXT    NOT NULL DEFAULT '',
+            stroke               TEXT    NOT NULL DEFAULT '',
+            forum_chat_id        INTEGER,
+            message_thread_id    INTEGER,
+            pending_coach_action TEXT,
+            sent_at              TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_review_user_status
+            ON review_jobs (user_id, status);
+        CREATE INDEX IF NOT EXISTS idx_review_status_created
+            ON review_jobs (status, created_at);
     """
     )
     _migrate_schema(conn)
@@ -1352,3 +1387,217 @@ def list_due_practice_post(practice_on: str) -> list[dict]:
             (practice_on, now),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Coach review jobs (Product V2)
+# ---------------------------------------------------------------------------
+
+_OPEN_REVIEW_STATUSES = ("queued", "in_review")
+
+
+def get_player_forum_topic(user_id: int, forum_chat_id: int) -> Optional[dict]:
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            """
+            SELECT * FROM player_forum_topics
+            WHERE user_id = ? AND forum_chat_id = ?
+            """,
+            (user_id, forum_chat_id),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def save_player_forum_topic(
+    user_id: int,
+    forum_chat_id: int,
+    message_thread_id: int,
+    title: str = "",
+) -> None:
+    created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            """
+            INSERT INTO player_forum_topics
+                (user_id, forum_chat_id, message_thread_id, title, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                forum_chat_id = excluded.forum_chat_id,
+                message_thread_id = excluded.message_thread_id,
+                title = excluded.title
+            """,
+            (user_id, forum_chat_id, message_thread_id, title, created_at),
+        )
+        conn.commit()
+
+
+def cancel_open_review_jobs(user_id: int) -> None:
+    with _connect() as conn:
+        _init_db(conn)
+        placeholders = ",".join("?" * len(_OPEN_REVIEW_STATUSES))
+        conn.execute(
+            f"""
+            UPDATE review_jobs
+            SET status = 'cancelled'
+            WHERE user_id = ? AND status IN ({placeholders})
+            """,
+            (user_id, *_OPEN_REVIEW_STATUSES),
+        )
+        conn.commit()
+
+
+def create_review_job(
+    user_id: int,
+    *,
+    video_file_id: str,
+    video_mime: str = "video/mp4",
+    language_code: str = "ru",
+    draft_text: str = "",
+    focus_text: str = "",
+    drill_text: str = "",
+    drill_id: Optional[str] = None,
+    scores: Optional[dict] = None,
+    stroke: str = "",
+    reviewer_id: Optional[int] = None,
+) -> int:
+    cancel_open_review_jobs(user_id)
+    created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    scores_json = json.dumps(scores or {}, ensure_ascii=False)
+    with _connect() as conn:
+        _init_db(conn)
+        cur = conn.execute(
+            """
+            INSERT INTO review_jobs (
+                user_id, reviewer_id, created_at, status,
+                video_file_id, video_mime, language_code, draft_text,
+                focus_text, drill_text, drill_id, scores_json, stroke
+            ) VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user_id,
+                reviewer_id,
+                created_at,
+                video_file_id,
+                video_mime,
+                language_code,
+                draft_text,
+                (focus_text or "").strip(),
+                (drill_text or "").strip(),
+                drill_id,
+                scores_json,
+                stroke or "",
+            ),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+
+
+def get_review_job(job_id: int) -> Optional[dict]:
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            "SELECT * FROM review_jobs WHERE id = ?", (job_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def get_open_review_job(user_id: int) -> Optional[dict]:
+    with _connect() as conn:
+        _init_db(conn)
+        placeholders = ",".join("?" * len(_OPEN_REVIEW_STATUSES))
+        row = conn.execute(
+            f"""
+            SELECT * FROM review_jobs
+            WHERE user_id = ? AND status IN ({placeholders})
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (user_id, *_OPEN_REVIEW_STATUSES),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def get_open_review_by_thread(
+    forum_chat_id: int, message_thread_id: int
+) -> Optional[dict]:
+    with _connect() as conn:
+        _init_db(conn)
+        placeholders = ",".join("?" * len(_OPEN_REVIEW_STATUSES))
+        row = conn.execute(
+            f"""
+            SELECT * FROM review_jobs
+            WHERE forum_chat_id = ?
+              AND message_thread_id = ?
+              AND status IN ({placeholders})
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (forum_chat_id, message_thread_id, *_OPEN_REVIEW_STATUSES),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def update_review_job(job_id: int, **fields) -> None:
+    if not fields:
+        return
+    allowed = {
+        "status",
+        "reviewer_id",
+        "final_text",
+        "coach_notes",
+        "forum_chat_id",
+        "message_thread_id",
+        "pending_coach_action",
+        "sent_at",
+        "draft_text",
+    }
+    cols = []
+    values = []
+    for key, value in fields.items():
+        if key not in allowed:
+            raise ValueError(f"unsupported review_jobs field: {key}")
+        cols.append(f"{key} = ?")
+        values.append(value)
+    values.append(job_id)
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            f"UPDATE review_jobs SET {', '.join(cols)} WHERE id = ?",
+            values,
+        )
+        conn.commit()
+
+
+def list_review_jobs_for_fallback(hours: int = 24) -> list[dict]:
+    with _connect() as conn:
+        _init_db(conn)
+        rows = conn.execute(
+            """
+            SELECT * FROM review_jobs
+            WHERE status IN ('queued', 'in_review')
+              AND datetime(created_at) <= datetime('now', ?)
+            ORDER BY id ASC
+            """,
+            (f"-{hours} hours",),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def mark_review_sent(
+    job_id: int,
+    *,
+    status: str,
+    final_text: str,
+    coach_notes: str = "",
+) -> None:
+    sent_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    update_review_job(
+        job_id,
+        status=status,
+        final_text=final_text,
+        coach_notes=coach_notes or "",
+        pending_coach_action=None,
+        sent_at=sent_at,
+    )

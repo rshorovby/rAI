@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import tempfile
 from pathlib import Path
@@ -29,8 +30,10 @@ from telegram.ext import (
 import billing
 import drills
 import practice
+import review
 import storage
 from analysis_dialog import (
+    DIALOG_KEY,
     clear_dialog,
     current_error_text,
     format_error_card,
@@ -46,7 +49,9 @@ from analysis_dialog import (
     keyboard_finish,
     keyboard_summary,
     keyboard_top3,
-    start_dialog,
+)
+from analysis_dialog import (
+    parse_report as parse_dialog_sections,
 )
 from analytics import (
     EVENT_ANALYSIS_FAILED,
@@ -64,6 +69,9 @@ from analytics import (
     EVENT_PRACTICE_POST_ANSWERED,
     EVENT_PRACTICE_PRE_SENT,
     EVENT_PROFILE_RESET,
+    EVENT_REVIEW_QUEUED,
+    EVENT_REVIEW_SENT_COACH,
+    EVENT_REVIEW_SENT_FALLBACK,
     EVENT_VIDEO_SENT,
     format_analytics_report,
 )
@@ -1089,6 +1097,37 @@ async def _run_lazy_skeleton(
             temp_path.unlink(missing_ok=True)
 
 
+def _restore_dialog_from_session(user_data: dict, user_id: int) -> Optional[dict]:
+    state = get_dialog(user_data)
+    if state:
+        return state
+    loaded = storage.load_active_session(user_id)
+    if not loaded:
+        return None
+    dialog = loaded.get("analysis_dialog")
+    if not isinstance(dialog, dict):
+        return None
+    user_data[DIALOG_KEY] = dialog
+    user_data[SESSION_KEY] = {
+        "analysis": loaded.get("analysis"),
+        "history": loaded.get("history") or [],
+        "stroke": loaded.get("stroke"),
+        "analysis_dialog": dialog,
+    }
+    return dialog
+
+
+def _persist_dialog_state(user_data: dict) -> None:
+    user_id = _get_user_id(user_data)
+    state = get_dialog(user_data)
+    if not user_id or not state:
+        return
+    session = _get_session(user_data)
+    session["analysis_dialog"] = state
+    user_data[SESSION_KEY] = session
+    _persist_session(user_data)
+
+
 async def handle_dialog(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     if not query or not query.data:
@@ -1102,13 +1141,32 @@ async def handle_dialog(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     context.user_data["user_id"] = user_id
     await _touch_user(update)
 
-    state = get_dialog(context.user_data)
+    state = _restore_dialog_from_session(context.user_data, user_id)
     if not state:
         await context.bot.send_message(chat_id=chat_id, text=t(lang, "dialog_stale"))
         return
 
     action = query.data.removeprefix("d:")
     sections = state.get("sections") or {}
+    try:
+        await _handle_dialog_action(
+            update, context, lang, language_code, chat_id, state, action, sections
+        )
+    finally:
+        _persist_dialog_state(context.user_data)
+
+
+async def _handle_dialog_action(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    lang: str,
+    language_code: str,
+    chat_id: int,
+    state: dict,
+    action: str,
+    sections: dict,
+) -> None:
+    query = update.callback_query
 
     if action == "summary":
         state["step"] = "summary"
@@ -1362,6 +1420,208 @@ async def handle_dialog(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
 
+async def _ensure_player_forum_topic(
+    context: ContextTypes.DEFAULT_TYPE,
+    user_id: int,
+    forum_chat_id: int,
+) -> Optional[int]:
+    existing = await asyncio.to_thread(
+        storage.get_player_forum_topic, user_id, forum_chat_id
+    )
+    if existing:
+        return int(existing["message_thread_id"])
+
+    try:
+        chat = await context.bot.get_chat(user_id)
+        first_name = getattr(chat, "first_name", "") or ""
+        username = getattr(chat, "username", "") or ""
+    except Exception:
+        first_name, username = "", ""
+        logger.exception("get_chat failed for topic title user_id=%s", user_id)
+
+    title = review.topic_title(user_id, first_name, username)
+    try:
+        topic = await context.bot.create_forum_topic(chat_id=forum_chat_id, name=title)
+    except Exception:
+        logger.exception(
+            "create_forum_topic failed chat_id=%s user_id=%s", forum_chat_id, user_id
+        )
+        return None
+
+    thread_id = int(topic.message_thread_id)
+    await asyncio.to_thread(
+        storage.save_player_forum_topic,
+        user_id,
+        forum_chat_id,
+        thread_id,
+        title,
+    )
+    return thread_id
+
+
+async def _post_review_job_to_forum(
+    context: ContextTypes.DEFAULT_TYPE,
+    job_id: int,
+    user_id: int,
+) -> bool:
+    settings: Settings = context.application.bot_data.get("settings")
+    if not settings or not settings.coach_forum_chat_id:
+        logger.error("COACH_FORUM_CHAT_ID не задан — кабинет недоступен")
+        return False
+
+    job = await asyncio.to_thread(storage.get_review_job, job_id)
+    if not job:
+        return False
+
+    forum_chat_id = settings.coach_forum_chat_id
+    thread_id = await _ensure_player_forum_topic(context, user_id, forum_chat_id)
+    if thread_id is None:
+        return False
+
+    await asyncio.to_thread(
+        storage.update_review_job,
+        job_id,
+        forum_chat_id=forum_chat_id,
+        message_thread_id=thread_id,
+        status=review.STATUS_QUEUED,
+    )
+
+    header = (
+        f"🆕 Заявка #{job_id}\n"
+        f"user_id: `{user_id}`\n"
+        f"Фокус: {job.get('focus_text') or '—'}\n"
+        f"Упражнение: {job.get('drill_text') or '—'}\n"
+        f"Статус: в очереди"
+    )
+    try:
+        await context.bot.send_message(
+            chat_id=forum_chat_id,
+            message_thread_id=thread_id,
+            text=header,
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        try:
+            await context.bot.send_video(
+                chat_id=forum_chat_id,
+                message_thread_id=thread_id,
+                video=job["video_file_id"],
+            )
+        except BadRequest:
+            await context.bot.send_message(
+                chat_id=forum_chat_id,
+                message_thread_id=thread_id,
+                text="⚠️ Не удалось переслать видео (file_id). Попросите игрока прислать ещё раз.",
+            )
+        draft = (job.get("draft_text") or "")[:3500]
+        await context.bot.send_message(
+            chat_id=forum_chat_id,
+            message_thread_id=thread_id,
+            text=f"🤖 *AI-черновик:*\n\n{draft}",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=review.keyboard_coach_job(job_id),
+        )
+    except Exception:
+        logger.exception("post review to forum failed job_id=%s", job_id)
+        return False
+    return True
+
+
+async def _deliver_review_to_player(
+    context: ContextTypes.DEFAULT_TYPE,
+    job: dict,
+    *,
+    final_text: str,
+    status: str,
+    coach_notes: str = "",
+) -> None:
+    user_id = int(job["user_id"])
+    lang = "ru" if (job.get("language_code") or "").startswith("ru") else "en"
+    language_code = job.get("language_code") or lang
+    video_file_id = job["video_file_id"]
+    mime_type = job.get("video_mime") or "video/mp4"
+    focus_text = job.get("focus_text") or ""
+    drill_text = job.get("drill_text") or ""
+    drill_id = job.get("drill_id")
+    stroke = job.get("stroke") or ""
+    try:
+        scores = json.loads(job.get("scores_json") or "{}")
+    except json.JSONDecodeError:
+        scores = {}
+
+    await asyncio.to_thread(
+        storage.mark_review_sent,
+        int(job["id"]),
+        status=status,
+        final_text=final_text,
+        coach_notes=coach_notes,
+    )
+    await asyncio.to_thread(
+        storage.save_session,
+        user_id,
+        final_text,
+        language_code,
+        scores,
+        focus_text,
+        stroke,
+    )
+
+    state = {
+        "step": "summary",
+        "language_code": language_code,
+        "sections": parse_dialog_sections(final_text, language_code),
+        "skeleton_shown": False,
+        "video_file_id": video_file_id,
+        "video_mime": mime_type,
+        "visited_categories": [],
+        "error_index": 0,
+    }
+    payload = {
+        "analysis": final_text,
+        "history": [],
+        "stroke": stroke or None,
+        "analysis_dialog": state,
+    }
+    await asyncio.to_thread(storage.save_active_session, user_id, payload)
+
+    summary = format_summary_message(lang, state)
+    if scores:
+        summary = f"{summary}\n\n{format_scores_line(scores, lang)}"
+    if status == review.STATUS_SENT_COACH:
+        await context.bot.send_message(
+            chat_id=user_id, text=t(lang, "review_delivered_coach")
+        )
+    await _reply_dialog(
+        context,
+        user_id,
+        summary,
+        keyboard_summary(lang, state),
+    )
+
+    if drill_id or drill_text:
+        picked = []
+        if drill_id:
+            picked = await asyncio.to_thread(drills.pick_drills, [drill_id], None, 1)
+        for drill in picked:
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=drills.format_drill_message(drill, lang),
+                parse_mode=ParseMode.MARKDOWN,
+            )
+    await asyncio.to_thread(
+        storage.create_practice_plan,
+        user_id,
+        focus_text,
+        drill_text,
+        drill_id,
+    )
+    event = (
+        EVENT_REVIEW_SENT_FALLBACK
+        if status == review.STATUS_SENT_FALLBACK
+        else EVENT_REVIEW_SENT_COACH
+    )
+    await _log_event(user_id, event, str(job["id"]))
+
+
 async def _run_video_analysis(
     context: ContextTypes.DEFAULT_TYPE,
     chat_id: int,
@@ -1463,7 +1723,7 @@ async def _run_video_analysis(
         )
 
         focus_text = parsed.focus or ""
-        _save_analysis(context.user_data, report, stroke=stroke)
+        # Черновик в историю/фокус сразу; игроку отчёт — только после ревью/fallback.
         await asyncio.to_thread(
             storage.save_session,
             user_id,
@@ -1479,44 +1739,7 @@ async def _run_video_analysis(
             )
         context.user_data.pop("pending_video", None)
 
-        state = start_dialog(
-            context.user_data,
-            report,
-            language_code,
-            video_file_id=video_file_id,
-            video_mime=mime_type,
-        )
-
-        await status_message.delete()
-        if used_simple:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=t(lang, "analysis_used_simple_model"),
-            )
-        summary = format_summary_message(lang, state)
-        if parsed.scores:
-            summary = f"{summary}\n\n{format_scores_line(parsed.scores, lang)}"
-        await _reply_dialog(
-            context,
-            chat_id,
-            summary,
-            keyboard_summary(lang, state),
-        )
-
         picked = await asyncio.to_thread(drills.pick_drills, parsed.drill_ids, None, 2)
-        for drill in picked:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=drills.format_drill_message(drill, lang),
-                parse_mode=ParseMode.MARKDOWN,
-            )
-            file_id = drill.get("telegram_file_id")
-            if file_id:
-                try:
-                    await context.bot.send_video(chat_id=chat_id, video=file_id)
-                except BadRequest:
-                    pass
-
         primary = picked[0] if picked else None
         drill_text = ""
         drill_id = None
@@ -1525,17 +1748,47 @@ async def _run_video_analysis(
             drill_text = (localized.get("title") or localized.get("id") or "").strip()
             drill_id = primary.get("id")
         if not drill_text:
-            top_items = state["sections"].get("top3_items") or []
+            sections = parse_dialog_sections(report, language_code)
+            top_items = sections.get("top3_items") or []
             drill_text = (top_items[0] if top_items else focus_text) or ""
-        await asyncio.to_thread(
-            storage.create_practice_plan,
-            user_id,
-            focus_text,
-            drill_text,
-            drill_id,
-        )
 
+        job_id = await asyncio.to_thread(
+            storage.create_review_job,
+            user_id,
+            video_file_id=video_file_id,
+            video_mime=mime_type,
+            language_code=language_code,
+            draft_text=report,
+            focus_text=focus_text,
+            drill_text=drill_text,
+            drill_id=drill_id,
+            scores=parsed.scores,
+            stroke=stroke or "",
+        )
         await _log_event(user_id, EVENT_ANALYSIS_SUCCESS)
+        await _log_event(user_id, EVENT_REVIEW_QUEUED, str(job_id))
+
+        posted = await _post_review_job_to_forum(context, job_id, user_id)
+        try:
+            await status_message.delete()
+        except BadRequest:
+            pass
+        if used_simple:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=t(lang, "analysis_used_simple_model"),
+            )
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=t(lang, "review_received"),
+            reply_markup=review.keyboard_player_waiting(lang),
+        )
+        if not posted:
+            logger.error(
+                "Не удалось запостить review job_id=%s в Forum — "
+                "проверьте COACH_FORUM_CHAT_ID и права бота",
+                job_id,
+            )
 
     except TimeoutError as exc:
         # квота не списывается — сессия не сохранена
@@ -1835,6 +2088,209 @@ async def handle_quick_question(
         )
 
 
+async def handle_review_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    query = update.callback_query
+    if not query or not query.data:
+        return
+    await query.answer()
+    settings: Settings = context.application.bot_data.get("settings")
+    user_id = query.from_user.id
+
+    # Игрок: написать тренеру
+    if query.data == "rvp:msg":
+        lang = sync_user_lang(context.user_data, query.from_user.language_code)
+        job = await asyncio.to_thread(storage.get_open_review_job, user_id)
+        if not job:
+            await query.message.reply_text(t(lang, "review_no_open_job"))
+            return
+        context.user_data[review.PLAYER_MSG_PENDING_KEY] = int(job["id"])
+        await query.message.reply_text(t(lang, "review_message_prompt"))
+        return
+
+    if not query.data.startswith("rv:"):
+        return
+    if not settings or not settings.is_coach(user_id):
+        await query.message.reply_text("Недостаточно прав.")
+        return
+
+    parts = query.data.split(":")
+    if len(parts) < 3:
+        return
+    try:
+        job_id = int(parts[1])
+    except ValueError:
+        return
+    action = parts[2]
+    job = await asyncio.to_thread(storage.get_review_job, job_id)
+    if not job or job.get("status") not in (
+        review.STATUS_QUEUED,
+        review.STATUS_IN_REVIEW,
+    ):
+        await query.message.reply_text("Заявка уже закрыта или не найдена.")
+        return
+
+    thread_id = query.message.message_thread_id
+    chat_id = query.message.chat_id
+
+    if action == review.ACTION_SEND:
+        final_text = review.compose_final_report(
+            job.get("draft_text") or "",
+            lang="ru" if (job.get("language_code") or "").startswith("ru") else "en",
+        )
+        await _deliver_review_to_player(
+            context,
+            job,
+            final_text=final_text,
+            status=review.STATUS_SENT_COACH,
+        )
+        await context.bot.send_message(
+            chat_id=chat_id,
+            message_thread_id=thread_id,
+            text=f"✅ Отправлено игроку (job #{job_id}) как есть.",
+        )
+        return
+
+    if action == review.ACTION_REPLACE:
+        await asyncio.to_thread(
+            storage.update_review_job,
+            job_id,
+            pending_coach_action=review.ACTION_REPLACE,
+            status=review.STATUS_IN_REVIEW,
+            reviewer_id=user_id,
+        )
+        await context.bot.send_message(
+            chat_id=chat_id,
+            message_thread_id=thread_id,
+            text=(
+                "✏️ Пришлите *полный* финальный текст отчёта следующим сообщением "
+                "в эту тему."
+            ),
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    if action == review.ACTION_NOTES:
+        await asyncio.to_thread(
+            storage.update_review_job,
+            job_id,
+            pending_coach_action=review.ACTION_NOTES,
+            status=review.STATUS_IN_REVIEW,
+            reviewer_id=user_id,
+        )
+        await context.bot.send_message(
+            chat_id=chat_id,
+            message_thread_id=thread_id,
+            text=(
+                "➕ Пришлите замечания тренера следующим сообщением в эту тему. "
+                "Они будут добавлены к AI-черновику."
+            ),
+        )
+        return
+
+
+async def _handle_coach_forum_text(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, user_text: str
+) -> bool:
+    """Обработка текста тренера в теме Forum. True если съели сообщение."""
+    message = update.message
+    settings: Settings = context.application.bot_data.get("settings")
+    if not settings or not settings.coach_forum_chat_id:
+        return False
+    if message.chat_id != settings.coach_forum_chat_id:
+        return False
+    if not settings.is_coach(message.from_user.id):
+        return False
+    thread_id = message.message_thread_id
+    if not thread_id:
+        return False
+
+    job = await asyncio.to_thread(
+        storage.get_open_review_by_thread, settings.coach_forum_chat_id, thread_id
+    )
+    if not job:
+        return False
+    pending = job.get("pending_coach_action")
+    if not pending:
+        return False
+
+    lang = "ru" if (job.get("language_code") or "").startswith("ru") else "en"
+    if pending == review.ACTION_REPLACE:
+        final_text = review.compose_final_report(
+            job.get("draft_text") or "",
+            replacement=user_text,
+            lang=lang,
+        )
+        await _deliver_review_to_player(
+            context,
+            job,
+            final_text=final_text,
+            status=review.STATUS_SENT_COACH,
+        )
+        await message.reply_text(
+            f"✅ Заменённый текст отправлен игроку (#{job['id']})."
+        )
+        return True
+
+    if pending == review.ACTION_NOTES:
+        final_text = review.compose_final_report(
+            job.get("draft_text") or "",
+            coach_notes=user_text,
+            lang=lang,
+        )
+        await _deliver_review_to_player(
+            context,
+            job,
+            final_text=final_text,
+            status=review.STATUS_SENT_COACH,
+            coach_notes=user_text,
+        )
+        await message.reply_text(
+            f"✅ Отчёт с замечаниями отправлен игроку (#{job['id']})."
+        )
+        return True
+    return False
+
+
+async def _handle_player_coach_message(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, user_text: str
+) -> bool:
+    job_id = context.user_data.get(review.PLAYER_MSG_PENDING_KEY)
+    if not job_id:
+        return False
+    message = update.message
+    lang = _lang_from_update(update, context)
+    job = await asyncio.to_thread(storage.get_review_job, int(job_id))
+    context.user_data.pop(review.PLAYER_MSG_PENDING_KEY, None)
+    if not job or job.get("status") not in (
+        review.STATUS_QUEUED,
+        review.STATUS_IN_REVIEW,
+    ):
+        await message.reply_text(t(lang, "review_no_open_job"))
+        return True
+
+    settings: Settings = context.application.bot_data.get("settings")
+    forum_chat_id = job.get("forum_chat_id") or (
+        settings.coach_forum_chat_id if settings else None
+    )
+    thread_id = job.get("message_thread_id")
+    if not forum_chat_id or not thread_id:
+        await message.reply_text(
+            "Кабинет ещё не готов принять сообщение. Попробуйте чуть позже."
+        )
+        return True
+
+    uname = message.from_user.username or message.from_user.first_name or "player"
+    await context.bot.send_message(
+        chat_id=int(forum_chat_id),
+        message_thread_id=int(thread_id),
+        text=f"💬 Сообщение от игрока (@{uname} / {message.from_user.id}):\n\n{user_text}",
+    )
+    await message.reply_text(t(lang, "review_message_sent"))
+    return True
+
+
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.message
     if not message or not message.text:
@@ -1848,6 +2304,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     await _touch_user(update)
+
+    if await _handle_coach_forum_text(update, context, user_text):
+        return
+    if await _handle_player_coach_message(update, context, user_text):
+        return
 
     menu_handler = _MENU_HANDLERS.get(user_text)
     if menu_handler:
@@ -2130,6 +2591,10 @@ def build_application(settings: Settings) -> Application:
     app.bot_data["admin_user_ids"] = settings.admin_user_ids
     if not settings.admin_user_ids:
         logger.warning("ADMIN_USER_IDS не задан — команды /stats и /grant недоступны")
+    if not settings.coach_forum_chat_id:
+        logger.warning(
+            "COACH_FORUM_CHAT_ID не задан — заявки в кабинет тренера не попадут"
+        )
 
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("help", help_command))
@@ -2144,6 +2609,7 @@ def build_application(settings: Settings) -> Application:
     app.add_handler(CommandHandler("grant", grant_command))
     app.add_handler(CallbackQueryHandler(handle_feedback, pattern=r"^fb:"))
     app.add_handler(CallbackQueryHandler(handle_practice, pattern=r"^p:"))
+    app.add_handler(CallbackQueryHandler(handle_review_callback, pattern=r"^rv"))
     app.add_handler(CallbackQueryHandler(handle_dialog, pattern=r"^d:"))
     app.add_handler(CallbackQueryHandler(handle_quick_question, pattern=r"^q:"))
     app.add_handler(CallbackQueryHandler(handle_retry, pattern=r"^retry(:simple)?$"))

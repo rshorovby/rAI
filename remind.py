@@ -8,6 +8,7 @@ import sys
 from telegram import Bot
 
 import practice
+import review
 import storage
 from analytics import (
     EVENT_PRACTICE_POST_SENT,
@@ -137,6 +138,54 @@ async def run_practice_nudges() -> tuple[int, int]:
     return pre_sent, post_sent
 
 
+async def run_review_fallbacks(hours: int = 24) -> int:
+    """Через N часов без ревью тренера — отправить AI с пометкой."""
+    from bot import _deliver_review_to_player
+
+    settings = load_settings()
+    bot = Bot(settings.telegram_token)
+
+    class _Ctx:
+        def __init__(self):
+            self.bot = bot
+            self.user_data = {}
+            self.application = type("App", (), {"bot_data": {"settings": settings}})()
+
+    ctx = _Ctx()
+    sent = 0
+    for job in storage.list_review_jobs_for_fallback(hours=hours):
+        lang = _ui_lang(job.get("language_code") or "")
+        final_text = review.compose_final_report(
+            job.get("draft_text") or "",
+            fallback=True,
+            lang=lang,
+        )
+        try:
+            await _deliver_review_to_player(
+                ctx,
+                job,
+                final_text=final_text,
+                status=review.STATUS_SENT_FALLBACK,
+            )
+            sent += 1
+            logger.info("Review fallback отправлен job_id=%s", job["id"])
+            if job.get("forum_chat_id") and job.get("message_thread_id"):
+                try:
+                    await bot.send_message(
+                        chat_id=int(job["forum_chat_id"]),
+                        message_thread_id=int(job["message_thread_id"]),
+                        text=(
+                            f"⏰ Fallback: AI-отчёт ушёл игроку без ревью "
+                            f"(job #{job['id']})."
+                        ),
+                    )
+                except Exception:
+                    logger.exception("Не удалось написать в тему о fallback")
+        except Exception:
+            logger.exception("Review fallback failed job_id=%s", job.get("id"))
+    return sent
+
+
 def main() -> None:
     logging.basicConfig(
         format="%(asctime)s — %(name)s — %(levelname)s — %(message)s",
@@ -150,6 +199,8 @@ def main() -> None:
             mode = "digest"
         elif arg == "practice":
             mode = "practice"
+        elif arg == "review":
+            mode = "review"
         else:
             days = int(arg)
     if mode == "digest":
@@ -158,6 +209,9 @@ def main() -> None:
     elif mode == "practice":
         pre, post = asyncio.run(run_practice_nudges())
         print(f"Practice nudges: pre={pre}, post={post}")
+    elif mode == "review":
+        count = asyncio.run(run_review_fallbacks(24))
+        print(f"Review fallbacks: {count}")
     else:
         count = asyncio.run(run_reminders(days))
         print(f"Отправлено напоминаний: {count}")

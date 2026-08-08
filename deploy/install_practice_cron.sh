@@ -28,6 +28,8 @@ FILTERED=$(
   fi
   echo "# RallyAI: practice pre/post (окна 09:00 и 20:00 МСК проверяются в коде)"
   echo "5 * * * * ${APP_DIR}/deploy/remind.sh practice >> ${APP_DIR}/data/practice.log 2>&1"
+  echo "# RallyAI: review fallback 24ч (Product V2)"
+  echo "10 * * * * ${APP_DIR}/deploy/remind.sh review >> ${APP_DIR}/data/review_fallback.log 2>&1"
   echo "# RallyAI: напоминание через 7 дней (10:00 МСК)"
   echo "0 7 * * * ${APP_DIR}/deploy/remind.sh >> ${APP_DIR}/data/remind.log 2>&1"
 } | sudo -u "${APP_USER}" crontab -

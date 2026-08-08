@@ -9,6 +9,8 @@ ENV_VARS = (
     "GEMINI_MODEL_PRO",
     "GEMINI_MODEL_FREE",
     "ADMIN_USER_IDS",
+    "COACH_USER_IDS",
+    "COACH_FORUM_CHAT_ID",
 )
 
 
@@ -64,6 +66,17 @@ def test_admin_ids_parsed(env):
     env.setenv("ADMIN_USER_IDS", " 1, 2 ,3 ")
 
     assert load_settings().admin_user_ids == (1, 2, 3)
+
+
+def test_coach_forum_settings(env):
+    env.setenv("COACH_USER_IDS", "10,20")
+    env.setenv("COACH_FORUM_CHAT_ID", "-100123")
+
+    settings = load_settings()
+    assert settings.coach_user_ids == (10, 20)
+    assert settings.coach_forum_chat_id == -100123
+    assert settings.is_coach(10)
+    assert not settings.is_coach(99)
 
 
 def test_missing_required_vars_raise(env):
