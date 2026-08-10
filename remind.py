@@ -7,6 +7,7 @@ import sys
 
 from telegram import Bot
 
+import cabinet
 import practice
 import review
 import storage
@@ -49,6 +50,16 @@ async def run_reminders(days: int = 7) -> int:
             await bot.send_message(chat_id=user_id, text=text)
             storage.mark_reminder_sent(user_id)
             storage.log_event(user_id, EVENT_REMINDER_SENT)
+            await cabinet.notify(
+                bot,
+                settings.coach_forum_chat_id,
+                int(user_id),
+                cabinet.format_reminder(
+                    int(user_id),
+                    kind="inactive",
+                    detail=f"задача: {task}" if task else "",
+                ),
+            )
             sent += 1
             logger.info("Напоминание отправлено user_id=%s", user_id)
         except Exception:
@@ -108,6 +119,16 @@ async def run_practice_nudges() -> tuple[int, int]:
                 )
                 storage.mark_practice_pre_sent(int(row["id"]))
                 storage.log_event(user_id, EVENT_PRACTICE_PRE_SENT)
+                await cabinet.notify(
+                    bot,
+                    settings.coach_forum_chat_id,
+                    user_id,
+                    cabinet.format_reminder(
+                        user_id,
+                        kind="practice_pre",
+                        detail=f"фокус: {focus}\nупражнение: {drill}",
+                    ),
+                )
                 pre_sent += 1
                 logger.info("Practice pre отправлен user_id=%s", user_id)
             except Exception:
@@ -119,7 +140,7 @@ async def run_practice_nudges() -> tuple[int, int]:
         for row in storage.list_due_practice_post(today):
             user_id = int(row["user_id"])
             lang = _ui_lang(row.get("language_code") or "")
-            _, drill = _focus_drill(row)
+            focus, drill = _focus_drill(row)
             try:
                 await bot.send_message(
                     chat_id=user_id,
@@ -128,6 +149,16 @@ async def run_practice_nudges() -> tuple[int, int]:
                 )
                 storage.mark_practice_post_sent(int(row["id"]))
                 storage.log_event(user_id, EVENT_PRACTICE_POST_SENT)
+                await cabinet.notify(
+                    bot,
+                    settings.coach_forum_chat_id,
+                    user_id,
+                    cabinet.format_reminder(
+                        user_id,
+                        kind="practice_post",
+                        detail=f"фокус: {focus}\nупражнение: {drill}",
+                    ),
+                )
                 post_sent += 1
                 logger.info("Practice post отправлен user_id=%s", user_id)
             except Exception:

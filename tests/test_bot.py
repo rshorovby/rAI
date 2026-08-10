@@ -44,7 +44,10 @@ def test_feedback_events_mapping():
 
 
 def test_quota_blocks_when_exhausted(tmp_path):
-    with patch.object(storage, "DB_PATH", tmp_path / "t.db"):
+    with (
+        patch.object(storage, "DB_PATH", tmp_path / "t.db"),
+        patch.object(billing, "MONETIZATION_ENABLED", True),
+    ):
         storage.upsert_user(88, None, "Q", None, "ru")
         storage.save_player_profile(
             88,

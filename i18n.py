@@ -114,30 +114,29 @@ _MESSAGES: dict[str, dict[str, str]] = {
     "ru": {
         "welcome": (
             "🎾 *Добро пожаловать в RallyAI!*\n\n"
-            "Я разбираю вашу технику тенниса по короткому видео — как тренер после просмотра "
-            "записи с корта.\n\n"
-            "*Что вы получите за ~1 минуту:*\n"
-            "• разбор ударов, ног и баланса\n"
+            "Разбираем вашу технику по короткому видео вместе с *реальным тренером* "
+            "с большим опытом.\n\n"
+            "*Как это работает:*\n"
+            "1. AI-помощник за ~1 минуту готовит разбор ударов, ног и баланса\n"
+            "2. Опытный тренер смотрит то же видео и может добавить свой фидбек\n"
+            "3. Вы задаёте вопросы — бот помнит контекст разбора\n\n"
+            "*Что получите:*\n"
             "• ошибки по критичности 🔴🟠🟡\n"
-            "• топ-3 приоритета на тренировку\n\n"
-            "*Как начать:* отправьте видео 10–30 сек (сбоку или сзади — идеально). "
-            "Можно добавить подпись: «болит локоть», «это форхенд».\n\n"
-            "После разбора задавайте вопросы текстом — я помню контекст.\n\n"
+            "• топ-3 приоритета на тренировку\n"
+            "• комментарии тренера, когда захочет уточнить или усилить разбор\n\n"
+            "*Как начать:* видео 10–30 сек (лучше сбоку или сзади). "
+            "Можно подпись: «болит локоть», «это форхенд».\n\n"
             "👇 *Отправьте первое видео прямо сейчас*"
         ),
         "bot_short_description": (
-            "🎾 10–30 сек видео → разбор техники, ошибок и упражнений от ИИ-тренера. "
-            "Нажмите «Старт»."
+            "🎾 Видео 10–30 сек → AI-разбор + фидбек опытного тренера. Нажмите «Старт»."
         ),
         "bot_description": (
-            "🎾 RallyAI — ИИ-тренер по теннису\n\n"
-            "Снимите 10–30 секунд своей игры (лучше сбоку или сзади) и отправьте сюда. "
-            "Через минуту получите разбор:\n"
-            "• техника ударов и работа ног\n"
-            "• главные ошибки по критичности\n"
-            "• 3 приоритета на тренировку\n\n"
-            "После разбора можно задавать уточняющие вопросы — бот помнит ваш последний "
-            "разбор.\n\n"
+            "🎾 RallyAI — разбор техники с AI и реальным тренером\n\n"
+            "Снимите 10–30 секунд игры (лучше сбоку или сзади) и отправьте сюда.\n\n"
+            "Сначала AI за минуту разберёт удары, ноги и главные ошибки. "
+            "Затем опытный тренер может дополнить разбор своим комментарием.\n\n"
+            "После разбора можно задавать вопросы — бот помнит контекст.\n\n"
             "👇 Нажмите «Старт», чтобы начать"
         ),
         "help": (
@@ -147,8 +146,9 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "• Лучшие ракурсы: сбоку, сзади-сбоку, иногда сверху\n"
             "• На видео должен быть виден игрок и его удары/движение\n"
             "• К видео можно добавить подпись: «это форхенд сверху», «болит локоть» и т.п.\n\n"
-            "После разбора пишите вопросы обычным сообщением — бот ответит в контексте "
-            "последнего видео. Новое видео автоматически начинает новый диалог.\n\n"
+            "После видео вы сначала получаете AI-разбор, а опытный тренер может "
+            "дополнить его отдельным сообщением. Вопросы пишите обычным текстом — "
+            "бот отвечает в контексте последнего видео. Новое видео начинает новый диалог.\n\n"
             "/new — сбросить текущий диалог без отправки видео"
         ),
         "btn_help": "📋 Справка",
@@ -156,7 +156,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "btn_history": "📊 Мои разборы",
         "cmd_start": "Начать работу",
         "cmd_help": "Справка по использованию",
-        "cmd_plan": "Тариф и лимиты",
+        "cmd_plan": "Статус",
         "cmd_progress": "Мой прогресс",
         "cmd_focus": "Фокус недели",
         "cmd_new": "Новый разбор",
@@ -169,14 +169,22 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "Оплата через Telegram Stars — одним нажатием."
         ),
         "video_too_long": (
-            "Видео длиннее лимита тарифа ({max_sec} сек для {plan}). "
-            "Обрежьте ролик или откройте Pro."
+            "Видео длиннее {max_sec} сек. Обрежьте ролик и пришлите снова."
         ),
         "plan_status": (
             "📦 *Тариф: {plan}*\n\n"
             "• Разборы в этом месяце: {used}/{limit} (осталось {left})\n"
             "• Сброс квоты: {reset}\n"
             "• Pro действует до: {expires}"
+        ),
+        "plan_status_open": (
+            "🎾 *Открытая бета*\n\n"
+            "Сейчас бот бесплатный для всех — набираем базу игроков.\n\n"
+            "• Разборов в этом месяце: {used}\n"
+            "• Макс. длина видео: {max_sec} сек"
+        ),
+        "monetization_off": (
+            "Сейчас бот в открытой бете — оплата не нужна. Просто отправьте видео."
         ),
         "focus_empty": (
             "Фокус недели ещё не задан. Сделайте разбор — бот выберет главный фокус."
@@ -379,18 +387,31 @@ _MESSAGES: dict[str, dict[str, str]] = {
         ),
         "practice_post_skip": ("Ничего страшного. Когда будет следующая тренировка?"),
         "practice_no_plan": "Цепочка уже закрыта. Отправьте новое видео или /new.",
+        "review_ack": (
+            "🎾 Видео получил.\n\n"
+            "Сейчас AI-помощник подготовит разбор — обычно до минуты. "
+            "Параллельно видео увидит опытный тренер и сможет добавить свой фидбек."
+        ),
         "review_received": (
             "🎾 Видео получил.\n\n"
-            "Разбор сделает наш тренер вместе с AI-помощником. "
-            "Обычно это занимает до суток — иногда быстрее. "
-            "Напишу, как будет готово."
+            "Сейчас AI-помощник подготовит разбор — обычно до минуты. "
+            "Параллельно видео увидит опытный тренер и сможет добавить свой фидбек."
+        ),
+        "review_preparing": ("⏳ Анализирую технику — это может занять до минуты..."),
+        "review_forum_failed": (
+            "⚠️ Разбор готов, но не удалось отправить его в кабинет тренера. "
+            "Мы уже видим ошибку в логах — при необходимости напишите нам."
         ),
         "review_btn_message_coach": "✉️ Написать тренеру",
-        "review_message_prompt": (
-            "Напишите сообщение тренеру одним текстом — перешлю в кабинет."
-        ),
+        "review_message_prompt": ("Напишите сообщение тренеру — перешлю в кабинет."),
         "review_message_sent": "✅ Передал тренеру.",
-        "review_no_open_job": "Сейчас нет разбора в очереди. Отправьте видео.",
+        "review_no_open_job": "Сначала отправьте видео — после разбора можно писать тренеру.",
+        "review_no_topic": "Сначала отправьте видео — после разбора можно писать тренеру.",
+        "review_coach_hint": (
+            "Опытный тренер может дополнить AI-разбор своим комментарием. "
+            "Если хотите что-то уточнить у тренера — кнопка ниже."
+        ),
+        "review_coach_message": "💬 *Сообщение от тренера:*\n\n{text}",
         "review_fallback_banner": (
             "⚠️ *Это предварительный разбор AI:* тренер не успел проверить вручную. "
             "Можно опираться на него на тренировке; при следующем видео тренер "
@@ -436,10 +457,10 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "4. Или подключите платный тариф в Google AI Studio"
         ),
         "error_overloaded": (
-            "⏳ Сейчас не получается разобрать видео — сервис анализа перегружен.\n\n"
-            "С вашим роликом всё в порядке, это временная нагрузка.\n\n"
-            "Можно подождать и попробовать ещё раз или разобрать на более простой "
-            "модели (чуть проще по деталям, зато обычно отвечает)."
+            "⏳ Сейчас не получается разобрать видео — ИИ-модели перегружены.\n\n"
+            "С вашим роликом всё в порядке: видео уже у тренера, он сможет дать "
+            "разбор вручную.\n\n"
+            "Можно также нажать «Повторить» чуть позже."
         ),
         "error_internal": (
             "⏳ Временный сбой сервиса анализа. Попробуйте ещё раз через минуту."
@@ -462,11 +483,14 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "Попробуйте ещё раз или отправьте другой ракурс. "
             "Если ошибка повторяется — проверьте ключ Gemini в `.env`."
         ),
+        "analysis_fallback_status": (
+            "⏳ Основная модель не ответила — пробую запасную…"
+        ),
         "cmd_profile": "Мой профиль",
         "ob_intro": (
             "👋 *Давайте познакомимся — это займёт 30 секунд*\n\n"
-            "Ответы помогут ИИ точнее разбирать вашу технику: подстроит глубину "
-            "критики, приоритеты и упражнения под ваш уровень.\n\n"
+            "Ответы помогут AI и тренеру точнее разобрать вашу технику: "
+            "подстроят глубину критики, приоритеты и упражнения под ваш уровень.\n\n"
             "Вопрос 1 из 4:"
         ),
         "ob_question_level": "Какой у вас уровень игры?",
@@ -551,29 +575,30 @@ _MESSAGES: dict[str, dict[str, str]] = {
     "en": {
         "welcome": (
             "🎾 *Welcome to RallyAI!*\n\n"
-            "I break down your tennis technique from a short video — like a coach "
-            "reviewing court footage.\n\n"
-            "*What you get in ~1 minute:*\n"
-            "• stroke, footwork, and balance analysis\n"
+            "We review your technique from a short video with a *real coach* "
+            "who has years of experience.\n\n"
+            "*How it works:*\n"
+            "1. An AI assistant prepares a stroke, footwork, and balance review in ~1 minute\n"
+            "2. An experienced coach watches the same clip and may add personal feedback\n"
+            "3. Ask follow-up questions — the bot remembers your review context\n\n"
+            "*What you get:*\n"
             "• mistakes ranked by severity 🔴🟠🟡\n"
-            "• top 3 training priorities\n\n"
+            "• top 3 training priorities\n"
+            "• coach comments when they want to sharpen or expand the review\n\n"
             "*To start:* send a 10–30 sec video (side or rear angle works best). "
             'Add a caption if you like: "elbow hurts", "this is my forehand".\n\n'
-            "After the analysis, ask follow-up questions — I remember the context.\n\n"
             "👇 *Send your first video now*"
         ),
         "bot_short_description": (
-            "🎾 10–30 sec video → AI coaching on technique, mistakes & drills. Tap Start."
+            "🎾 10–30 sec video → AI review + feedback from an experienced coach. Tap Start."
         ),
         "bot_description": (
-            "🎾 RallyAI — AI tennis coach\n\n"
+            "🎾 RallyAI — tennis technique review with AI and a real coach\n\n"
             "Record 10–30 seconds of your game (side or rear angle works best) and send "
-            "it here. In about a minute you'll get:\n"
-            "• stroke technique and footwork breakdown\n"
-            "• main mistakes ranked by severity\n"
-            "• 3 training priorities\n\n"
-            "After the analysis, ask follow-up questions — the bot remembers your last "
-            "session.\n\n"
+            "it here.\n\n"
+            "First, AI breaks down strokes, footwork, and key mistakes in about a minute. "
+            "Then an experienced coach may add their own comment.\n\n"
+            "After the review, ask follow-up questions — the bot remembers the context.\n\n"
             "👇 Tap Start to begin"
         ),
         "help": (
@@ -583,8 +608,9 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "• Best angles: side, rear-side, sometimes overhead\n"
             "• The player and their strokes/movement must be visible\n"
             '• You can add a caption: "overhead forehand", "elbow hurts", etc.\n\n'
-            "After the analysis, send text questions — the bot replies in context "
-            "of the last video. A new video starts a new dialog automatically.\n\n"
+            "After you send a video you get an AI review first; an experienced coach "
+            "may add a separate comment. Send text questions anytime — the bot replies "
+            "in context of the last video. A new video starts a new dialog.\n\n"
             "/new — reset the current dialog without sending a video"
         ),
         "btn_help": "📋 Help",
@@ -592,7 +618,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "btn_history": "📊 My analyses",
         "cmd_start": "Get started",
         "cmd_help": "Usage help",
-        "cmd_plan": "Plan and limits",
+        "cmd_plan": "Status",
         "cmd_progress": "My progress",
         "cmd_focus": "Weekly focus",
         "cmd_new": "New analysis",
@@ -604,15 +630,21 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "Pro unlocks more analyses, weekly focus, and progress memory.\n\n"
             "Pay with Telegram Stars in one tap."
         ),
-        "video_too_long": (
-            "Video exceeds your plan limit ({max_sec}s for {plan}). "
-            "Trim it or upgrade to Pro."
-        ),
+        "video_too_long": ("Video is longer than {max_sec}s. Trim it and send again."),
         "plan_status": (
             "📦 *Plan: {plan}*\n\n"
             "• Analyses this month: {used}/{limit} ({left} left)\n"
             "• Quota resets: {reset}\n"
             "• Pro valid until: {expires}"
+        ),
+        "plan_status_open": (
+            "🎾 *Open beta*\n\n"
+            "The bot is free for everyone while we grow the player base.\n\n"
+            "• Analyses this month: {used}\n"
+            "• Max video length: {max_sec}s"
+        ),
+        "monetization_off": (
+            "The bot is in open beta — no payment needed. Just send a video."
         ),
         "focus_empty": ("No weekly focus yet. Send a video — the coach will set one."),
         "focus_status": (
@@ -778,18 +810,35 @@ _MESSAGES: dict[str, dict[str, str]] = {
         ),
         "practice_post_skip": ("No worries. When is your next practice?"),
         "practice_no_plan": "That chain is closed. Send a new video or /new.",
+        "review_ack": (
+            "🎾 Got your video.\n\n"
+            "The AI assistant will prepare a review — usually within a minute. "
+            "At the same time an experienced coach will see the clip and may add feedback."
+        ),
         "review_received": (
             "🎾 Got your video.\n\n"
-            "Our coach will review it with an AI assistant. "
-            "Usually within a day — sometimes sooner. "
-            "I'll message you when it's ready."
+            "The AI assistant will prepare a review — usually within a minute. "
+            "At the same time an experienced coach will see the clip and may add feedback."
+        ),
+        "review_preparing": (
+            "⏳ Analyzing technique — this may take up to a minute..."
+        ),
+        "review_forum_failed": (
+            "⚠️ The review is ready, but I couldn't post it to the coach cabinet. "
+            "Please contact us if needed."
         ),
         "review_btn_message_coach": "✉️ Message the coach",
         "review_message_prompt": (
-            "Write one message for the coach — I'll forward it to the cabinet."
+            "Write a message for the coach — I'll forward it to the cabinet."
         ),
         "review_message_sent": "✅ Sent to the coach.",
-        "review_no_open_job": "No review in the queue. Please send a video.",
+        "review_no_open_job": "Send a video first — then you can message the coach.",
+        "review_no_topic": "Send a video first — then you can message the coach.",
+        "review_coach_hint": (
+            "An experienced coach may add their own comment on the AI review. "
+            "To ask the coach something — use the button below."
+        ),
+        "review_coach_message": "💬 *Message from the coach:*\n\n{text}",
         "review_fallback_banner": (
             "⚠️ *This is a preliminary AI review:* a coach didn't check it manually. "
             "You can still use it at practice; the next video will be prioritized."
@@ -867,10 +916,10 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "4. Or enable a paid plan in Google AI Studio"
         ),
         "error_overloaded": (
-            "⏳ Can't analyze the video right now — the analysis service is overloaded.\n\n"
-            "Your clip is fine; this is temporary load.\n\n"
-            "You can wait and try again, or analyze with a simpler model "
-            "(a bit less detail, but usually responds)."
+            "⏳ Can't analyze the video right now — AI models are overloaded.\n\n"
+            "Your clip is fine: it was already sent to the coach, who can review it "
+            "manually.\n\n"
+            "You can also tap Retry a bit later."
         ),
         "error_internal": (
             "⏳ Temporary analysis service glitch. Try again in about a minute."
@@ -891,12 +940,15 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "error_generic": (
             "❌ Could not analyze the video.\n\n"
             "Try again or send a different angle. "
-            "If the error persists — check your Gemini key in `.env`."
+            "If it keeps failing — check the Gemini key in `.env`."
+        ),
+        "analysis_fallback_status": (
+            "⏳ Primary model didn't respond — trying the backup model…"
         ),
         "cmd_profile": "My profile",
         "ob_intro": (
             "👋 *Let's get acquainted — takes 30 seconds*\n\n"
-            "Your answers help the AI analyze your technique more accurately: "
+            "Your answers help the AI and coach review your technique more accurately: "
             "depth of critique, priorities, and drills tailored to your level.\n\n"
             "Question 1 of 4:"
         ),

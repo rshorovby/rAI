@@ -1409,6 +1409,31 @@ def get_player_forum_topic(user_id: int, forum_chat_id: int) -> Optional[dict]:
     return dict(row) if row else None
 
 
+def get_player_by_forum_thread(
+    forum_chat_id: int, message_thread_id: int
+) -> Optional[dict]:
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            """
+            SELECT * FROM player_forum_topics
+            WHERE forum_chat_id = ? AND message_thread_id = ?
+            """,
+            (forum_chat_id, message_thread_id),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def get_user_language_code(user_id: int) -> str:
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            "SELECT language_code FROM users WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+    return (row["language_code"] if row else "") or ""
+
+
 def save_player_forum_topic(
     user_id: int,
     forum_chat_id: int,

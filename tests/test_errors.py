@@ -17,8 +17,8 @@ def test_503_unavailable_ru():
         lang="ru",
     )
     assert "перегружен" in msg.lower()
+    assert "тренер" in msg.lower()
     assert "gemini" not in msg.lower()
-    assert "простой" in msg.lower()
 
 
 def test_503_unavailable_en():
@@ -27,11 +27,25 @@ def test_503_unavailable_en():
         lang="en",
     )
     assert "overloaded" in msg.lower()
+    assert "coach" in msg.lower()
     assert "gemini" not in msg.lower()
+
+
+def test_504_deadline_is_overloaded():
+    exc = Exception(
+        "ServerError: 504 DEADLINE_EXCEEDED. "
+        "{'error': {'code': 504, 'message': 'Deadline expired before "
+        "operation could complete.', 'status': 'DEADLINE_EXCEEDED'}}"
+    )
+    assert is_model_overloaded(exc)
+    msg = format_analysis_error(exc, lang="ru")
+    assert "перегружен" in msg.lower()
+    assert "тренер" in msg.lower()
 
 
 def test_is_model_overloaded():
     assert is_model_overloaded(Exception("ServerError: 503 UNAVAILABLE. high demand"))
+    assert is_model_overloaded(TimeoutError("timeout"))
     assert not is_model_overloaded(Exception("Invalid API key"))
 
 
@@ -50,9 +64,9 @@ def test_api_key_error_en():
     assert "key" in msg.lower()
 
 
-def test_timeout_error():
+def test_timeout_error_maps_to_overloaded():
     msg = format_analysis_error(TimeoutError(), lang="ru")
-    assert "вовремя" in msg.lower() or "обработать" in msg.lower()
+    assert "перегружен" in msg.lower()
 
 
 def test_generic_error():

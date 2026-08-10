@@ -76,3 +76,27 @@ def test_fallback_list_includes_old_jobs(tmp_path):
             conn.commit()
         due = storage.list_review_jobs_for_fallback(hours=24)
         assert any(j["id"] == job_id for j in due)
+
+
+def test_ai_sent_not_in_fallback(tmp_path):
+    with _tmp_db(tmp_path):
+        job_id = storage.create_review_job(4, video_file_id="v", draft_text="d")
+        storage.mark_review_sent(job_id, status=review.STATUS_AI_SENT, final_text="d")
+        with storage._connect() as conn:
+            storage._init_db(conn)
+            conn.execute(
+                "UPDATE review_jobs SET created_at = ? WHERE id = ?",
+                ("2000-01-01 00:00:00", job_id),
+            )
+            conn.commit()
+        due = storage.list_review_jobs_for_fallback(hours=24)
+        assert not any(j["id"] == job_id for j in due)
+
+
+def test_player_forum_thread_lookup(tmp_path):
+    with _tmp_db(tmp_path):
+        storage.save_player_forum_topic(99, -1001, 77, title="Test")
+        row = storage.get_player_by_forum_thread(-1001, 77)
+        assert row is not None
+        assert row["user_id"] == 99
+        assert storage.get_player_by_forum_thread(-1001, 1) is None

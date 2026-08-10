@@ -20,6 +20,9 @@ def _ui_lang(language_code: str) -> str:
 
 
 async def run() -> tuple[int, int]:
+    if not billing.MONETIZATION_ENABLED:
+        logger.info("Монетизация выключена — напоминания о Pro пропущены")
+        return 0, 0
     settings = load_settings()
     bot = Bot(settings.telegram_token)
     reminded = 0

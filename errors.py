@@ -2,13 +2,22 @@ from i18n import DEFAULT_LANG, t
 
 
 def is_model_overloaded(exc: Exception) -> bool:
+    """Временные сбои модели/квоты времени — имеет смысл ретрай / запасная модель."""
     message = str(exc)
     lower = message.lower()
+    name = type(exc).__name__.lower()
     return (
-        "503" in message
+        isinstance(exc, TimeoutError)
+        or "503" in message
+        or "504" in message
         or "unavailable" in lower
         or "overloaded" in lower
         or "high demand" in lower
+        or "deadline_exceeded" in lower
+        or "deadline expired" in lower
+        or "timeout" in name
+        or "timed out" in lower
+        or "timeout" in lower
     )
 
 
@@ -29,8 +38,5 @@ def format_analysis_error(exc: Exception, lang: str = DEFAULT_LANG) -> str:
 
     if "API key" in message or "PERMISSION_DENIED" in message or "401" in message:
         return t(lang, "error_api_key")
-
-    if isinstance(exc, TimeoutError):
-        return t(lang, "error_timeout")
 
     return t(lang, "error_generic")

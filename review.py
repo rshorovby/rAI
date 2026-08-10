@@ -1,4 +1,4 @@
-"""Заявки на ревью тренера (Product V2) — клавиатуры и склейка текста."""
+"""Кабинет тренера: статусы заявки и клавиатуры игрока."""
 
 from __future__ import annotations
 
@@ -8,16 +8,18 @@ from i18n import t
 
 STATUS_QUEUED = "queued"
 STATUS_IN_REVIEW = "in_review"
+STATUS_AI_SENT = "ai_sent"
+STATUS_AI_FAILED = "ai_failed"
 STATUS_SENT_COACH = "sent_coach"
 STATUS_SENT_FALLBACK = "sent_fallback"
 STATUS_CANCELLED = "cancelled"
 
+# Устаревшие действия (кнопки убраны; оставлены для совместимости callback).
 ACTION_SEND = "send"
 ACTION_REPLACE = "replace"
 ACTION_NOTES = "notes"
 
-COACH_PENDING_KEY = "coach_review_pending"  # context.user_data у тренера
-PLAYER_MSG_PENDING_KEY = "player_coach_message_job"  # ждём текст игрока тренеру
+PLAYER_MSG_PENDING_KEY = "player_coach_message_pending"
 
 
 def compose_final_report(
@@ -40,32 +42,7 @@ def compose_final_report(
     return "\n\n".join(parts).strip()
 
 
-def keyboard_coach_job(job_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        [
-            [
-                InlineKeyboardButton(
-                    "✅ Отправить как есть",
-                    callback_data=f"rv:{job_id}:{ACTION_SEND}",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    "✏️ Заменить текст",
-                    callback_data=f"rv:{job_id}:{ACTION_REPLACE}",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    "➕ Замечания тренера",
-                    callback_data=f"rv:{job_id}:{ACTION_NOTES}",
-                )
-            ],
-        ]
-    )
-
-
-def keyboard_player_waiting(lang: str) -> InlineKeyboardMarkup:
+def keyboard_message_coach(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
@@ -76,6 +53,10 @@ def keyboard_player_waiting(lang: str) -> InlineKeyboardMarkup:
             ]
         ]
     )
+
+
+# Alias для старых импортов/тестов.
+keyboard_player_waiting = keyboard_message_coach
 
 
 def topic_title(user_id: int, first_name: str = "", username: str = "") -> str:

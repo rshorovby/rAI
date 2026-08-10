@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
@@ -25,6 +26,20 @@ FREE_MAX_VIDEO_SECONDS = 30
 PRO_MAX_VIDEO_SECONDS = 60
 GRACE_DAYS = 3
 PRO_MONTHS_DEFAULT = 1
+
+
+# Открытая бета: бот бесплатный для всех, без paywall и упоминаний Pro.
+# Включить монетизацию: MONETIZATION_ENABLED=1
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+MONETIZATION_ENABLED = _env_flag("MONETIZATION_ENABLED", default=False)
+OPEN_BETA_ANALYSES_PER_MONTH = 10_000
+OPEN_BETA_MAX_VIDEO_SECONDS = PRO_MAX_VIDEO_SECONDS
 
 # Telegram Stars за месяц Pro.
 DEFAULT_STARS_PRICE = 250
@@ -103,10 +118,26 @@ def is_pro(user_id: int) -> bool:
 
 
 def get_plan(user_id: int) -> PlanInfo:
-    pro = is_pro(user_id)
-    sub = get_subscription(user_id)
     period_start = _month_start()
     used = storage.count_analyses_in_period(user_id, period_start)
+
+    if not MONETIZATION_ENABLED:
+        left = max(0, OPEN_BETA_ANALYSES_PER_MONTH - used)
+        return PlanInfo(
+            plan=PLAN_FREE,
+            status=STATUS_ACTIVE,
+            is_pro=False,
+            analyses_limit=OPEN_BETA_ANALYSES_PER_MONTH,
+            analyses_used=used,
+            analyses_left=left,
+            max_video_seconds=OPEN_BETA_MAX_VIDEO_SECONDS,
+            expires_at=None,
+            period_start=period_start,
+            reset_at=_next_month(period_start),
+        )
+
+    pro = is_pro(user_id)
+    sub = get_subscription(user_id)
     limit = PRO_ANALYSES_PER_MONTH if pro else FREE_ANALYSES_PER_MONTH
     left = max(0, limit - used)
     return PlanInfo(
@@ -124,6 +155,8 @@ def get_plan(user_id: int) -> PlanInfo:
 
 
 def has_quota(user_id: int) -> bool:
+    if not MONETIZATION_ENABLED:
+        return True
     return get_plan(user_id).analyses_left > 0
 
 

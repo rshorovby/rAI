@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 
 PROCESSING_TIMEOUT_SEC = 120
 PROCESSING_POLL_INTERVAL_SEC = 2
+# HTTP-таймаут generate/upload (мс). Без него generate_content может висеть минутами.
+HTTP_TIMEOUT_MS = 180_000
 
 MAX_GENERATE_RETRIES = 2
 RETRY_BACKOFF_SEC = 3
@@ -33,6 +35,8 @@ _TRANSIENT_MARKERS = (
     "500",
     "internal",
 )
+
+_NO_AFC = types.AutomaticFunctionCallingConfig(disable=True)
 
 
 def _is_transient_error(exc: Exception) -> bool:
@@ -49,7 +53,10 @@ class AnalysisResult:
 
 class VideoAnalyzer:
     def __init__(self, api_key: str, model: str) -> None:
-        self._client = genai.Client(api_key=api_key)
+        self._client = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(timeout=HTTP_TIMEOUT_MS),
+        )
         self._model = model
 
     def analyze(
@@ -68,8 +75,12 @@ class VideoAnalyzer:
         upload_path, mute_tmp = strip_audio_for_upload(video_path)
         uploaded = None
         try:
+            logger.info(
+                "Gemini upload start model=%s file=%s", use_model, upload_path.name
+            )
             uploaded = self._client.files.upload(file=str(upload_path))
             uploaded = self._wait_until_active(uploaded)
+            logger.info("Gemini generate start model=%s", use_model)
 
             response = self._generate_with_retry(
                 model=use_model,
@@ -99,6 +110,7 @@ class VideoAnalyzer:
                         drills_catalog=drills_catalog,
                     ),
                     temperature=0.4,
+                    automatic_function_calling=_NO_AFC,
                 ),
             )
         finally:
@@ -114,6 +126,13 @@ class VideoAnalyzer:
 
         text = self._extract_text(response)
         usage = usage_from_response(response, use_model)
+        logger.info(
+            "Gemini generate done model=%s chars=%s in=%s out=%s",
+            use_model,
+            len(text),
+            usage.input_tokens,
+            usage.output_tokens,
+        )
         return AnalysisResult(text=text, usage=usage, model=use_model)
 
     def _generate_with_retry(
@@ -126,6 +145,13 @@ class VideoAnalyzer:
                     model=model or self._model, **kwargs
                 )
             except Exception as exc:
+                # HTTP timeout — не ретраим бесконечно: пользователю нужен retry UI.
+                name = type(exc).__name__.lower()
+                msg = str(exc).lower()
+                if "timeout" in name or "timed out" in msg:
+                    raise TimeoutError(
+                        "Превышено время ожидания ответа Gemini."
+                    ) from exc
                 if attempt >= MAX_GENERATE_RETRIES or not _is_transient_error(exc):
                     raise
                 attempt += 1
@@ -198,6 +224,7 @@ class VideoAnalyzer:
                     language_code, player_history, player_profile, stroke=stroke
                 ),
                 temperature=0.5,
+                automatic_function_calling=_NO_AFC,
             ),
         )
         text = self._extract_text(response)

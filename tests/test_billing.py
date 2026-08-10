@@ -9,8 +9,20 @@ def _tmp_db(tmp_path: Path):
     return patch.object(storage, "DB_PATH", tmp_path / "t.db")
 
 
+def test_open_beta_unlimited_by_default(tmp_path):
+    with _tmp_db(tmp_path), patch.object(billing, "MONETIZATION_ENABLED", False):
+        plan = billing.get_plan(1)
+        assert plan.plan == billing.PLAN_FREE
+        assert plan.analyses_left == billing.OPEN_BETA_ANALYSES_PER_MONTH
+        assert plan.max_video_seconds == billing.OPEN_BETA_MAX_VIDEO_SECONDS
+        assert billing.has_quota(1)
+        storage.save_session(1, "## Краткое резюме\nx\n")
+        storage.save_session(1, "## Краткое резюме\ny\n")
+        assert billing.has_quota(1)
+
+
 def test_default_free_quota(tmp_path):
-    with _tmp_db(tmp_path):
+    with _tmp_db(tmp_path), patch.object(billing, "MONETIZATION_ENABLED", True):
         plan = billing.get_plan(1)
         assert plan.plan == billing.PLAN_FREE
         assert plan.analyses_left == billing.FREE_ANALYSES_PER_MONTH
@@ -18,7 +30,7 @@ def test_default_free_quota(tmp_path):
 
 
 def test_grant_pro_and_idempotent(tmp_path):
-    with _tmp_db(tmp_path):
+    with _tmp_db(tmp_path), patch.object(billing, "MONETIZATION_ENABLED", True):
         first = billing.grant_pro(7, months=1, payment_id="pay-1")
         assert first["plan"] == billing.PLAN_PRO
         second = billing.grant_pro(7, months=1, payment_id="pay-1")
@@ -30,7 +42,7 @@ def test_grant_pro_and_idempotent(tmp_path):
 
 
 def test_admin_grant_pro_without_payment(tmp_path):
-    with _tmp_db(tmp_path):
+    with _tmp_db(tmp_path), patch.object(billing, "MONETIZATION_ENABLED", True):
         sub = billing.grant_pro(
             42, months=2, provider=billing.PROVIDER_ADMIN, payment_id=None
         )
@@ -45,7 +57,7 @@ def test_admin_grant_pro_without_payment(tmp_path):
 
 
 def test_quota_decreases_with_sessions(tmp_path):
-    with _tmp_db(tmp_path):
+    with _tmp_db(tmp_path), patch.object(billing, "MONETIZATION_ENABLED", True):
         storage.save_session(3, "## Краткое резюме\nx\n")
         storage.save_session(3, "## Краткое резюме\ny\n")
         plan = billing.get_plan(3)

@@ -28,6 +28,7 @@ from telegram.ext import (
 )
 
 import billing
+import cabinet
 import drills
 import practice
 import review
@@ -231,6 +232,12 @@ async def _execute_profile_reset(
     await asyncio.to_thread(storage.reset_player_data, user_id)
     await _log_event(user_id, EVENT_PROFILE_RESET)
     _clear_user_state(context.user_data)
+    await _cabinet_notify(
+        context,
+        user_id,
+        cabinet.format_profile_reset(user_id),
+        user=update.effective_user,
+    )
     await _begin_onboarding(context, user_id, is_new_user=True)
     await _send_onboarding_question(message, lang, "level", intro=t(lang, "ob_intro"))
 
@@ -436,6 +443,28 @@ async def _send_onboarding_question(
     )
 
 
+async def _cabinet_notify(
+    context: ContextTypes.DEFAULT_TYPE,
+    user_id: int,
+    text: str,
+    *,
+    user=None,
+) -> None:
+    settings: Settings = context.application.bot_data.get("settings")
+    if not settings or not settings.coach_forum_chat_id:
+        return
+    first_name = getattr(user, "first_name", "") or ""
+    username = getattr(user, "username", "") or ""
+    await cabinet.notify(
+        context.bot,
+        settings.coach_forum_chat_id,
+        user_id,
+        text,
+        first_name=first_name,
+        username=username,
+    )
+
+
 async def _finish_onboarding_skip(
     update: Update, context: ContextTypes.DEFAULT_TYPE, lang: str, user_id: int
 ) -> None:
@@ -446,6 +475,21 @@ async def _finish_onboarding_skip(
         t(lang, "ob_skip_warning"),
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=_main_menu_keyboard(lang),
+    )
+    profile_text = await asyncio.to_thread(
+        storage.format_profile_for_user, user_id, "ru"
+    )
+    await _cabinet_notify(
+        context,
+        user_id,
+        cabinet.format_onboarding_done(
+            user_id,
+            profile_text,
+            skipped=True,
+            first_name=getattr(update.effective_user, "first_name", "") or "",
+            username=getattr(update.effective_user, "username", "") or "",
+        ),
+        user=update.effective_user,
     )
 
 
@@ -460,6 +504,21 @@ async def _finish_onboarding_complete(
         t(lang, "ob_complete"),
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=_main_menu_keyboard(lang),
+    )
+    profile_text = await asyncio.to_thread(
+        storage.format_profile_for_user, user_id, "ru"
+    )
+    await _cabinet_notify(
+        context,
+        user_id,
+        cabinet.format_onboarding_done(
+            user_id,
+            profile_text,
+            skipped=False,
+            first_name=getattr(update.effective_user, "first_name", "") or "",
+            username=getattr(update.effective_user, "username", "") or "",
+        ),
+        user=update.effective_user,
     )
 
 
@@ -569,6 +628,15 @@ async def _process_followup(
         if settings and user_id
         else analyzer._model
     )
+    if user_id:
+        await _cabinet_notify(
+            context,
+            user_id,
+            cabinet.format_followup(
+                user_id, question=user_text, label=question_label or ""
+            ),
+        )
+
     result = await asyncio.to_thread(
         analyzer.chat,
         analysis,
@@ -612,6 +680,18 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await _touch_user(update)
 
     has_record = await asyncio.to_thread(storage.has_profile_record, user_id)
+    user = update.effective_user or update.message.from_user
+    await _cabinet_notify(
+        context,
+        user_id,
+        cabinet.format_start(
+            user_id,
+            first_name=getattr(user, "first_name", "") or "",
+            username=getattr(user, "username", "") or "",
+            is_new=not has_record,
+        ),
+        user=user,
+    )
     if not has_record:
         await _begin_onboarding(context, user_id, is_new_user=True)
         await _send_onboarding_question(
@@ -779,7 +859,7 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     plan = await asyncio.to_thread(billing.get_plan, user_id)
-    if plan.analyses_left <= 0:
+    if billing.MONETIZATION_ENABLED and plan.analyses_left <= 0:
         await _log_event(user_id, EVENT_PAYWALL_SHOWN)
         await message.reply_text(
             t(
@@ -804,12 +884,7 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     duration = getattr(video, "duration", None) or 0
     if duration and duration > plan.max_video_seconds:
         await message.reply_text(
-            t(
-                lang,
-                "video_too_long",
-                max_sec=plan.max_video_seconds,
-                plan=plan.plan,
-            )
+            t(lang, "video_too_long", max_sec=plan.max_video_seconds)
         )
         return
 
@@ -829,6 +904,14 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     clear_intake_state(context.user_data)
     start_intake_state(context.user_data)
     await _log_event(user_id, EVENT_VIDEO_SENT)
+    await _cabinet_notify(
+        context,
+        user_id,
+        cabinet.format_video_uploaded(
+            user_id, duration=int(duration or 0), comment=user_comment or ""
+        ),
+        user=message.from_user,
+    )
 
     await message.reply_text(
         f"{t(lang, 'vi_got_video')}\n\n{t(lang, 'vi_question_stroke')}",
@@ -850,15 +933,11 @@ async def _begin_analysis_after_intake(
         pending["video_context"] = build_video_context(answers)
     clear_intake_state(context.user_data)
 
-    status_key = (
-        "status_analyzing_comment"
-        if pending and pending.get("comment")
-        else "status_analyzing"
-    )
-    status_message = await message.reply_text(
-        t(lang, status_key),
+    await message.reply_text(
+        t(lang, "review_ack"),
         reply_markup=_main_menu_keyboard(lang),
     )
+    status_message = await message.reply_text(t(lang, "review_preparing"))
     await _run_video_analysis(
         context, message.chat_id, user_id, status_message, lang, language_code
     )
@@ -1425,44 +1504,15 @@ async def _ensure_player_forum_topic(
     user_id: int,
     forum_chat_id: int,
 ) -> Optional[int]:
-    existing = await asyncio.to_thread(
-        storage.get_player_forum_topic, user_id, forum_chat_id
-    )
-    if existing:
-        return int(existing["message_thread_id"])
-
-    try:
-        chat = await context.bot.get_chat(user_id)
-        first_name = getattr(chat, "first_name", "") or ""
-        username = getattr(chat, "username", "") or ""
-    except Exception:
-        first_name, username = "", ""
-        logger.exception("get_chat failed for topic title user_id=%s", user_id)
-
-    title = review.topic_title(user_id, first_name, username)
-    try:
-        topic = await context.bot.create_forum_topic(chat_id=forum_chat_id, name=title)
-    except Exception:
-        logger.exception(
-            "create_forum_topic failed chat_id=%s user_id=%s", forum_chat_id, user_id
-        )
-        return None
-
-    thread_id = int(topic.message_thread_id)
-    await asyncio.to_thread(
-        storage.save_player_forum_topic,
-        user_id,
-        forum_chat_id,
-        thread_id,
-        title,
-    )
-    return thread_id
+    return await cabinet.ensure_player_topic(context.bot, forum_chat_id, user_id)
 
 
 async def _post_review_job_to_forum(
     context: ContextTypes.DEFAULT_TYPE,
     job_id: int,
     user_id: int,
+    *,
+    manual: bool = False,
 ) -> bool:
     settings: Settings = context.application.bot_data.get("settings")
     if not settings or not settings.coach_forum_chat_id:
@@ -1473,9 +1523,25 @@ async def _post_review_job_to_forum(
     if not job:
         return False
 
-    forum_chat_id = settings.coach_forum_chat_id
-    thread_id = await _ensure_player_forum_topic(context, user_id, forum_chat_id)
+    forum_chat_id = int(settings.coach_forum_chat_id)
+    logger.info(
+        "Posting review job_id=%s user_id=%s to forum chat_id=%s manual=%s",
+        job_id,
+        user_id,
+        forum_chat_id,
+        manual,
+    )
+    try:
+        thread_id = await _ensure_player_forum_topic(context, user_id, forum_chat_id)
+    except Exception:
+        logger.exception("ensure forum topic failed job_id=%s", job_id)
+        return False
     if thread_id is None:
+        logger.error(
+            "create_forum_topic вернул None chat_id=%s — включены Topics? "
+            "Бот админ с Manage Topics?",
+            forum_chat_id,
+        )
         return False
 
     await asyncio.to_thread(
@@ -1486,19 +1552,29 @@ async def _post_review_job_to_forum(
         status=review.STATUS_QUEUED,
     )
 
-    header = (
-        f"🆕 Заявка #{job_id}\n"
-        f"user_id: `{user_id}`\n"
-        f"Фокус: {job.get('focus_text') or '—'}\n"
-        f"Упражнение: {job.get('drill_text') or '—'}\n"
-        f"Статус: в очереди"
-    )
+    if manual:
+        header = (
+            f"⚠️ Нужен ручной разбор #{job_id}\n"
+            f"user_id: {user_id}\n"
+            f"Фокус intake: {(job.get('stroke') or '—')}\n"
+            f"Статус: AI не смог разобрать\n\n"
+            f"Видео ниже — напишите игроку комментарий в эту тему."
+        )
+    else:
+        header = (
+            f"🆕 Разбор #{job_id}\n"
+            f"user_id: {user_id}\n"
+            f"Фокус: {job.get('focus_text') or '—'}\n"
+            f"Упражнение: {job.get('drill_text') or '—'}\n"
+            f"Статус: AI уже у игрока\n\n"
+            f"💬 Пишите в тему свободно — каждое сообщение уйдёт игроку "
+            f"как комментарий тренера."
+        )
     try:
         await context.bot.send_message(
             chat_id=forum_chat_id,
             message_thread_id=thread_id,
             text=header,
-            parse_mode=ParseMode.MARKDOWN,
         )
         try:
             await context.bot.send_video(
@@ -1507,23 +1583,193 @@ async def _post_review_job_to_forum(
                 video=job["video_file_id"],
             )
         except BadRequest:
+            logger.exception("send_video to forum failed job_id=%s", job_id)
             await context.bot.send_message(
                 chat_id=forum_chat_id,
                 message_thread_id=thread_id,
-                text="⚠️ Не удалось переслать видео (file_id). Попросите игрока прислать ещё раз.",
+                text=(
+                    "⚠️ Не удалось переслать видео (file_id). "
+                    "Попросите игрока прислать ещё раз."
+                ),
             )
-        draft = (job.get("draft_text") or "")[:3500]
-        await context.bot.send_message(
-            chat_id=forum_chat_id,
-            message_thread_id=thread_id,
-            text=f"🤖 *AI-черновик:*\n\n{draft}",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=review.keyboard_coach_job(job_id),
-        )
+        draft = (job.get("draft_text") or "").strip()
+        if manual:
+            note = draft or "AI не вернул разбор."
+            for chunk in _split_message(f"⚠️ Сбой AI:\n\n{note}"):
+                await context.bot.send_message(
+                    chat_id=forum_chat_id,
+                    message_thread_id=thread_id,
+                    text=chunk,
+                )
+        elif draft:
+            draft_chunks = _split_message(f"🤖 AI-разбор (уже у игрока):\n\n{draft}")
+            for chunk in draft_chunks:
+                await context.bot.send_message(
+                    chat_id=forum_chat_id,
+                    message_thread_id=thread_id,
+                    text=chunk,
+                )
+        logger.info("Review job_id=%s posted to forum thread_id=%s", job_id, thread_id)
     except Exception:
-        logger.exception("post review to forum failed job_id=%s", job_id)
+        logger.exception(
+            "post review to forum failed job_id=%s chat_id=%s thread_id=%s",
+            job_id,
+            forum_chat_id,
+            thread_id,
+        )
         return False
     return True
+
+
+async def _post_failed_analysis_to_cabinet(
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    user_id: int,
+    video_file_id: str,
+    video_mime: str,
+    language_code: str,
+    video_context: Optional[dict],
+    error: Exception,
+) -> bool:
+    """Видео в кабинет даже если AI упал — тренер может разобрать вручную."""
+    stroke = ""
+    if video_context:
+        stroke = (video_context.get("stroke") or "") or ""
+    err_text = f"{type(error).__name__}: {error}"[:800]
+    job_id = await asyncio.to_thread(
+        storage.create_review_job,
+        user_id,
+        video_file_id=video_file_id,
+        video_mime=video_mime,
+        language_code=language_code,
+        draft_text=err_text,
+        focus_text="",
+        drill_text="",
+        drill_id=None,
+        scores={},
+        stroke=stroke,
+    )
+    posted = await _post_review_job_to_forum(context, job_id, user_id, manual=True)
+    await asyncio.to_thread(
+        storage.update_review_job,
+        job_id,
+        status=review.STATUS_AI_FAILED,
+    )
+    await _log_event(user_id, EVENT_REVIEW_QUEUED, f"failed:{job_id}")
+    return posted
+
+
+async def _analyze_video_once(
+    analyzer: VideoAnalyzer,
+    *,
+    temp_path: Path,
+    user_comment,
+    player_history,
+    language_code: str,
+    player_profile,
+    video_context,
+    use_model: str,
+    active_focus,
+    drills_catalog,
+):
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(
+                analyzer.analyze,
+                temp_path,
+                user_comment,
+                player_history,
+                language_code,
+                player_profile,
+                video_context,
+                use_model,
+                active_focus,
+                drills_catalog,
+            ),
+            timeout=200,
+        )
+    except asyncio.TimeoutError as exc:
+        raise TimeoutError("Превышено время ожидания ответа Gemini.") from exc
+
+
+async def _present_analysis_to_player(
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    chat_id: int,
+    user_id: int,
+    lang: str,
+    language_code: str,
+    report: str,
+    scores: dict,
+    stroke: str,
+    video_file_id: str,
+    mime_type: str,
+    focus_text: str,
+    drill_text: str,
+    drill_id: Optional[str],
+    preface: Optional[str] = None,
+    offer_coach_button: bool = True,
+    create_practice: bool = True,
+) -> None:
+    """Показывает AI-разбор игроку и включает диалог follow-up."""
+    state = {
+        "step": "summary",
+        "language_code": language_code,
+        "sections": parse_dialog_sections(report, language_code),
+        "skeleton_shown": False,
+        "video_file_id": video_file_id,
+        "video_mime": mime_type,
+        "visited_categories": [],
+        "error_index": 0,
+    }
+    payload = {
+        "analysis": report,
+        "history": [],
+        "stroke": stroke or None,
+        "analysis_dialog": state,
+    }
+    context.user_data[DIALOG_KEY] = state
+    context.user_data[SESSION_KEY] = payload
+    context.user_data["user_id"] = user_id
+    await asyncio.to_thread(storage.save_active_session, user_id, payload)
+
+    if preface:
+        await context.bot.send_message(chat_id=chat_id, text=preface)
+
+    summary = format_summary_message(lang, state)
+    if scores:
+        summary = f"{summary}\n\n{format_scores_line(scores, lang)}"
+    await _reply_dialog(
+        context,
+        chat_id,
+        summary,
+        keyboard_summary(lang, state),
+    )
+
+    if drill_id or drill_text:
+        picked = []
+        if drill_id:
+            picked = await asyncio.to_thread(drills.pick_drills, [drill_id], None, 1)
+        for drill in picked:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=drills.format_drill_message(drill, lang),
+                parse_mode=ParseMode.MARKDOWN,
+            )
+    if create_practice:
+        await asyncio.to_thread(
+            storage.create_practice_plan,
+            user_id,
+            focus_text,
+            drill_text,
+            drill_id,
+        )
+    if offer_coach_button:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=t(lang, "review_coach_hint"),
+            reply_markup=review.keyboard_message_coach(lang),
+        )
 
 
 async def _deliver_review_to_player(
@@ -1534,6 +1780,7 @@ async def _deliver_review_to_player(
     status: str,
     coach_notes: str = "",
 ) -> None:
+    """Доставка для legacy/fallback (когда AI ещё не ушёл игроку)."""
     user_id = int(job["user_id"])
     lang = "ru" if (job.get("language_code") or "").startswith("ru") else "en"
     language_code = job.get("language_code") or lang
@@ -1564,55 +1811,28 @@ async def _deliver_review_to_player(
         focus_text,
         stroke,
     )
-
-    state = {
-        "step": "summary",
-        "language_code": language_code,
-        "sections": parse_dialog_sections(final_text, language_code),
-        "skeleton_shown": False,
-        "video_file_id": video_file_id,
-        "video_mime": mime_type,
-        "visited_categories": [],
-        "error_index": 0,
-    }
-    payload = {
-        "analysis": final_text,
-        "history": [],
-        "stroke": stroke or None,
-        "analysis_dialog": state,
-    }
-    await asyncio.to_thread(storage.save_active_session, user_id, payload)
-
-    summary = format_summary_message(lang, state)
-    if scores:
-        summary = f"{summary}\n\n{format_scores_line(scores, lang)}"
-    if status == review.STATUS_SENT_COACH:
-        await context.bot.send_message(
-            chat_id=user_id, text=t(lang, "review_delivered_coach")
-        )
-    await _reply_dialog(
-        context,
-        user_id,
-        summary,
-        keyboard_summary(lang, state),
+    preface = (
+        t(lang, "review_delivered_coach")
+        if status == review.STATUS_SENT_COACH
+        else None
     )
-
-    if drill_id or drill_text:
-        picked = []
-        if drill_id:
-            picked = await asyncio.to_thread(drills.pick_drills, [drill_id], None, 1)
-        for drill in picked:
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=drills.format_drill_message(drill, lang),
-                parse_mode=ParseMode.MARKDOWN,
-            )
-    await asyncio.to_thread(
-        storage.create_practice_plan,
-        user_id,
-        focus_text,
-        drill_text,
-        drill_id,
+    await _present_analysis_to_player(
+        context,
+        chat_id=user_id,
+        user_id=user_id,
+        lang=lang,
+        language_code=language_code,
+        report=final_text,
+        scores=scores,
+        stroke=stroke,
+        video_file_id=video_file_id,
+        mime_type=mime_type,
+        focus_text=focus_text,
+        drill_text=drill_text,
+        drill_id=drill_id,
+        preface=preface,
+        offer_coach_button=True,
+        create_practice=True,
     )
     event = (
         EVENT_REVIEW_SENT_FALLBACK
@@ -1660,7 +1880,7 @@ async def _run_video_analysis(
 
         # квота ещё раз перед дорогим вызовом (гонка / ретраи)
         plan = await asyncio.to_thread(billing.get_plan, user_id)
-        if plan.analyses_left <= 0:
+        if billing.MONETIZATION_ENABLED and plan.analyses_left <= 0:
             await _log_event(user_id, EVENT_PAYWALL_SHOWN)
             await status_message.edit_text(
                 t(
@@ -1686,25 +1906,113 @@ async def _run_video_analysis(
             use_model = settings.model_for(plan.is_pro)
         else:
             use_model = analyzer._model
-        used_simple = bool(
-            settings
-            and model_override
-            and model_override == settings.gemini_model_free
-            and model_override != settings.gemini_model_pro
+        fallback_model = (
+            settings.gemini_model_free
+            if settings and settings.gemini_model_free != use_model
+            else None
         )
+        # Уже на запасной (ручной retry:simple) — второй раз не прыгаем.
+        if settings and model_override and model_override == settings.gemini_model_free:
+            fallback_model = None
 
-        result = await asyncio.to_thread(
-            analyzer.analyze,
-            temp_path,
-            user_comment,
-            player_history,
-            language_code,
-            player_profile,
-            video_context,
-            use_model,
-            active_focus,
-            drills_catalog,
-        )
+        used_simple = False
+        try:
+            result = await _analyze_video_once(
+                analyzer,
+                temp_path=temp_path,
+                user_comment=user_comment,
+                player_history=player_history,
+                language_code=language_code,
+                player_profile=player_profile,
+                video_context=video_context,
+                use_model=use_model,
+                active_focus=active_focus,
+                drills_catalog=drills_catalog,
+            )
+        except Exception as primary_exc:
+            logger.warning(
+                "Основная модель %s упала user_id=%s: %s",
+                use_model,
+                user_id,
+                primary_exc,
+            )
+            await _cabinet_notify(
+                context,
+                user_id,
+                cabinet.format_analysis_failed(
+                    user_id,
+                    error=f"{type(primary_exc).__name__}: {primary_exc}",
+                ),
+            )
+            if not fallback_model:
+                raise
+            await _edit_or_reply_status(
+                context,
+                chat_id,
+                status_message,
+                t(lang, "analysis_fallback_status"),
+            )
+            try:
+                result = await _analyze_video_once(
+                    analyzer,
+                    temp_path=temp_path,
+                    user_comment=user_comment,
+                    player_history=player_history,
+                    language_code=language_code,
+                    player_profile=player_profile,
+                    video_context=video_context,
+                    use_model=fallback_model,
+                    active_focus=active_focus,
+                    drills_catalog=drills_catalog,
+                )
+                used_simple = True
+                logger.info(
+                    "Запасная модель %s сработала user_id=%s",
+                    fallback_model,
+                    user_id,
+                )
+            except Exception as fallback_exc:
+                logger.exception(
+                    "Запасная модель тоже упала user_id=%s primary=%s fallback=%s",
+                    user_id,
+                    primary_exc,
+                    fallback_exc,
+                )
+                report_failure(fallback_exc, "AI analysis failed on both models")
+                await _log_event(
+                    user_id,
+                    EVENT_ANALYSIS_FAILED,
+                    f"both:{type(fallback_exc).__name__}:{str(fallback_exc)[:160]}",
+                )
+                await _cabinet_notify(
+                    context,
+                    user_id,
+                    cabinet.format_analysis_failed(
+                        user_id,
+                        error=(
+                            f"primary+fallback: {type(fallback_exc).__name__}: "
+                            f"{fallback_exc}"
+                        ),
+                    ),
+                )
+                await _post_failed_analysis_to_cabinet(
+                    context,
+                    user_id=user_id,
+                    video_file_id=video_file_id,
+                    video_mime=mime_type,
+                    language_code=language_code,
+                    video_context=video_context,
+                    error=fallback_exc,
+                )
+                await _edit_or_reply_status(
+                    context,
+                    chat_id,
+                    status_message,
+                    t(lang, "error_overloaded"),
+                    reply_markup=_retry_keyboard(lang, offer_simple=False),
+                )
+                return
+
         parsed = parse_report(result.text)
         report = parsed.text
         stroke = (video_context or {}).get("stroke") if video_context else None
@@ -1723,7 +2031,6 @@ async def _run_video_analysis(
         )
 
         focus_text = parsed.focus or ""
-        # Черновик в историю/фокус сразу; игроку отчёт — только после ревью/fallback.
         await asyncio.to_thread(
             storage.save_session,
             user_id,
@@ -1752,6 +2059,50 @@ async def _run_video_analysis(
             top_items = sections.get("top3_items") or []
             drill_text = (top_items[0] if top_items else focus_text) or ""
 
+        try:
+            await status_message.delete()
+        except BadRequest:
+            pass
+        if used_simple:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=t(lang, "analysis_used_simple_model"),
+            )
+
+        # Игрок сразу получает AI-разбор и может общаться с ботом.
+        await _present_analysis_to_player(
+            context,
+            chat_id=chat_id,
+            user_id=user_id,
+            lang=lang,
+            language_code=language_code,
+            report=report,
+            scores=parsed.scores,
+            stroke=stroke or "",
+            video_file_id=video_file_id,
+            mime_type=mime_type,
+            focus_text=focus_text,
+            drill_text=drill_text,
+            drill_id=drill_id,
+            offer_coach_button=True,
+            create_practice=True,
+        )
+        await _log_event(user_id, EVENT_ANALYSIS_SUCCESS)
+        if cabinet.same_focus(active_focus, focus_text):
+            analyses_count = await asyncio.to_thread(storage.get_session_count, user_id)
+            await _cabinet_notify(
+                context,
+                user_id,
+                cabinet.format_same_focus(
+                    user_id,
+                    focus=focus_text,
+                    previous_focus=active_focus or "",
+                    stroke=stroke or "",
+                    analyses_count=analyses_count,
+                ),
+            )
+
+        # Тот же разбор — в кабинет тренера; тренер дополняет свободными сообщениями.
         job_id = await asyncio.to_thread(
             storage.create_review_job,
             user_id,
@@ -1765,23 +2116,13 @@ async def _run_video_analysis(
             scores=parsed.scores,
             stroke=stroke or "",
         )
-        await _log_event(user_id, EVENT_ANALYSIS_SUCCESS)
         await _log_event(user_id, EVENT_REVIEW_QUEUED, str(job_id))
-
         posted = await _post_review_job_to_forum(context, job_id, user_id)
-        try:
-            await status_message.delete()
-        except BadRequest:
-            pass
-        if used_simple:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=t(lang, "analysis_used_simple_model"),
-            )
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=t(lang, "review_received"),
-            reply_markup=review.keyboard_player_waiting(lang),
+        await asyncio.to_thread(
+            storage.mark_review_sent,
+            job_id,
+            status=review.STATUS_AI_SENT,
+            final_text=report,
         )
         if not posted:
             logger.error(
@@ -1789,20 +2130,49 @@ async def _run_video_analysis(
                 "проверьте COACH_FORUM_CHAT_ID и права бота",
                 job_id,
             )
+            await context.bot.send_message(
+                chat_id=chat_id, text=t(lang, "review_forum_failed")
+            )
+            admin_ids = context.application.bot_data.get("admin_user_ids") or ()
+            if admin_ids:
+                await alert_admins(
+                    context.bot,
+                    admin_ids,
+                    (
+                        f"Forum post failed job_id={job_id} user_id={user_id}. "
+                        f"chat_id={getattr(settings, 'coach_forum_chat_id', None)}. "
+                        "Проверьте Topics + Manage Topics у бота."
+                    ),
+                )
 
-    except TimeoutError as exc:
-        # квота не списывается — сессия не сохранена
-        report_failure(exc, "TimeoutError при анализе")
-        await _log_event(user_id, EVENT_ANALYSIS_FAILED, "TimeoutError")
-        await status_message.edit_text(
-            format_analysis_error(TimeoutError(), lang),
-            reply_markup=_retry_keyboard(lang, offer_simple=True),
-        )
     except Exception as exc:
+        # Сбой без успешного AI (в т.ч. primary без fallback) — видео всё равно в кабинет.
         logger.exception("Ошибка анализа видео для user_id=%s", user_id)
         report_failure(exc)
-        overloaded = is_model_overloaded(exc)
-        if not overloaded:
+        await _log_event(user_id, EVENT_ANALYSIS_FAILED, str(exc)[:200])
+        await _cabinet_notify(
+            context,
+            user_id,
+            cabinet.format_analysis_failed(
+                user_id, error=f"{type(exc).__name__}: {exc}"
+            ),
+        )
+        if video_file_id:
+            try:
+                await _post_failed_analysis_to_cabinet(
+                    context,
+                    user_id=user_id,
+                    video_file_id=video_file_id,
+                    video_mime=mime_type,
+                    language_code=language_code,
+                    video_context=video_context,
+                    error=exc,
+                )
+            except Exception:
+                logger.exception(
+                    "Не удалось отправить failed-video в кабинет user_id=%s", user_id
+                )
+        if not is_model_overloaded(exc):
             admin_ids = context.application.bot_data.get("admin_user_ids") or ()
             if admin_ids:
                 await alert_admins(
@@ -1811,15 +2181,44 @@ async def _run_video_analysis(
                     f"Ошибка анализа user_id={user_id}: "
                     f"{type(exc).__name__}: {exc}"[:500],
                 )
-        await _log_event(user_id, EVENT_ANALYSIS_FAILED, str(exc)[:200])
-        await status_message.edit_text(
-            format_analysis_error(exc, lang),
-            parse_mode=ParseMode.MARKDOWN if not overloaded else None,
-            reply_markup=_retry_keyboard(lang, offer_simple=overloaded),
+        await _edit_or_reply_status(
+            context,
+            chat_id,
+            status_message,
+            (
+                t(lang, "error_overloaded")
+                if is_model_overloaded(exc)
+                else format_analysis_error(exc, lang)
+            ),
+            parse_mode=None if is_model_overloaded(exc) else ParseMode.MARKDOWN,
+            reply_markup=_retry_keyboard(lang, offer_simple=False),
         )
     finally:
         if temp_path and temp_path.exists():
             temp_path.unlink(missing_ok=True)
+
+
+async def _edit_or_reply_status(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    status_message,
+    text: str,
+    *,
+    parse_mode: Optional[str] = None,
+    reply_markup=None,
+) -> None:
+    """edit_text статуса; если нельзя (Message can't be edited) — новое сообщение."""
+    try:
+        await status_message.edit_text(
+            text, parse_mode=parse_mode, reply_markup=reply_markup
+        )
+    except BadRequest:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            parse_mode=parse_mode,
+            reply_markup=reply_markup,
+        )
 
 
 async def handle_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1839,6 +2238,12 @@ async def handle_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     context.user_data["user_id"] = user_id
     await _touch_user(update)
     await _log_event(user_id, event_type)
+    await _cabinet_notify(
+        context,
+        user_id,
+        cabinet.format_feedback(user_id, kind=key),
+        user=query.from_user,
+    )
 
     try:
         await query.edit_message_text(t(lang, "feedback_thanks"))
@@ -1867,6 +2272,12 @@ async def handle_retry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     use_simple = (query.data or "") == "retry:simple"
+    await _cabinet_notify(
+        context,
+        user_id,
+        cabinet.format_analysis_failed(user_id, retry=True, simple=use_simple),
+        user=query.from_user,
+    )
     settings: Settings = context.application.bot_data.get("settings")
     model_override = None
     if use_simple and settings:
@@ -1935,6 +2346,18 @@ async def handle_practice(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 t(lang, "practice_date_unknown"),
                 reply_markup=practice.keyboard_after_date_set(lang),
             )
+            await _cabinet_notify(
+                context,
+                user_id,
+                cabinet.format_practice_date(
+                    user_id,
+                    date_label=practice_day.strftime("%d.%m.%Y"),
+                    focus=plan.get("focus_text") or "",
+                    drill=plan.get("drill_text") or "",
+                    unknown=True,
+                ),
+                user=query.from_user,
+            )
             return
 
         await asyncio.to_thread(
@@ -1949,6 +2372,17 @@ async def handle_practice(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             t(lang, "practice_date_saved", date=date_label),
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=practice.keyboard_after_date_set(lang),
+        )
+        await _cabinet_notify(
+            context,
+            user_id,
+            cabinet.format_practice_date(
+                user_id,
+                date_label=date_label,
+                focus=plan.get("focus_text") or "",
+                drill=plan.get("drill_text") or "",
+            ),
+            user=query.from_user,
         )
         # «сегодня вечером» после 09:00 МСК — pre сразу
         if practice_day == practice.today_msk() and practice.should_send_pre_now():
@@ -1988,6 +2422,17 @@ async def handle_practice(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             storage.set_practice_post_answer, int(plan["id"]), answer
         )
         await _log_event(user_id, EVENT_PRACTICE_POST_ANSWERED, answer)
+        await _cabinet_notify(
+            context,
+            user_id,
+            cabinet.format_practice_post(
+                user_id,
+                answer=answer,
+                focus=plan.get("focus_text") or "",
+                drill=plan.get("drill_text") or "",
+            ),
+            user=query.from_user,
+        )
 
         if answer == practice.POST_YES:
             next_video = await asyncio.to_thread(storage.get_latest_next_video, user_id)
@@ -2098,102 +2543,33 @@ async def handle_review_callback(
     settings: Settings = context.application.bot_data.get("settings")
     user_id = query.from_user.id
 
-    # Игрок: написать тренеру
+    # Игрок: написать тренеру (через тему кабинета, без привязки к open job)
     if query.data == "rvp:msg":
         lang = sync_user_lang(context.user_data, query.from_user.language_code)
-        job = await asyncio.to_thread(storage.get_open_review_job, user_id)
-        if not job:
-            await query.message.reply_text(t(lang, "review_no_open_job"))
+        forum_chat_id = settings.coach_forum_chat_id if settings else None
+        topic = None
+        if forum_chat_id:
+            topic = await asyncio.to_thread(
+                storage.get_player_forum_topic, user_id, int(forum_chat_id)
+            )
+        if not topic:
+            await query.message.reply_text(t(lang, "review_no_topic"))
             return
-        context.user_data[review.PLAYER_MSG_PENDING_KEY] = int(job["id"])
+        context.user_data[review.PLAYER_MSG_PENDING_KEY] = True
         await query.message.reply_text(t(lang, "review_message_prompt"))
         return
 
-    if not query.data.startswith("rv:"):
-        return
-    if not settings or not settings.is_coach(user_id):
-        await query.message.reply_text("Недостаточно прав.")
-        return
-
-    parts = query.data.split(":")
-    if len(parts) < 3:
-        return
-    try:
-        job_id = int(parts[1])
-    except ValueError:
-        return
-    action = parts[2]
-    job = await asyncio.to_thread(storage.get_review_job, job_id)
-    if not job or job.get("status") not in (
-        review.STATUS_QUEUED,
-        review.STATUS_IN_REVIEW,
-    ):
-        await query.message.reply_text("Заявка уже закрыта или не найдена.")
-        return
-
-    thread_id = query.message.message_thread_id
-    chat_id = query.message.chat_id
-
-    if action == review.ACTION_SEND:
-        final_text = review.compose_final_report(
-            job.get("draft_text") or "",
-            lang="ru" if (job.get("language_code") or "").startswith("ru") else "en",
+    if query.data.startswith("rv:"):
+        # Старые кнопки send/replace/notes больше не используются.
+        await query.message.reply_text(
+            "Кнопки устарели. Пишите в тему свободно — сообщение уйдёт игроку."
         )
-        await _deliver_review_to_player(
-            context,
-            job,
-            final_text=final_text,
-            status=review.STATUS_SENT_COACH,
-        )
-        await context.bot.send_message(
-            chat_id=chat_id,
-            message_thread_id=thread_id,
-            text=f"✅ Отправлено игроку (job #{job_id}) как есть.",
-        )
-        return
-
-    if action == review.ACTION_REPLACE:
-        await asyncio.to_thread(
-            storage.update_review_job,
-            job_id,
-            pending_coach_action=review.ACTION_REPLACE,
-            status=review.STATUS_IN_REVIEW,
-            reviewer_id=user_id,
-        )
-        await context.bot.send_message(
-            chat_id=chat_id,
-            message_thread_id=thread_id,
-            text=(
-                "✏️ Пришлите *полный* финальный текст отчёта следующим сообщением "
-                "в эту тему."
-            ),
-            parse_mode=ParseMode.MARKDOWN,
-        )
-        return
-
-    if action == review.ACTION_NOTES:
-        await asyncio.to_thread(
-            storage.update_review_job,
-            job_id,
-            pending_coach_action=review.ACTION_NOTES,
-            status=review.STATUS_IN_REVIEW,
-            reviewer_id=user_id,
-        )
-        await context.bot.send_message(
-            chat_id=chat_id,
-            message_thread_id=thread_id,
-            text=(
-                "➕ Пришлите замечания тренера следующим сообщением в эту тему. "
-                "Они будут добавлены к AI-черновику."
-            ),
-        )
-        return
 
 
 async def _handle_coach_forum_text(
     update: Update, context: ContextTypes.DEFAULT_TYPE, user_text: str
 ) -> bool:
-    """Обработка текста тренера в теме Forum. True если съели сообщение."""
+    """Любой текст тренера в теме игрока — отдельным сообщением игроку."""
     message = update.message
     settings: Settings = context.application.bot_data.get("settings")
     if not settings or not settings.coach_forum_chat_id:
@@ -2205,87 +2581,70 @@ async def _handle_coach_forum_text(
     thread_id = message.message_thread_id
     if not thread_id:
         return False
+    if not user_text.strip():
+        return False
 
-    job = await asyncio.to_thread(
-        storage.get_open_review_by_thread, settings.coach_forum_chat_id, thread_id
+    topic = await asyncio.to_thread(
+        storage.get_player_by_forum_thread,
+        int(settings.coach_forum_chat_id),
+        int(thread_id),
     )
-    if not job:
-        return False
-    pending = job.get("pending_coach_action")
-    if not pending:
+    if not topic:
         return False
 
-    lang = "ru" if (job.get("language_code") or "").startswith("ru") else "en"
-    if pending == review.ACTION_REPLACE:
-        final_text = review.compose_final_report(
-            job.get("draft_text") or "",
-            replacement=user_text,
-            lang=lang,
+    player_id = int(topic["user_id"])
+    language_code = await asyncio.to_thread(storage.get_user_language_code, player_id)
+    lang = "ru" if (language_code or "").startswith("ru") else "en"
+
+    try:
+        await context.bot.send_message(
+            chat_id=player_id,
+            text=t(lang, "review_coach_message", text=user_text),
+            parse_mode=ParseMode.MARKDOWN,
         )
-        await _deliver_review_to_player(
-            context,
-            job,
-            final_text=final_text,
-            status=review.STATUS_SENT_COACH,
+    except BadRequest:
+        await context.bot.send_message(
+            chat_id=player_id,
+            text=t(lang, "review_coach_message", text=user_text),
         )
-        await message.reply_text(
-            f"✅ Заменённый текст отправлен игроку (#{job['id']})."
+    except Exception:
+        logger.exception(
+            "Не удалось отправить сообщение тренера игроку user_id=%s", player_id
         )
+        await message.reply_text("⚠️ Не удалось доставить игроку. Попробуйте ещё раз.")
         return True
 
-    if pending == review.ACTION_NOTES:
-        final_text = review.compose_final_report(
-            job.get("draft_text") or "",
-            coach_notes=user_text,
-            lang=lang,
-        )
-        await _deliver_review_to_player(
-            context,
-            job,
-            final_text=final_text,
-            status=review.STATUS_SENT_COACH,
-            coach_notes=user_text,
-        )
-        await message.reply_text(
-            f"✅ Отчёт с замечаниями отправлен игроку (#{job['id']})."
-        )
-        return True
-    return False
+    await message.reply_text("✅ Отправлено игроку.")
+    return True
 
 
 async def _handle_player_coach_message(
     update: Update, context: ContextTypes.DEFAULT_TYPE, user_text: str
 ) -> bool:
-    job_id = context.user_data.get(review.PLAYER_MSG_PENDING_KEY)
-    if not job_id:
+    if not context.user_data.get(review.PLAYER_MSG_PENDING_KEY):
         return False
     message = update.message
     lang = _lang_from_update(update, context)
-    job = await asyncio.to_thread(storage.get_review_job, int(job_id))
+    user_id = message.from_user.id
     context.user_data.pop(review.PLAYER_MSG_PENDING_KEY, None)
-    if not job or job.get("status") not in (
-        review.STATUS_QUEUED,
-        review.STATUS_IN_REVIEW,
-    ):
-        await message.reply_text(t(lang, "review_no_open_job"))
-        return True
 
     settings: Settings = context.application.bot_data.get("settings")
-    forum_chat_id = job.get("forum_chat_id") or (
-        settings.coach_forum_chat_id if settings else None
+    forum_chat_id = settings.coach_forum_chat_id if settings else None
+    if not forum_chat_id:
+        await message.reply_text(t(lang, "review_no_topic"))
+        return True
+    topic = await asyncio.to_thread(
+        storage.get_player_forum_topic, user_id, int(forum_chat_id)
     )
-    thread_id = job.get("message_thread_id")
-    if not forum_chat_id or not thread_id:
-        await message.reply_text(
-            "Кабинет ещё не готов принять сообщение. Попробуйте чуть позже."
-        )
+    if not topic:
+        await message.reply_text(t(lang, "review_no_topic"))
         return True
 
     uname = message.from_user.username or message.from_user.first_name or "player"
     await context.bot.send_message(
         chat_id=int(forum_chat_id),
-        message_thread_id=int(thread_id),
-        text=f"💬 Сообщение от игрока (@{uname} / {message.from_user.id}):\n\n{user_text}",
+        message_thread_id=int(topic["message_thread_id"]),
+        text=(f"💬 Сообщение от игрока (@{uname} / {user_id}):\n\n{user_text}"),
     )
     await message.reply_text(t(lang, "review_message_sent"))
     return True
@@ -2427,6 +2786,17 @@ async def plan_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     context.user_data["user_id"] = user_id
     await _touch_user(update)
     plan = await asyncio.to_thread(billing.get_plan, user_id)
+    if not billing.MONETIZATION_ENABLED:
+        await message.reply_text(
+            t(
+                lang,
+                "plan_status_open",
+                used=plan.analyses_used,
+                max_sec=plan.max_video_seconds,
+            ),
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
     reset = plan.reset_at.strftime("%Y-%m-%d")
     expires = plan.expires_at or "—"
     text = t(
@@ -2504,6 +2874,11 @@ async def send_pro_invoice(
     chat = update.effective_chat
     if not chat:
         return
+    if not billing.MONETIZATION_ENABLED:
+        await context.bot.send_message(
+            chat_id=chat.id, text=t(lang, "monetization_off")
+        )
+        return
     payload = billing.stars_payload(user_id)
     title = t(lang, "invoice_title")
     description = t(lang, "invoice_description")
@@ -2538,6 +2913,9 @@ async def handle_precheckout(
 ) -> None:
     query = update.pre_checkout_query
     if not query:
+        return
+    if not billing.MONETIZATION_ENABLED:
+        await query.answer(ok=False, error_message="Payments are temporarily disabled")
         return
     user_id = billing.parse_stars_payload(query.invoice_payload or "")
     if user_id is None or user_id != query.from_user.id:
@@ -2594,6 +2972,12 @@ def build_application(settings: Settings) -> Application:
     if not settings.coach_forum_chat_id:
         logger.warning(
             "COACH_FORUM_CHAT_ID не задан — заявки в кабинет тренера не попадут"
+        )
+    else:
+        logger.info(
+            "Coach cabinet: forum_chat_id=%s coach_ids=%s",
+            settings.coach_forum_chat_id,
+            settings.coach_user_ids or settings.admin_user_ids,
         )
 
     app.add_handler(CommandHandler("start", start_command))
