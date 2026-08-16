@@ -828,6 +828,9 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not message:
         return
 
+    if await _handle_coach_forum_message(update, context):
+        return
+
     lang = _lang_from_update(update, context)
 
     if is_reset_pending(context.user_data):
@@ -2566,47 +2569,97 @@ async def handle_review_callback(
         )
 
 
-async def _handle_coach_forum_text(
-    update: Update, context: ContextTypes.DEFAULT_TYPE, user_text: str
-) -> bool:
-    """Любой текст тренера в теме игрока — отдельным сообщением игроку."""
-    message = update.message
-    settings: Settings = context.application.bot_data.get("settings")
+def _coach_forum_has_content(message) -> bool:
+    """Есть ли в сообщении контент, который можно доставить игроку."""
+    return bool(
+        message.text
+        or message.caption
+        or message.photo
+        or message.video
+        or message.video_note
+        or message.audio
+        or message.voice
+        or message.document
+        or message.sticker
+        or message.animation
+        or message.contact
+        or message.location
+        or message.venue
+        or message.poll
+        or message.dice
+    )
+
+
+async def _resolve_coach_forum_player(
+    message, settings: Optional[Settings]
+) -> Optional[int]:
+    """Если это сообщение тренера в теме игрока — вернуть player_id."""
     if not settings or not settings.coach_forum_chat_id:
-        return False
+        return None
     if message.chat_id != settings.coach_forum_chat_id:
-        return False
-    if not settings.is_coach(message.from_user.id):
-        return False
+        return None
+    if not message.from_user or not settings.is_coach(message.from_user.id):
+        return None
     thread_id = message.message_thread_id
     if not thread_id:
-        return False
-    if not user_text.strip():
-        return False
-
+        return None
     topic = await asyncio.to_thread(
         storage.get_player_by_forum_thread,
         int(settings.coach_forum_chat_id),
         int(thread_id),
     )
     if not topic:
+        return None
+    return int(topic["user_id"])
+
+
+async def _handle_coach_forum_message(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> bool:
+    """Любое сообщение тренера в теме игрока — доставить игроку."""
+    message = update.message
+    if not message or not _coach_forum_has_content(message):
         return False
 
-    player_id = int(topic["user_id"])
+    settings: Settings = context.application.bot_data.get("settings")
+    player_id = await _resolve_coach_forum_player(message, settings)
+    if player_id is None:
+        return False
+
     language_code = await asyncio.to_thread(storage.get_user_language_code, player_id)
     lang = "ru" if (language_code or "").startswith("ru") else "en"
 
     try:
-        await context.bot.send_message(
-            chat_id=player_id,
-            text=t(lang, "review_coach_message", text=user_text),
-            parse_mode=ParseMode.MARKDOWN,
-        )
-    except BadRequest:
-        await context.bot.send_message(
-            chat_id=player_id,
-            text=t(lang, "review_coach_message", text=user_text),
-        )
+        if message.text:
+            user_text = message.text.strip()
+            if not user_text:
+                return False
+            try:
+                await context.bot.send_message(
+                    chat_id=player_id,
+                    text=t(lang, "review_coach_message", text=user_text),
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+            except BadRequest:
+                await context.bot.send_message(
+                    chat_id=player_id,
+                    text=t(lang, "review_coach_message", text=user_text),
+                )
+        else:
+            header = t(lang, "review_coach_media_header")
+            try:
+                await context.bot.send_message(
+                    chat_id=player_id,
+                    text=header,
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+            except BadRequest:
+                await context.bot.send_message(chat_id=player_id, text=header)
+            await context.bot.copy_message(
+                chat_id=player_id,
+                from_chat_id=message.chat_id,
+                message_id=message.message_id,
+            )
     except Exception:
         logger.exception(
             "Не удалось отправить сообщение тренера игроку user_id=%s", player_id
@@ -2664,7 +2717,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     await _touch_user(update)
 
-    if await _handle_coach_forum_text(update, context, user_text):
+    if await _handle_coach_forum_message(update, context):
         return
     if await _handle_player_coach_message(update, context, user_text):
         return
@@ -2746,6 +2799,8 @@ async def handle_unsupported(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     if not update.message:
+        return
+    if await _handle_coach_forum_message(update, context):
         return
     lang = _lang_from_update(update, context)
     await update.message.reply_text(t(lang, "unsupported"))

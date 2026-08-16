@@ -412,6 +412,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "Если хотите что-то уточнить у тренера — кнопка ниже."
         ),
         "review_coach_message": "💬 *Сообщение от тренера:*\n\n{text}",
+        "review_coach_media_header": "💬 *Сообщение от тренера:*",
         "review_fallback_banner": (
             "⚠️ *Это предварительный разбор AI:* тренер не успел проверить вручную. "
             "Можно опираться на него на тренировке; при следующем видео тренер "
@@ -839,6 +840,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "To ask the coach something — use the button below."
         ),
         "review_coach_message": "💬 *Message from the coach:*\n\n{text}",
+        "review_coach_media_header": "💬 *Message from the coach:*",
         "review_fallback_banner": (
             "⚠️ *This is a preliminary AI review:* a coach didn't check it manually. "
             "You can still use it at practice; the next video will be prioritized."
