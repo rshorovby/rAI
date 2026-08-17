@@ -33,6 +33,7 @@ import drills
 import practice
 import review
 import storage
+import survey
 from analysis_dialog import (
     DIALOG_KEY,
     clear_dialog,
@@ -73,6 +74,8 @@ from analytics import (
     EVENT_REVIEW_QUEUED,
     EVENT_REVIEW_SENT_COACH,
     EVENT_REVIEW_SENT_FALLBACK,
+    EVENT_SURVEY_COMPLETED,
+    EVENT_SURVEY_SENT,
     EVENT_VIDEO_SENT,
     format_analytics_report,
 )
@@ -1208,6 +1211,192 @@ def _persist_dialog_state(user_data: dict) -> None:
     session["analysis_dialog"] = state
     user_data[SESSION_KEY] = session
     _persist_session(user_data)
+
+
+async def _send_no_video_survey(
+    bot,
+    user_id: int,
+    lang: str,
+    *,
+    source: str = "auto",
+    settings: Optional[Settings] = None,
+) -> bool:
+    session_payload = (
+        await asyncio.to_thread(storage.load_active_session, user_id) or {}
+    )
+    survey_state = {
+        "type": survey.SURVEY_TYPE_NO_VIDEO,
+        "selected": [],
+        "source": source,
+        "step": survey.STEP_SELECT,
+    }
+    survey.set_survey_state(session_payload, survey_state)
+    await asyncio.to_thread(storage.save_active_session, user_id, session_payload)
+
+    try:
+        msg = await bot.send_message(
+            chat_id=user_id,
+            text=t(lang, "survey_no_video_intro"),
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=survey.build_survey_keyboard(lang, set()),
+        )
+    except BadRequest:
+        msg = await bot.send_message(
+            chat_id=user_id,
+            text=t(lang, "survey_no_video_intro"),
+            reply_markup=survey.build_survey_keyboard(lang, set()),
+        )
+    except Exception:
+        logger.exception("Не удалось отправить опрос user_id=%s", user_id)
+        survey.set_survey_state(session_payload, None)
+        await asyncio.to_thread(storage.save_active_session, user_id, session_payload)
+        return False
+
+    survey_state["message_id"] = msg.message_id
+    survey_state["chat_id"] = msg.chat_id
+    survey.set_survey_state(session_payload, survey_state)
+    await asyncio.to_thread(storage.save_active_session, user_id, session_payload)
+
+    if source == "auto":
+        await asyncio.to_thread(storage.mark_no_video_survey_sent, user_id)
+    await _log_event(user_id, EVENT_SURVEY_SENT, source)
+
+    if settings and settings.coach_forum_chat_id:
+        await cabinet.notify(
+            bot,
+            settings.coach_forum_chat_id,
+            user_id,
+            cabinet.format_survey_sent(user_id, source=source),
+        )
+    return True
+
+
+async def _complete_no_video_survey(
+    context: ContextTypes.DEFAULT_TYPE,
+    user_id: int,
+    lang: str,
+    survey_state: dict,
+    selected: list[str],
+    other_text: str = "",
+) -> None:
+    source = survey_state.get("source") or "auto"
+    summary = survey.format_selected_summary(lang, selected, other_text)
+    await asyncio.to_thread(
+        storage.save_survey_response,
+        user_id,
+        survey.SURVEY_TYPE_NO_VIDEO,
+        selected,
+        other_text=other_text,
+        source=source,
+    )
+    await _log_event(user_id, EVENT_SURVEY_COMPLETED, source)
+
+    session_payload = _get_session(context.user_data)
+    survey.set_survey_state(session_payload, None)
+    _persist_session(context.user_data)
+
+    settings: Settings = context.application.bot_data.get("settings")
+    if settings and settings.coach_forum_chat_id:
+        await cabinet.notify(
+            context.bot,
+            settings.coach_forum_chat_id,
+            user_id,
+            cabinet.format_survey_response(user_id, summary, source=source),
+        )
+
+    await context.bot.send_message(chat_id=user_id, text=t(lang, "survey_thanks"))
+
+
+async def handle_survey(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query or not query.data:
+        return
+
+    lang = sync_user_lang(context.user_data, query.from_user.language_code)
+    user_id = query.from_user.id
+    context.user_data["user_id"] = user_id
+    await _touch_user(update)
+
+    session = _get_session(context.user_data)
+    survey_state = survey.get_survey_state(session)
+    if not survey_state or survey_state.get("type") != survey.SURVEY_TYPE_NO_VIDEO:
+        await query.answer()
+        return
+
+    action = query.data.removeprefix("sv:")
+    selected = set(survey_state.get("selected") or [])
+
+    if action.startswith("t:"):
+        key = action.removeprefix("t:")
+        if key not in survey.OPTION_KEYS:
+            await query.answer()
+            return
+        if key in selected:
+            selected.discard(key)
+        else:
+            selected.add(key)
+        survey_state["selected"] = sorted(selected)
+        survey_state["step"] = survey.STEP_SELECT
+        survey.set_survey_state(session, survey_state)
+        _persist_session(context.user_data)
+        await query.answer()
+        try:
+            await query.edit_message_reply_markup(
+                reply_markup=survey.build_survey_keyboard(lang, selected)
+            )
+        except BadRequest:
+            pass
+        return
+
+    if action != "done":
+        await query.answer()
+        return
+
+    if not selected:
+        await query.answer(t(lang, "survey_pick_one"), show_alert=True)
+        return
+
+    await query.answer()
+    if "other" in selected:
+        survey_state["step"] = survey.STEP_OTHER_TEXT
+        survey_state["selected"] = sorted(selected)
+        survey.set_survey_state(session, survey_state)
+        _persist_session(context.user_data)
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text=t(lang, "survey_other_prompt"),
+        )
+        return
+
+    await _complete_no_video_survey(
+        context,
+        user_id,
+        lang,
+        survey_state,
+        sorted(selected),
+    )
+
+
+async def _handle_survey_other_text(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, user_text: str
+) -> bool:
+    session = _get_session(context.user_data)
+    survey_state = survey.get_survey_state(session)
+    if not survey_state or survey_state.get("step") != survey.STEP_OTHER_TEXT:
+        return False
+
+    lang = _lang_from_update(update, context)
+    user_id = update.message.from_user.id
+    selected = list(survey_state.get("selected") or [])
+    await _complete_no_video_survey(
+        context,
+        user_id,
+        lang,
+        survey_state,
+        selected,
+        other_text=user_text.strip(),
+    )
+    return True
 
 
 async def handle_dialog(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -2629,6 +2818,22 @@ async def _handle_coach_forum_message(
     language_code = await asyncio.to_thread(storage.get_user_language_code, player_id)
     lang = "ru" if (language_code or "").startswith("ru") else "en"
 
+    if message.text:
+        user_text = message.text.strip()
+        if user_text and survey.is_coach_survey_command(user_text):
+            ok = await _send_no_video_survey(
+                context.bot,
+                player_id,
+                lang,
+                source="manual",
+                settings=settings,
+            )
+            if ok:
+                await message.reply_text(t(lang, "survey_coach_sent"))
+            else:
+                await message.reply_text(t(lang, "survey_coach_failed"))
+            return True
+
     try:
         if message.text:
             user_text = message.text.strip()
@@ -2717,6 +2922,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     await _touch_user(update)
 
+    if await _handle_survey_other_text(update, context, user_text):
+        return
     if await _handle_coach_forum_message(update, context):
         return
     if await _handle_player_coach_message(update, context, user_text):
@@ -3049,6 +3256,7 @@ def build_application(settings: Settings) -> Application:
     app.add_handler(CallbackQueryHandler(handle_feedback, pattern=r"^fb:"))
     app.add_handler(CallbackQueryHandler(handle_practice, pattern=r"^p:"))
     app.add_handler(CallbackQueryHandler(handle_review_callback, pattern=r"^rv"))
+    app.add_handler(CallbackQueryHandler(handle_survey, pattern=r"^sv:"))
     app.add_handler(CallbackQueryHandler(handle_dialog, pattern=r"^d:"))
     app.add_handler(CallbackQueryHandler(handle_quick_question, pattern=r"^q:"))
     app.add_handler(CallbackQueryHandler(handle_retry, pattern=r"^retry(:simple)?$"))

@@ -89,6 +89,62 @@ def test_reminder_not_sent_twice(tmp_path):
         assert len(storage.get_users_for_reminder(days=7)) == 0
 
 
+def test_get_users_for_no_video_survey(tmp_path):
+    with _tmp_db(tmp_path):
+        storage.upsert_user(10, None, "Ann", None, "ru")
+        storage.save_player_profile(
+            10,
+            {
+                "level": "amateur",
+                "focus": "fh",
+                "hand": "right",
+                "injuries": "",
+            },
+        )
+        storage.log_event(10, "onboarding_completed")
+        with storage._connect() as conn:
+            conn.execute(
+                """
+                UPDATE events
+                SET created_at = datetime('now', '-25 hours')
+                WHERE user_id = 10 AND event_type = 'onboarding_completed'
+                """
+            )
+            conn.commit()
+
+        users = storage.get_users_for_no_video_survey(hours=24)
+        assert len(users) == 1
+        assert users[0]["user_id"] == 10
+
+        storage.mark_no_video_survey_sent(10)
+        assert len(storage.get_users_for_no_video_survey(hours=24)) == 0
+
+        storage.log_event(10, "video_sent")
+        storage.upsert_user(11, None, "Bob", None, "en")
+        storage.save_player_profile(
+            11,
+            {
+                "level": "amateur",
+                "focus": "fh",
+                "hand": "right",
+                "injuries": "",
+            },
+        )
+        storage.log_event(11, "onboarding_completed")
+        with storage._connect() as conn:
+            conn.execute(
+                """
+                UPDATE events
+                SET created_at = datetime('now', '-25 hours')
+                WHERE user_id = 11 AND event_type = 'onboarding_completed'
+                """
+            )
+            conn.commit()
+        users = storage.get_users_for_no_video_survey(hours=24)
+        assert len(users) == 1
+        assert users[0]["user_id"] == 11
+
+
 def test_save_and_retrieve(tmp_path):
     with _tmp_db(tmp_path):
         storage.save_session(42, SAMPLE_REPORT)

@@ -217,6 +217,32 @@ async def run_review_fallbacks(hours: int = 24) -> int:
     return sent
 
 
+async def run_no_video_surveys(hours: int = 24) -> int:
+    from bot import _send_no_video_survey
+
+    settings = load_settings()
+    bot = Bot(settings.telegram_token)
+    users = storage.get_users_for_no_video_survey(hours=hours)
+    sent = 0
+    for row in users:
+        user_id = int(row["user_id"])
+        lang = _ui_lang(row.get("language_code") or "")
+        try:
+            ok = await _send_no_video_survey(
+                bot,
+                user_id,
+                lang,
+                source="auto",
+                settings=settings,
+            )
+            if ok:
+                sent += 1
+                logger.info("No-video survey sent user_id=%s", user_id)
+        except Exception:
+            logger.exception("Не удалось отправить опрос user_id=%s", user_id)
+    return sent
+
+
 def main() -> None:
     logging.basicConfig(
         format="%(asctime)s — %(name)s — %(levelname)s — %(message)s",
@@ -232,6 +258,8 @@ def main() -> None:
             mode = "practice"
         elif arg == "review":
             mode = "review"
+        elif arg == "survey":
+            mode = "survey"
         else:
             days = int(arg)
     if mode == "digest":
@@ -243,6 +271,9 @@ def main() -> None:
     elif mode == "review":
         count = asyncio.run(run_review_fallbacks(24))
         print(f"Review fallbacks: {count}")
+    elif mode == "survey":
+        count = asyncio.run(run_no_video_surveys(24))
+        print(f"No-video surveys: {count}")
     else:
         count = asyncio.run(run_reminders(days))
         print(f"Отправлено напоминаний: {count}")

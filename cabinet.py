@@ -198,6 +198,38 @@ def format_reminder(
     return f"{title}\nid: {user_id}"
 
 
+def format_survey_sent(
+    user_id: int,
+    *,
+    source: str = "auto",
+    first_name: str = "",
+    username: str = "",
+) -> str:
+    label = player_label(user_id, first_name, username)
+    kind = "вручную (тренер)" if source == "manual" else "авто (24ч без видео)"
+    return (
+        f"📋 Опрос «почему нет видео» отправлен ({kind})\n"
+        f"{label}\nid: {user_id}"
+    )
+
+
+def format_survey_response(
+    user_id: int,
+    summary: str,
+    *,
+    source: str = "auto",
+    first_name: str = "",
+    username: str = "",
+) -> str:
+    label = player_label(user_id, first_name, username)
+    kind = "вручную" if source == "manual" else "авто"
+    body = (summary or "").strip() or "—"
+    return (
+        f"📋 Ответ на опрос «почему нет видео» ({kind})\n"
+        f"{label}\nid: {user_id}\n\n{body}"
+    )
+
+
 def format_video_uploaded(
     user_id: int,
     *,

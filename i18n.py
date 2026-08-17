@@ -341,6 +341,32 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "Снимите 10–20 сек своего удара (сбоку или сзади) и пришлите — "
             "разберём, что изменилось."
         ),
+        "survey_no_video_intro": (
+            "Привет! 👋\n\n"
+            "Заметили, что вы пока не отправили видео для анализа техники. "
+            "Нам очень важно, чтобы бот был удобным и полезным. "
+            "Поэтому хотим спросить: *что вас останавливает?*\n\n"
+            "Это займёт не больше 10 секунд, но поможет нам улучшить сервис.\n\n"
+            "Пожалуйста, выберите один или несколько вариантов."
+        ),
+        "survey_opt_record": "1️⃣ Сложно записать видео на корте",
+        "survey_opt_tech": "2️⃣ Технические проблемы при загрузке",
+        "survey_opt_forgot": "3️⃣ Забыл(а) / не было времени",
+        "survey_opt_doubt": "4️⃣ Сомневаюсь в пользе анализа",
+        "survey_opt_howto": "5️⃣ Не уверен(а), как снять видео",
+        "survey_opt_shy": "6️⃣ Стесняюсь показывать технику",
+        "survey_opt_other": "7️⃣ Другое",
+        "survey_btn_done": "✅ Готово",
+        "survey_pick_one": "Выберите хотя бы один вариант.",
+        "survey_other_prompt": (
+            "Напишите, что ещё мешает отправить видео — одним сообщением."
+        ),
+        "survey_thanks": (
+            "Спасибо! 🙏 Ваш ответ поможет сделать бота удобнее.\n\n"
+            "Когда будете готовы — пришлите 10–20 сек видео удара сбоку или сзади."
+        ),
+        "survey_coach_sent": "✅ Опрос отправлен игроку.",
+        "survey_coach_failed": "⚠️ Не удалось отправить опрос игроку.",
         "practice_ask": (
             "🎾 *Когда следующая тренировка?*\n\n"
             "Фокус: {focus}\n"
@@ -765,6 +791,30 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "Film 10–20 sec of your stroke (side or back angle) and send it — "
             "we'll see what changed."
         ),
+        "survey_no_video_intro": (
+            "Hi! 👋\n\n"
+            "We noticed you haven't sent a video for technique analysis yet. "
+            "We want RallyMind to be useful and easy — "
+            "*what's stopping you?*\n\n"
+            "This takes less than 10 seconds and helps us improve.\n\n"
+            "Please pick one or more options."
+        ),
+        "survey_opt_record": "1️⃣ Hard to record on court",
+        "survey_opt_tech": "2️⃣ Upload issues (format, length)",
+        "survey_opt_forgot": "3️⃣ Forgot / no time",
+        "survey_opt_doubt": "4️⃣ Doubt the analysis will help",
+        "survey_opt_howto": "5️⃣ Not sure how to film",
+        "survey_opt_shy": "6️⃣ Shy about showing my technique",
+        "survey_opt_other": "7️⃣ Other",
+        "survey_btn_done": "✅ Done",
+        "survey_pick_one": "Pick at least one option.",
+        "survey_other_prompt": "Tell us what else is stopping you — in one message.",
+        "survey_thanks": (
+            "Thanks! 🙏 Your answer helps us improve.\n\n"
+            "When you're ready — send a 10–20 sec side or back view clip."
+        ),
+        "survey_coach_sent": "✅ Survey sent to the player.",
+        "survey_coach_failed": "⚠️ Couldn't send the survey to the player.",
         "practice_ask": (
             "🎾 *When is your next practice?*\n\n"
             "Focus: {focus}\n"

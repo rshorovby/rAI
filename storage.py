@@ -194,6 +194,18 @@ def _init_db(conn: sqlite3.Connection) -> None:
             ON review_jobs (user_id, status);
         CREATE INDEX IF NOT EXISTS idx_review_status_created
             ON review_jobs (status, created_at);
+
+        CREATE TABLE IF NOT EXISTS survey_responses (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id     INTEGER NOT NULL,
+            survey_type TEXT    NOT NULL,
+            selected    TEXT    NOT NULL,
+            other_text  TEXT    NOT NULL DEFAULT '',
+            source      TEXT    NOT NULL DEFAULT 'auto',
+            created_at  TEXT    NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_survey_user
+            ON survey_responses (user_id, created_at DESC);
     """
     )
     _migrate_schema(conn)
@@ -211,6 +223,7 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         ("users", "digest_sent_at", "TEXT"),
         ("users", "streak_weeks", "INTEGER NOT NULL DEFAULT 0"),
         ("subscriptions", "reminder_sent_at", "TEXT"),
+        ("users", "no_video_survey_sent_at", "TEXT"),
     )
     for table, column, typedef in migrations:
         tables = {
@@ -734,6 +747,75 @@ def mark_reminder_sent(user_id: int) -> None:
         conn.execute(
             "UPDATE users SET reminder_sent_at = ? WHERE user_id = ?",
             (now, user_id),
+        )
+        conn.commit()
+
+
+def get_users_for_no_video_survey(hours: int = 24) -> list[dict]:
+    """Онбординг завершён ≥N часов назад, видео не отправляли, опрос ещё не слали."""
+    with _connect() as conn:
+        _init_db(conn)
+        rows = conn.execute(
+            """
+            SELECT u.user_id, u.language_code
+            FROM users u
+            INNER JOIN player_profiles pp ON pp.user_id = u.user_id
+            WHERE u.no_video_survey_sent_at IS NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM events ev
+                  WHERE ev.user_id = u.user_id
+                    AND ev.event_type = 'video_sent'
+              )
+              AND (
+                  SELECT MAX(datetime(e.created_at))
+                  FROM events e
+                  WHERE e.user_id = u.user_id
+                    AND e.event_type IN (
+                        'onboarding_completed', 'onboarding_skipped'
+                    )
+              ) <= datetime('now', ?)
+            """,
+            (f"-{hours} hours",),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def mark_no_video_survey_sent(user_id: int) -> None:
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            "UPDATE users SET no_video_survey_sent_at = ? WHERE user_id = ?",
+            (now, user_id),
+        )
+        conn.commit()
+
+
+def save_survey_response(
+    user_id: int,
+    survey_type: str,
+    selected: list[str],
+    *,
+    other_text: str = "",
+    source: str = "auto",
+) -> None:
+    created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            """
+            INSERT INTO survey_responses
+                (user_id, survey_type, selected, other_text, source, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user_id,
+                survey_type,
+                json.dumps(selected, ensure_ascii=False),
+                other_text or "",
+                source,
+                created_at,
+            ),
         )
         conn.commit()
 
