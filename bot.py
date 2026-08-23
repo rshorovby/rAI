@@ -1213,10 +1213,11 @@ def _persist_dialog_state(user_data: dict) -> None:
     _persist_session(user_data)
 
 
-async def _send_no_video_survey(
+async def _send_survey(
     bot,
     user_id: int,
     lang: str,
+    survey_type: str,
     *,
     source: str = "auto",
     settings: Optional[Settings] = None,
@@ -1225,7 +1226,7 @@ async def _send_no_video_survey(
         await asyncio.to_thread(storage.load_active_session, user_id) or {}
     )
     survey_state = {
-        "type": survey.SURVEY_TYPE_NO_VIDEO,
+        "type": survey_type,
         "selected": [],
         "source": source,
         "step": survey.STEP_SELECT,
@@ -1233,21 +1234,24 @@ async def _send_no_video_survey(
     survey.set_survey_state(session_payload, survey_state)
     await asyncio.to_thread(storage.save_active_session, user_id, session_payload)
 
+    intro_key = survey.intro_key_for(survey_type)
     try:
         msg = await bot.send_message(
             chat_id=user_id,
-            text=t(lang, "survey_no_video_intro"),
+            text=t(lang, intro_key),
             parse_mode=ParseMode.MARKDOWN,
-            reply_markup=survey.build_survey_keyboard(lang, set()),
+            reply_markup=survey.build_survey_keyboard(lang, survey_type, set()),
         )
     except BadRequest:
         msg = await bot.send_message(
             chat_id=user_id,
-            text=t(lang, "survey_no_video_intro"),
-            reply_markup=survey.build_survey_keyboard(lang, set()),
+            text=t(lang, intro_key),
+            reply_markup=survey.build_survey_keyboard(lang, survey_type, set()),
         )
     except Exception:
-        logger.exception("Не удалось отправить опрос user_id=%s", user_id)
+        logger.exception(
+            "Не удалось отправить опрос user_id=%s type=%s", user_id, survey_type
+        )
         survey.set_survey_state(session_payload, None)
         await asyncio.to_thread(storage.save_active_session, user_id, session_payload)
         return False
@@ -1258,20 +1262,41 @@ async def _send_no_video_survey(
     await asyncio.to_thread(storage.save_active_session, user_id, session_payload)
 
     if source == "auto":
-        await asyncio.to_thread(storage.mark_no_video_survey_sent, user_id)
-    await _log_event(user_id, EVENT_SURVEY_SENT, source)
+        if survey_type == survey.SURVEY_TYPE_NO_ONBOARDING:
+            await asyncio.to_thread(storage.mark_no_onboarding_survey_sent, user_id)
+        else:
+            await asyncio.to_thread(storage.mark_no_video_survey_sent, user_id)
+    await _log_event(user_id, EVENT_SURVEY_SENT, f"{survey_type}:{source}")
 
     if settings and settings.coach_forum_chat_id:
         await cabinet.notify(
             bot,
             settings.coach_forum_chat_id,
             user_id,
-            cabinet.format_survey_sent(user_id, source=source),
+            cabinet.format_survey_sent(user_id, survey_type=survey_type, source=source),
         )
     return True
 
 
-async def _complete_no_video_survey(
+async def _send_no_video_survey(
+    bot,
+    user_id: int,
+    lang: str,
+    *,
+    source: str = "auto",
+    settings: Optional[Settings] = None,
+) -> bool:
+    return await _send_survey(
+        bot,
+        user_id,
+        lang,
+        survey.SURVEY_TYPE_NO_VIDEO,
+        source=source,
+        settings=settings,
+    )
+
+
+async def _complete_survey(
     context: ContextTypes.DEFAULT_TYPE,
     user_id: int,
     lang: str,
@@ -1279,17 +1304,18 @@ async def _complete_no_video_survey(
     selected: list[str],
     other_text: str = "",
 ) -> None:
+    survey_type = survey_state.get("type") or survey.SURVEY_TYPE_NO_VIDEO
     source = survey_state.get("source") or "auto"
-    summary = survey.format_selected_summary(lang, selected, other_text)
+    summary = survey.format_selected_summary(lang, survey_type, selected, other_text)
     await asyncio.to_thread(
         storage.save_survey_response,
         user_id,
-        survey.SURVEY_TYPE_NO_VIDEO,
+        survey_type,
         selected,
         other_text=other_text,
         source=source,
     )
-    await _log_event(user_id, EVENT_SURVEY_COMPLETED, source)
+    await _log_event(user_id, EVENT_SURVEY_COMPLETED, f"{survey_type}:{source}")
 
     session_payload = _get_session(context.user_data)
     survey.set_survey_state(session_payload, None)
@@ -1301,10 +1327,13 @@ async def _complete_no_video_survey(
             context.bot,
             settings.coach_forum_chat_id,
             user_id,
-            cabinet.format_survey_response(user_id, summary, source=source),
+            cabinet.format_survey_response(
+                user_id, summary, survey_type=survey_type, source=source
+            ),
         )
 
-    await context.bot.send_message(chat_id=user_id, text=t(lang, "survey_thanks"))
+    thanks_key = survey.thanks_key_for(survey_type)
+    await context.bot.send_message(chat_id=user_id, text=t(lang, thanks_key))
 
 
 async def handle_survey(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1319,16 +1348,18 @@ async def handle_survey(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     session = _get_session(context.user_data)
     survey_state = survey.get_survey_state(session)
-    if not survey_state or survey_state.get("type") != survey.SURVEY_TYPE_NO_VIDEO:
+    if not survey_state or not survey_state.get("type"):
         await query.answer()
         return
 
+    survey_type = survey_state["type"]
     action = query.data.removeprefix("sv:")
     selected = set(survey_state.get("selected") or [])
+    valid_keys = survey.option_keys_for(survey_type)
 
     if action.startswith("t:"):
         key = action.removeprefix("t:")
-        if key not in survey.OPTION_KEYS:
+        if key not in valid_keys:
             await query.answer()
             return
         if key in selected:
@@ -1342,7 +1373,7 @@ async def handle_survey(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await query.answer()
         try:
             await query.edit_message_reply_markup(
-                reply_markup=survey.build_survey_keyboard(lang, selected)
+                reply_markup=survey.build_survey_keyboard(lang, survey_type, selected)
             )
         except BadRequest:
             pass
@@ -1368,7 +1399,7 @@ async def handle_survey(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
         return
 
-    await _complete_no_video_survey(
+    await _complete_survey(
         context,
         user_id,
         lang,
@@ -1388,7 +1419,7 @@ async def _handle_survey_other_text(
     lang = _lang_from_update(update, context)
     user_id = update.message.from_user.id
     selected = list(survey_state.get("selected") or [])
-    await _complete_no_video_survey(
+    await _complete_survey(
         context,
         user_id,
         lang,

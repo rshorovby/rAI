@@ -367,6 +367,25 @@ _MESSAGES: dict[str, dict[str, str]] = {
         ),
         "survey_coach_sent": "✅ Опрос отправлен игроку.",
         "survey_coach_failed": "⚠️ Не удалось отправить опрос игроку.",
+        "survey_no_onboarding_intro": (
+            "Привет! 👋\n\n"
+            "Заметили, что вы нажали /start, но не завершили короткий опрос о себе. "
+            "Нам важно сделать бот удобным — *что вас остановило?*\n\n"
+            "Это займёт не больше 10 секунд.\n\n"
+            "Пожалуйста, выберите один или несколько вариантов."
+        ),
+        "survey_ob_opt_long": "1️⃣ Слишком много вопросов / долго",
+        "survey_ob_opt_unclear": "2️⃣ Не понял(а), зачем это нужно",
+        "survey_ob_opt_forgot": "3️⃣ Забыл(а) / не было времени",
+        "survey_ob_opt_doubt": "4️⃣ Сомневаюсь, что бот будет полезен",
+        "survey_ob_opt_tech": "5️⃣ Технические проблемы с ботом",
+        "survey_ob_opt_privacy": "6️⃣ Не хочу делиться личной информацией",
+        "survey_ob_opt_other": "7️⃣ Другое",
+        "survey_no_onboarding_thanks": (
+            "Спасибо! 🙏 Ваш ответ поможет нам улучшить бота.\n\n"
+            "Когда будете готовы — нажмите /start и пройдите короткий опрос. "
+            "Это займёт минуту."
+        ),
         "practice_ask": (
             "🎾 *Когда следующая тренировка?*\n\n"
             "Фокус: {focus}\n"
@@ -815,6 +834,25 @@ _MESSAGES: dict[str, dict[str, str]] = {
         ),
         "survey_coach_sent": "✅ Survey sent to the player.",
         "survey_coach_failed": "⚠️ Couldn't send the survey to the player.",
+        "survey_no_onboarding_intro": (
+            "Hi! 👋\n\n"
+            "We noticed you tapped /start but didn't finish the short profile quiz. "
+            "We want RallyMind to be easy — *what stopped you?*\n\n"
+            "This takes less than 10 seconds.\n\n"
+            "Please pick one or more options."
+        ),
+        "survey_ob_opt_long": "1️⃣ Too many questions / takes too long",
+        "survey_ob_opt_unclear": "2️⃣ Didn't understand why it's needed",
+        "survey_ob_opt_forgot": "3️⃣ Forgot / no time",
+        "survey_ob_opt_doubt": "4️⃣ Doubt the bot will be useful",
+        "survey_ob_opt_tech": "5️⃣ Technical issues with the bot",
+        "survey_ob_opt_privacy": "6️⃣ Don't want to share personal info",
+        "survey_ob_opt_other": "7️⃣ Other",
+        "survey_no_onboarding_thanks": (
+            "Thanks! 🙏 Your answer helps us improve.\n\n"
+            "When you're ready — tap /start and complete the short profile quiz. "
+            "It takes about a minute."
+        ),
         "practice_ask": (
             "🎾 *When is your next practice?*\n\n"
             "Focus: {focus}\n"

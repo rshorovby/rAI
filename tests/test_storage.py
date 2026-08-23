@@ -145,6 +145,50 @@ def test_get_users_for_no_video_survey(tmp_path):
         assert users[0]["user_id"] == 11
 
 
+def test_get_users_for_no_onboarding_survey(tmp_path):
+    with _tmp_db(tmp_path):
+        storage.upsert_user(20, None, "Ann", None, "ru")
+        storage.log_event(20, "onboarding_started")
+        with storage._connect() as conn:
+            conn.execute(
+                """
+                UPDATE events
+                SET created_at = datetime('now', '-25 hours')
+                WHERE user_id = 20 AND event_type = 'onboarding_started'
+                """
+            )
+            conn.commit()
+
+        users = storage.get_users_for_no_onboarding_survey(hours=24)
+        assert len(users) == 1
+        assert users[0]["user_id"] == 20
+
+        storage.mark_no_onboarding_survey_sent(20)
+        assert len(storage.get_users_for_no_onboarding_survey(hours=24)) == 0
+
+        storage.save_player_profile(
+            21,
+            {
+                "level": "amateur",
+                "focus": "fh",
+                "hand": "right",
+                "injuries": "",
+            },
+        )
+        storage.upsert_user(21, None, "Bob", None, "en")
+        storage.log_event(21, "onboarding_started")
+        with storage._connect() as conn:
+            conn.execute(
+                """
+                UPDATE events
+                SET created_at = datetime('now', '-25 hours')
+                WHERE user_id = 21 AND event_type = 'onboarding_started'
+                """
+            )
+            conn.commit()
+        assert len(storage.get_users_for_no_onboarding_survey(hours=24)) == 0
+
+
 def test_save_and_retrieve(tmp_path):
     with _tmp_db(tmp_path):
         storage.save_session(42, SAMPLE_REPORT)

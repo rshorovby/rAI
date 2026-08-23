@@ -30,7 +30,7 @@ FILTERED=$(
   echo "5 * * * * ${APP_DIR}/deploy/remind.sh practice >> ${APP_DIR}/data/practice.log 2>&1"
   echo "# RallyAI: review fallback 24ч (Product V2)"
   echo "10 * * * * ${APP_DIR}/deploy/remind.sh review >> ${APP_DIR}/data/review_fallback.log 2>&1"
-  echo "# RallyAI: опрос «нет видео» через 24ч после онбординга"
+  echo "# RallyAI: опросы через 24ч (нет видео / не прошёл онбординг)"
   echo "20 * * * * ${APP_DIR}/deploy/remind.sh survey >> ${APP_DIR}/data/survey.log 2>&1"
   echo "# RallyAI: напоминание через 7 дней (10:00 МСК)"
   echo "0 7 * * * ${APP_DIR}/deploy/remind.sh >> ${APP_DIR}/data/remind.log 2>&1"

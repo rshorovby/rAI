@@ -243,6 +243,41 @@ async def run_no_video_surveys(hours: int = 24) -> int:
     return sent
 
 
+async def run_no_onboarding_surveys(hours: int = 24) -> int:
+    from bot import _send_survey
+
+    settings = load_settings()
+    bot = Bot(settings.telegram_token)
+    users = storage.get_users_for_no_onboarding_survey(hours=hours)
+    sent = 0
+    for row in users:
+        user_id = int(row["user_id"])
+        lang = _ui_lang(row.get("language_code") or "")
+        try:
+            ok = await _send_survey(
+                bot,
+                user_id,
+                lang,
+                "no_onboarding",
+                source="auto",
+                settings=settings,
+            )
+            if ok:
+                sent += 1
+                logger.info("No-onboarding survey sent user_id=%s", user_id)
+        except Exception:
+            logger.exception(
+                "Не удалось отправить опрос онбординга user_id=%s", user_id
+            )
+    return sent
+
+
+async def run_all_surveys(hours: int = 24) -> tuple[int, int]:
+    no_video = await run_no_video_surveys(hours=hours)
+    no_onboarding = await run_no_onboarding_surveys(hours=hours)
+    return no_video, no_onboarding
+
+
 def main() -> None:
     logging.basicConfig(
         format="%(asctime)s — %(name)s — %(levelname)s — %(message)s",
@@ -272,8 +307,9 @@ def main() -> None:
         count = asyncio.run(run_review_fallbacks(24))
         print(f"Review fallbacks: {count}")
     elif mode == "survey":
-        count = asyncio.run(run_no_video_surveys(24))
-        print(f"No-video surveys: {count}")
+        no_video, no_onboarding = asyncio.run(run_all_surveys(24))
+        print(f"No-video surveys: {no_video}")
+        print(f"No-onboarding surveys: {no_onboarding}")
     else:
         count = asyncio.run(run_reminders(days))
         print(f"Отправлено напоминаний: {count}")

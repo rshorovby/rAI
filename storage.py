@@ -237,6 +237,7 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         ("users", "streak_weeks", "INTEGER NOT NULL DEFAULT 0"),
         ("subscriptions", "reminder_sent_at", "TEXT"),
         ("users", "no_video_survey_sent_at", "TEXT"),
+        ("users", "no_onboarding_survey_sent_at", "TEXT"),
     )
     for table, column, typedef in migrations:
         tables = {
@@ -800,6 +801,49 @@ def mark_no_video_survey_sent(user_id: int) -> None:
         _init_db(conn)
         conn.execute(
             "UPDATE users SET no_video_survey_sent_at = ? WHERE user_id = ?",
+            (now, user_id),
+        )
+        conn.commit()
+
+
+def get_users_for_no_onboarding_survey(hours: int = 24) -> list[dict]:
+    """/start и onboarding_started ≥N часов назад, онбординг не завершён."""
+    with _connect() as conn:
+        _init_db(conn)
+        rows = conn.execute(
+            """
+            SELECT u.user_id, u.language_code
+            FROM users u
+            WHERE u.no_onboarding_survey_sent_at IS NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM player_profiles pp
+                  WHERE pp.user_id = u.user_id
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM events e
+                  WHERE e.user_id = u.user_id
+                    AND e.event_type IN (
+                        'onboarding_completed', 'onboarding_skipped'
+                    )
+              )
+              AND (
+                  SELECT MAX(datetime(e.created_at))
+                  FROM events e
+                  WHERE e.user_id = u.user_id
+                    AND e.event_type = 'onboarding_started'
+              ) <= datetime('now', ?)
+            """,
+            (f"-{hours} hours",),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def mark_no_onboarding_survey_sent(user_id: int) -> None:
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            "UPDATE users SET no_onboarding_survey_sent_at = ? WHERE user_id = ?",
             (now, user_id),
         )
         conn.commit()

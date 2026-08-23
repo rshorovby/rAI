@@ -201,33 +201,38 @@ def format_reminder(
 def format_survey_sent(
     user_id: int,
     *,
+    survey_type: str = "no_video",
     source: str = "auto",
     first_name: str = "",
     username: str = "",
 ) -> str:
     label = player_label(user_id, first_name, username)
-    kind = "вручную (тренер)" if source == "manual" else "авто (24ч без видео)"
-    return (
-        f"📋 Опрос «почему нет видео» отправлен ({kind})\n"
-        f"{label}\nid: {user_id}"
-    )
+    if survey_type == "no_onboarding":
+        title = "почему не прошёл онбординг"
+        kind = "вручную (тренер)" if source == "manual" else "авто (24ч после /start)"
+    else:
+        title = "почему нет видео"
+        kind = "вручную (тренер)" if source == "manual" else "авто (24ч без видео)"
+    return f"📋 Опрос «{title}» отправлен ({kind})\n" f"{label}\nid: {user_id}"
 
 
 def format_survey_response(
     user_id: int,
     summary: str,
     *,
+    survey_type: str = "no_video",
     source: str = "auto",
     first_name: str = "",
     username: str = "",
 ) -> str:
     label = player_label(user_id, first_name, username)
+    if survey_type == "no_onboarding":
+        title = "почему не прошёл онбординг"
+    else:
+        title = "почему нет видео"
     kind = "вручную" if source == "manual" else "авто"
     body = (summary or "").strip() or "—"
-    return (
-        f"📋 Ответ на опрос «почему нет видео» ({kind})\n"
-        f"{label}\nid: {user_id}\n\n{body}"
-    )
+    return f"📋 Ответ на опрос «{title}» ({kind})\n" f"{label}\nid: {user_id}\n\n{body}"
 
 
 def format_video_uploaded(
