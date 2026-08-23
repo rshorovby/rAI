@@ -1760,7 +1760,8 @@ async def _post_review_job_to_forum(
             f"Упражнение: {job.get('drill_text') or '—'}\n"
             f"Статус: AI уже у игрока\n\n"
             f"💬 Пишите в тему свободно — каждое сообщение уйдёт игроку "
-            f"как комментарий тренера."
+            f"как комментарий тренера.\n"
+            f"⭐ Оцените AI-разбор кнопками под черновиком."
         )
     try:
         await context.bot.send_message(
@@ -1801,6 +1802,15 @@ async def _post_review_job_to_forum(
                     message_thread_id=thread_id,
                     text=chunk,
                 )
+        try:
+            await context.bot.send_message(
+                chat_id=forum_chat_id,
+                message_thread_id=thread_id,
+                text=review.coach_eval_prompt(job_id),
+                reply_markup=review.coach_eval_keyboard(job_id),
+            )
+        except Exception:
+            logger.exception("coach eval prompt failed job_id=%s", job_id)
         logger.info("Review job_id=%s posted to forum thread_id=%s", job_id, thread_id)
     except Exception:
         logger.exception(
@@ -2758,6 +2768,81 @@ async def handle_review_callback(
         )
 
 
+async def handle_coach_eval_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    query = update.callback_query
+    if not query or not query.data:
+        return
+    settings: Settings = context.application.bot_data.get("settings")
+    if not settings or not settings.is_coach(query.from_user.id):
+        await query.answer("Оценивать разбор может только тренер.", show_alert=True)
+        return
+
+    parts = query.data.split(":")
+    if len(parts) != 4 or parts[0] != "ce":
+        await query.answer()
+        return
+    _, kind, job_id_raw, payload = parts
+    try:
+        job_id = int(job_id_raw)
+    except ValueError:
+        await query.answer("Некорректная заявка.", show_alert=True)
+        return
+
+    job = await asyncio.to_thread(storage.get_review_job, job_id)
+    if not job:
+        await query.answer("Разбор не найден.", show_alert=True)
+        return
+
+    player_id = int(job["user_id"])
+    coach_user_id = query.from_user.id
+
+    if kind == "r":
+        if payload not in review.VALID_RATINGS:
+            await query.answer("Неизвестная оценка.", show_alert=True)
+            return
+        eval_row = await asyncio.to_thread(
+            storage.upsert_coach_evaluation,
+            job_id,
+            player_id=player_id,
+            coach_user_id=coach_user_id,
+            rating=payload,
+        )
+        await query.answer("Оценка сохранена.")
+    elif kind == "t":
+        if payload not in review.VALID_TAGS:
+            await query.answer("Неизвестный тег.", show_alert=True)
+            return
+        current = await asyncio.to_thread(storage.get_coach_evaluation, job_id)
+        tags = list((current or {}).get("tags") or [])
+        if payload in tags:
+            tags.remove(payload)
+        else:
+            tags.append(payload)
+        eval_row = await asyncio.to_thread(
+            storage.upsert_coach_evaluation,
+            job_id,
+            player_id=player_id,
+            coach_user_id=coach_user_id,
+            tags=tags,
+        )
+        await query.answer("Тег обновлён.")
+    else:
+        await query.answer()
+        return
+
+    rating = eval_row.get("rating") or ""
+    tags = eval_row.get("tags") or []
+    try:
+        await query.edit_message_text(
+            text=review.coach_eval_prompt(job_id, rating=rating, tags=tags),
+            reply_markup=review.coach_eval_keyboard(job_id, rating=rating, tags=tags),
+        )
+    except BadRequest:
+        pass
+
+
 def _coach_forum_has_content(message) -> bool:
     """Есть ли в сообщении контент, который можно доставить игроку."""
     return bool(
@@ -2873,7 +2958,37 @@ async def _handle_coach_forum_message(
         return True
 
     await message.reply_text("✅ Отправлено игроку.")
+    try:
+        await asyncio.to_thread(
+            _store_coach_forum_delta,
+            message,
+            player_id,
+            message.from_user.id,
+        )
+    except Exception:
+        logger.exception("Не удалось сохранить эталон правки user_id=%s", player_id)
     return True
+
+
+def _store_coach_forum_delta(message, player_id: int, coach_user_id: int) -> None:
+    thread_id = message.message_thread_id
+    if not thread_id:
+        return
+    job = storage.get_latest_review_job_for_thread(int(message.chat_id), int(thread_id))
+    if not job:
+        return
+    if message.text:
+        text = message.text.strip()
+    else:
+        text = (message.caption or "").strip() or "[медиа]"
+    if not text:
+        return
+    storage.append_coach_eval_delta(
+        int(job["id"]),
+        text,
+        player_id=int(player_id),
+        coach_user_id=int(coach_user_id),
+    )
 
 
 async def _handle_player_coach_message(
@@ -3256,6 +3371,7 @@ def build_application(settings: Settings) -> Application:
     app.add_handler(CallbackQueryHandler(handle_feedback, pattern=r"^fb:"))
     app.add_handler(CallbackQueryHandler(handle_practice, pattern=r"^p:"))
     app.add_handler(CallbackQueryHandler(handle_review_callback, pattern=r"^rv"))
+    app.add_handler(CallbackQueryHandler(handle_coach_eval_callback, pattern=r"^ce:"))
     app.add_handler(CallbackQueryHandler(handle_survey, pattern=r"^sv:"))
     app.add_handler(CallbackQueryHandler(handle_dialog, pattern=r"^d:"))
     app.add_handler(CallbackQueryHandler(handle_quick_question, pattern=r"^q:"))

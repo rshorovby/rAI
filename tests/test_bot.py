@@ -79,8 +79,16 @@ def test_coach_forum_text_goes_to_player():
                 return_value={"user_id": 99},
             ),
             patch("bot.storage.get_user_language_code", return_value="ru"),
+            patch(
+                "bot.storage.get_latest_review_job_for_thread",
+                return_value={"id": 7},
+            ),
+            patch("bot.storage.append_coach_eval_delta") as append_delta,
         ):
             assert await _handle_coach_forum_message(update, context) is True
+            append_delta.assert_called_once()
+            assert append_delta.call_args.args[0] == 7
+            assert "кисть" in append_delta.call_args.args[1]
 
     asyncio.run(_run())
     assert context.bot.send_message.await_count == 1
@@ -102,6 +110,11 @@ def test_coach_forum_photo_copied_to_player():
                 return_value={"user_id": 99},
             ),
             patch("bot.storage.get_user_language_code", return_value="ru"),
+            patch(
+                "bot.storage.get_latest_review_job_for_thread",
+                return_value={"id": 7},
+            ),
+            patch("bot.storage.append_coach_eval_delta"),
         ):
             assert await _handle_coach_forum_message(update, context) is True
 
@@ -127,6 +140,11 @@ def test_handle_video_in_coach_forum_does_not_start_analysis():
                 return_value={"user_id": 99},
             ),
             patch("bot.storage.get_user_language_code", return_value="en"),
+            patch(
+                "bot.storage.get_latest_review_job_for_thread",
+                return_value={"id": 7},
+            ),
+            patch("bot.storage.append_coach_eval_delta"),
             patch("bot._touch_user", new=AsyncMock()) as touch,
         ):
             await handle_video(update, context)
@@ -150,6 +168,11 @@ def test_handle_unsupported_in_coach_forum_forwards_voice():
                 return_value={"user_id": 99},
             ),
             patch("bot.storage.get_user_language_code", return_value="ru"),
+            patch(
+                "bot.storage.get_latest_review_job_for_thread",
+                return_value={"id": 7},
+            ),
+            patch("bot.storage.append_coach_eval_delta"),
         ):
             await handle_unsupported(update, context)
 
@@ -241,3 +264,29 @@ def test_quota_blocks_when_exhausted(tmp_path):
         assert update.message.reply_text.await_count == 1
         text = update.message.reply_text.await_args.args[0]
         assert "лимит" in text.lower()
+
+
+def test_coach_eval_callback_saves_rating(tmp_path):
+    from bot import handle_coach_eval_callback
+
+    with patch.object(storage, "DB_PATH", tmp_path / "t.db"):
+        job_id = storage.create_review_job(99, video_file_id="v", draft_text="draft")
+        settings = _coach_forum_settings()
+        query = MagicMock()
+        query.data = f"ce:r:{job_id}:ok"
+        query.from_user.id = 42
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        update = MagicMock()
+        update.callback_query = query
+        context = _make_coach_context(settings)
+
+        async def _run():
+            await handle_coach_eval_callback(update, context)
+
+        asyncio.run(_run())
+        query.answer.assert_awaited()
+        saved = storage.get_coach_evaluation(job_id)
+        assert saved is not None
+        assert saved["rating"] == "ok"
+        query.edit_message_text.assert_awaited()

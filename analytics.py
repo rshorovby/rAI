@@ -80,6 +80,7 @@ def format_analytics_report(data: dict) -> str:
     invoices = data["events"].get(EVENT_INVOICE_SENT, 0)
     payments = data["events"].get(EVENT_PAYMENT_SUCCESS, 0)
     expired = data["events"].get(EVENT_SUBSCRIPTION_EXPIRED, 0)
+    evals = data.get("coach_evals") or {}
 
     lines = [
         "📊 RallyAI — статистика",
@@ -110,6 +111,13 @@ def format_analytics_report(data: dict) -> str:
         f"• 👍 Полезно: {fb_pos} ({_pct(fb_pos, fb_total)})",
         f"• 👎 Не помогло: {fb_neg} ({_pct(fb_neg, fb_total)})",
         f"• ✅ Понятно что делать: {fb_clear} ({_pct(fb_clear, fb_total)})",
+        "",
+        "Оценка тренера (AI)",
+        f"• Всего оценок: {evals.get('total', 0)}",
+        f"• ✅ Ок: {evals.get('ok', 0)}",
+        f"• ✏️ Дополнил: {evals.get('added', 0)}",
+        f"• ❌ Мимо: {evals.get('miss', 0)}",
+        f"• С допиской: {evals.get('with_delta', 0)}",
         "",
         "Напоминания",
         f"• Отправлено: {reminders}",

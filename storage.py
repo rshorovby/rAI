@@ -206,6 +206,19 @@ def _init_db(conn: sqlite3.Connection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_survey_user
             ON survey_responses (user_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS coach_evaluations (
+            job_id         INTEGER PRIMARY KEY,
+            player_id      INTEGER NOT NULL,
+            coach_user_id  INTEGER NOT NULL,
+            rating         TEXT    NOT NULL DEFAULT '',
+            tags_json      TEXT    NOT NULL DEFAULT '[]',
+            delta_text     TEXT    NOT NULL DEFAULT '',
+            created_at     TEXT    NOT NULL,
+            updated_at     TEXT    NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_coach_eval_rating
+            ON coach_evaluations (rating, updated_at DESC);
     """
     )
     _migrate_schema(conn)
@@ -642,6 +655,7 @@ def get_analytics_summary(recent_limit: int = 10) -> dict:
         "recent_users": recent_users,
         "usage": get_usage_summary(30),
         "retention": get_retention_cohorts(8),
+        "coach_evals": get_coach_eval_stats(),
     }
 
 
@@ -1708,3 +1722,156 @@ def mark_review_sent(
         pending_coach_action=None,
         sent_at=sent_at,
     )
+
+
+_MAX_COACH_DELTA_CHARS = 8000
+
+
+def _parse_eval_tags(raw: str) -> list:
+    try:
+        data = json.loads(raw or "[]")
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(data, list):
+        return []
+    return [str(item) for item in data if item]
+
+
+def _eval_from_row(row) -> dict:
+    item = dict(row)
+    item["tags"] = _parse_eval_tags(item.get("tags_json") or "[]")
+    return item
+
+
+def get_latest_review_job_for_thread(
+    forum_chat_id: int, message_thread_id: int
+) -> Optional[dict]:
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            """
+            SELECT * FROM review_jobs
+            WHERE forum_chat_id = ?
+              AND message_thread_id = ?
+              AND status != 'cancelled'
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (forum_chat_id, message_thread_id),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def get_coach_evaluation(job_id: int) -> Optional[dict]:
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            "SELECT * FROM coach_evaluations WHERE job_id = ?",
+            (job_id,),
+        ).fetchone()
+    return _eval_from_row(row) if row else None
+
+
+def upsert_coach_evaluation(
+    job_id: int,
+    *,
+    player_id: int,
+    coach_user_id: int,
+    rating: Optional[str] = None,
+    tags: Optional[list] = None,
+    delta_text: Optional[str] = None,
+) -> dict:
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    existing = get_coach_evaluation(job_id)
+    next_rating = (
+        rating if rating is not None else (existing["rating"] if existing else "")
+    )
+    next_tags = tags if tags is not None else (existing["tags"] if existing else [])
+    next_delta = (
+        delta_text
+        if delta_text is not None
+        else (existing["delta_text"] if existing else "")
+    )
+    tags_json = json.dumps(next_tags, ensure_ascii=False)
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            """
+            INSERT INTO coach_evaluations (
+                job_id, player_id, coach_user_id, rating, tags_json,
+                delta_text, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(job_id) DO UPDATE SET
+                player_id = excluded.player_id,
+                coach_user_id = excluded.coach_user_id,
+                rating = excluded.rating,
+                tags_json = excluded.tags_json,
+                delta_text = excluded.delta_text,
+                updated_at = excluded.updated_at
+            """,
+            (
+                job_id,
+                player_id,
+                coach_user_id,
+                next_rating or "",
+                tags_json,
+                next_delta or "",
+                existing["created_at"] if existing else now,
+                now,
+            ),
+        )
+        conn.commit()
+    saved = get_coach_evaluation(job_id)
+    assert saved is not None
+    return saved
+
+
+def append_coach_eval_delta(
+    job_id: int,
+    text: str,
+    *,
+    player_id: int,
+    coach_user_id: int,
+) -> Optional[dict]:
+    chunk = (text or "").strip()
+    if not chunk:
+        return get_coach_evaluation(job_id)
+    existing = get_coach_evaluation(job_id)
+    previous = (existing["delta_text"] if existing else "") or ""
+    merged = f"{previous}\n\n{chunk}".strip() if previous else chunk
+    if len(merged) > _MAX_COACH_DELTA_CHARS:
+        merged = merged[-_MAX_COACH_DELTA_CHARS:]
+    return upsert_coach_evaluation(
+        job_id,
+        player_id=player_id,
+        coach_user_id=coach_user_id,
+        delta_text=merged,
+    )
+
+
+def get_coach_eval_stats() -> dict:
+    with _connect() as conn:
+        _init_db(conn)
+        rows = conn.execute(
+            """
+            SELECT rating, COUNT(*) AS n
+            FROM coach_evaluations
+            WHERE rating != ''
+            GROUP BY rating
+            """
+        ).fetchall()
+        rated = {row["rating"]: int(row["n"]) for row in rows}
+        with_delta = conn.execute(
+            """
+            SELECT COUNT(*) FROM coach_evaluations
+            WHERE TRIM(delta_text) != ''
+            """
+        ).fetchone()[0]
+        total = conn.execute("SELECT COUNT(*) FROM coach_evaluations").fetchone()[0]
+    return {
+        "total": int(total),
+        "ok": int(rated.get("ok", 0)),
+        "added": int(rated.get("added", 0)),
+        "miss": int(rated.get("miss", 0)),
+        "with_delta": int(with_delta),
+    }

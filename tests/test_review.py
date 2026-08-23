@@ -100,3 +100,61 @@ def test_player_forum_thread_lookup(tmp_path):
         assert row is not None
         assert row["user_id"] == 99
         assert storage.get_player_by_forum_thread(-1001, 1) is None
+
+
+def test_coach_eval_keyboard_has_three_ratings():
+    markup = review.coach_eval_keyboard(12)
+    buttons = [btn for row in markup.inline_keyboard for btn in row]
+    assert {btn.callback_data for btn in buttons} == {
+        "ce:r:12:ok",
+        "ce:r:12:added",
+        "ce:r:12:miss",
+    }
+
+
+def test_coach_eval_tags_only_after_added_or_miss():
+    ok_kb = review.coach_eval_keyboard(1, rating=review.RATING_OK)
+    assert len(ok_kb.inline_keyboard) == 1
+    added_kb = review.coach_eval_keyboard(1, rating=review.RATING_ADDED)
+    tag_data = {
+        btn.callback_data for row in added_kb.inline_keyboard[1:] for btn in row
+    }
+    assert "ce:t:1:priority" in tag_data
+    assert "ce:t:1:hallucination" in tag_data
+
+
+def test_coach_evaluation_triple(tmp_path):
+    with _tmp_db(tmp_path):
+        job_id = storage.create_review_job(
+            5,
+            video_file_id="vid",
+            draft_text="AI сказал: поздний замах",
+        )
+        storage.update_review_job(job_id, forum_chat_id=-100, message_thread_id=9)
+        storage.mark_review_sent(
+            job_id, status=review.STATUS_AI_SENT, final_text="AI сказал: поздний замах"
+        )
+        latest = storage.get_latest_review_job_for_thread(-100, 9)
+        assert latest["id"] == job_id
+        storage.upsert_coach_evaluation(
+            job_id,
+            player_id=5,
+            coach_user_id=42,
+            rating=review.RATING_ADDED,
+            tags=[review.TAG_PRIORITY],
+        )
+        storage.append_coach_eval_delta(
+            job_id,
+            "Главное — встретить мяч впереди, а не замах",
+            player_id=5,
+            coach_user_id=42,
+        )
+        row = storage.get_coach_evaluation(job_id)
+        job = storage.get_review_job(job_id)
+        assert job["draft_text"] == "AI сказал: поздний замах"
+        assert row["rating"] == "added"
+        assert "priority" in row["tags"]
+        assert "встретить мяч" in row["delta_text"]
+        stats = storage.get_coach_eval_stats()
+        assert stats["added"] == 1
+        assert stats["with_delta"] == 1
