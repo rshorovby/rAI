@@ -136,7 +136,9 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "Снимите 10–30 секунд игры (лучше сбоку или сзади) и отправьте сюда.\n\n"
             "Сначала AI за минуту разберёт удары, ноги и главные ошибки. "
             "Затем опытный тренер может дополнить разбор своим комментарием.\n\n"
-            "После разбора можно задавать вопросы — бот помнит контекст.\n\n"
+            "Анализирует ваши видео, запоминает стиль игры, цели, историю общения "
+            "и профиль игрока — и предлагает персонализированные тренировки, "
+            "которые со временем становятся всё эффективнее.\n\n"
             "👇 Нажмите «Старт», чтобы начать"
         ),
         "help": (
@@ -633,7 +635,9 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "it here.\n\n"
             "First, AI breaks down strokes, footwork, and key mistakes in about a minute. "
             "Then an experienced coach may add their own comment.\n\n"
-            "After the review, ask follow-up questions — the bot remembers the context.\n\n"
+            "It analyzes your videos and remembers your playing style, goals, chat history, "
+            "and player profile — then suggests personalized drills that get more effective "
+            "over time.\n\n"
             "👇 Tap Start to begin"
         ),
         "help": (
