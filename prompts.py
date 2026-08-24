@@ -150,24 +150,34 @@ def build_player_context(profile: Optional[dict], language_code: str = "en") -> 
     if base == "ru":
         header = "ПРОФИЛЬ ИГРОКА (со слов игрока):"
         level_l = "Уровень"
-        focus_l = "Фокус улучшения"
-        hand_l = "Доминирующая рука"
+        hand_l = "Ведущая рука"
+        frequency_l = "Частота игры"
+        experience_l = "Стаж"
+        coaching_l = "Занятия с тренером"
+        focus_l = "Главная цель"
         injuries_l = "Травмы/ограничения"
         none_l = "нет"
         rules = [
             "Используй профиль для приоритизации разбора и рекомендаций.",
+            "Учитывай частоту игры и стаж: подстраивай глубину критики и объём домашних заданий.",
+            "Учитывай формат занятий с тренером в тоне и характере рекомендаций.",
             "Если видео противоречит профилю — доверяй видео, но отметь расхождение.",
             "Учитывай травмы: не рекомендуй упражнения, которые могут усугубить дискомфорт.",
         ]
     else:
         header = "PLAYER PROFILE (self-reported):"
         level_l = "Level"
-        focus_l = "Improvement focus"
         hand_l = "Dominant hand"
+        frequency_l = "Play frequency"
+        experience_l = "Experience"
+        coaching_l = "Coaching"
+        focus_l = "Primary goal"
         injuries_l = "Injuries/limitations"
         none_l = "none"
         rules = [
             "Use the profile to prioritize the analysis and recommendations.",
+            "Factor in play frequency and experience when setting critique depth and homework volume.",
+            "Adjust recommendation tone to the player's coaching setup.",
             "If the video contradicts the profile — trust the video, but note the mismatch.",
             "Respect injuries: do not recommend drills that may worsen discomfort.",
         ]
@@ -182,8 +192,11 @@ def build_player_context(profile: Optional[dict], language_code: str = "en") -> 
         header,
         "",
         f"• {level_l}: {profile_value_label(ui_lang, 'level', profile.get('level'))}",
-        f"• {focus_l}: {profile_value_label(ui_lang, 'focus', profile.get('focus'))}",
         f"• {hand_l}: {profile_value_label(ui_lang, 'hand', profile.get('hand'))}",
+        f"• {frequency_l}: {profile_value_label(ui_lang, 'frequency', profile.get('frequency'))}",
+        f"• {experience_l}: {profile_value_label(ui_lang, 'experience', profile.get('experience'))}",
+        f"• {coaching_l}: {profile_value_label(ui_lang, 'coaching', profile.get('coaching'))}",
+        f"• {focus_l}: {profile_value_label(ui_lang, 'focus', profile.get('focus'))}",
         f"• {injuries_l}: {injuries}",
         "",
     ]

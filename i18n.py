@@ -525,14 +525,17 @@ _MESSAGES: dict[str, dict[str, str]] = {
         ),
         "cmd_profile": "Мой профиль",
         "ob_intro": (
-            "👋 *Давайте познакомимся — это займёт 30 секунд*\n\n"
+            "👋 *Давайте познакомимся — около минуты*\n\n"
             "Ответы помогут AI и тренеру точнее разобрать вашу технику: "
-            "подстроят глубину критики, приоритеты и упражнения под ваш уровень.\n\n"
-            "Вопрос 1 из 4:"
+            "подстроят глубину критики, приоритеты и упражнения под вас."
         ),
+        "ob_progress": "Вопрос {n} из {total}:",
         "ob_question_level": "Какой у вас уровень игры?",
-        "ob_question_focus": "Что хотите улучшить в первую очередь?",
-        "ob_question_hand": "Какая у вас доминирующая рука?",
+        "ob_question_hand": "Какая у вас ведущая рука?",
+        "ob_question_frequency": "Как часто вы играете в теннис?",
+        "ob_question_experience": "Сколько лет вы в теннисе?",
+        "ob_question_coaching": "Занимаетесь ли с тренером?",
+        "ob_question_focus": "Что для вас сейчас главное?",
         "ob_question_injuries": (
             "Есть травмы или дискомфорт при игре?\n"
             "Опишите текстом или нажмите «Нет»."
@@ -580,34 +583,68 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "profile_view": (
             "👤 *Ваш профиль*\n\n"
             "• Уровень: {level}\n"
-            "• Фокус: {focus}\n"
-            "• Рука: {hand}\n"
+            "• Ведущая рука: {hand}\n"
+            "• Частота игры: {frequency}\n"
+            "• Стаж: {experience}\n"
+            "• Тренер: {coaching}\n"
+            "• Главная цель: {focus}\n"
             "• Травмы/ограничения: {injuries}\n"
             "• Обновлён: {updated_at}\n\n"
             "«Изменить профиль» — обновить данные.\n"
             "«Начать с нуля» — удалить профиль и историю и пройти настройку заново."
         ),
-        "profile_edit_prompt": "Давайте обновим профиль. Вопрос 1 из 4:",
+        "profile_edit_prompt": "Давайте обновим профиль.",
         "ob_opt_level_beginner": "🌱 Начинающий",
         "ob_opt_level_recreational": "🎾 Любитель",
         "ob_opt_level_advanced": "💪 Продвинутый",
-        "ob_opt_level_competitive": "🏆 Играю турниры",
-        "ob_opt_focus_strokes": "Удары",
-        "ob_opt_focus_serve": "Подача",
-        "ob_opt_focus_footwork": "Ноги и передвижение",
-        "ob_opt_focus_all": "Всё понемногу",
+        "ob_opt_level_competitive": "🏆 Pro",
         "ob_opt_hand_right": "Правая",
         "ob_opt_hand_left": "Левая",
+        "ob_opt_frequency_1": "1 раз в неделю",
+        "ob_opt_frequency_2": "2 раза в неделю",
+        "ob_opt_frequency_3_4": "3–4 раза в неделю",
+        "ob_opt_frequency_5_plus": "5+ раз в неделю",
+        "ob_opt_experience_under_1": "Меньше года",
+        "ob_opt_experience_y1_3": "1–3 года",
+        "ob_opt_experience_y3_7": "3–7 лет",
+        "ob_opt_experience_y7_15": "7–15 лет",
+        "ob_opt_experience_y15_plus": "15+ лет",
+        "ob_opt_coaching_individual": "Индивидуально",
+        "ob_opt_coaching_group": "В группе",
+        "ob_opt_coaching_both": "И то и другое",
+        "ob_opt_coaching_none": "Не занимаюсь",
+        "ob_opt_focus_stability": "Стабильность",
+        "ob_opt_focus_power": "Сила",
+        "ob_opt_focus_technique": "Техника",
+        "ob_opt_focus_footwork": "Ноги и перемещение",
+        "ob_opt_focus_serve": "Подача",
+        "ob_opt_focus_all": "Всё понемногу",
         "ob_val_level_beginner": "Начинающий",
         "ob_val_level_recreational": "Любитель",
         "ob_val_level_advanced": "Продвинутый",
-        "ob_val_level_competitive": "Соревнующийся",
-        "ob_val_focus_strokes": "Удары",
-        "ob_val_focus_serve": "Подача",
-        "ob_val_focus_footwork": "Ноги и передвижение",
-        "ob_val_focus_all": "Всё понемногу",
+        "ob_val_level_competitive": "Pro",
         "ob_val_hand_right": "Правая",
         "ob_val_hand_left": "Левая",
+        "ob_val_frequency_1": "1 раз в неделю",
+        "ob_val_frequency_2": "2 раза в неделю",
+        "ob_val_frequency_3_4": "3–4 раза в неделю",
+        "ob_val_frequency_5_plus": "5+ раз в неделю",
+        "ob_val_experience_under_1": "Меньше года",
+        "ob_val_experience_y1_3": "1–3 года",
+        "ob_val_experience_y3_7": "3–7 лет",
+        "ob_val_experience_y7_15": "7–15 лет",
+        "ob_val_experience_y15_plus": "15+ лет",
+        "ob_val_coaching_individual": "Индивидуально",
+        "ob_val_coaching_group": "В группе",
+        "ob_val_coaching_both": "И то и другое",
+        "ob_val_coaching_none": "Не занимаюсь",
+        "ob_val_focus_strokes": "Удары",
+        "ob_val_focus_stability": "Стабильность",
+        "ob_val_focus_power": "Сила",
+        "ob_val_focus_technique": "Техника",
+        "ob_val_focus_footwork": "Ноги и перемещение",
+        "ob_val_focus_serve": "Подача",
+        "ob_val_focus_all": "Всё понемногу",
     },
     "en": {
         "welcome": (
@@ -1017,14 +1054,17 @@ _MESSAGES: dict[str, dict[str, str]] = {
         ),
         "cmd_profile": "My profile",
         "ob_intro": (
-            "👋 *Let's get acquainted — takes 30 seconds*\n\n"
+            "👋 *Let's get acquainted — about a minute*\n\n"
             "Your answers help the AI and coach review your technique more accurately: "
-            "depth of critique, priorities, and drills tailored to your level.\n\n"
-            "Question 1 of 4:"
+            "depth of critique, priorities, and drills tailored to you."
         ),
+        "ob_progress": "Question {n} of {total}:",
         "ob_question_level": "What's your skill level?",
-        "ob_question_focus": "What do you want to improve first?",
         "ob_question_hand": "What's your dominant hand?",
+        "ob_question_frequency": "How often do you play tennis?",
+        "ob_question_experience": "How many years have you played tennis?",
+        "ob_question_coaching": "Do you train with a coach?",
+        "ob_question_focus": "What's your primary goal right now?",
         "ob_question_injuries": (
             "Any injuries or discomfort while playing?\n" "Describe in text or tap No."
         ),
@@ -1069,34 +1109,68 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "profile_view": (
             "👤 *Your profile*\n\n"
             "• Level: {level}\n"
-            "• Focus: {focus}\n"
-            "• Hand: {hand}\n"
+            "• Dominant hand: {hand}\n"
+            "• Play frequency: {frequency}\n"
+            "• Experience: {experience}\n"
+            "• Coaching: {coaching}\n"
+            "• Primary goal: {focus}\n"
             "• Injuries/limitations: {injuries}\n"
             "• Updated: {updated_at}\n\n"
             "Edit profile — update your details.\n"
             "Start over — delete profile and history and set up again."
         ),
-        "profile_edit_prompt": "Let's update your profile. Question 1 of 4:",
+        "profile_edit_prompt": "Let's update your profile.",
         "ob_opt_level_beginner": "🌱 Beginner",
         "ob_opt_level_recreational": "🎾 Recreational",
         "ob_opt_level_advanced": "💪 Advanced",
-        "ob_opt_level_competitive": "🏆 Competitive",
-        "ob_opt_focus_strokes": "Strokes",
-        "ob_opt_focus_serve": "Serve",
-        "ob_opt_focus_footwork": "Footwork",
-        "ob_opt_focus_all": "A bit of everything",
+        "ob_opt_level_competitive": "🏆 Pro",
         "ob_opt_hand_right": "Right",
         "ob_opt_hand_left": "Left",
+        "ob_opt_frequency_1": "Once a week",
+        "ob_opt_frequency_2": "Twice a week",
+        "ob_opt_frequency_3_4": "3–4 times a week",
+        "ob_opt_frequency_5_plus": "5+ times a week",
+        "ob_opt_experience_under_1": "Less than a year",
+        "ob_opt_experience_y1_3": "1–3 years",
+        "ob_opt_experience_y3_7": "3–7 years",
+        "ob_opt_experience_y7_15": "7–15 years",
+        "ob_opt_experience_y15_plus": "15+ years",
+        "ob_opt_coaching_individual": "Individual",
+        "ob_opt_coaching_group": "Group",
+        "ob_opt_coaching_both": "Both",
+        "ob_opt_coaching_none": "No coaching",
+        "ob_opt_focus_stability": "Consistency",
+        "ob_opt_focus_power": "Power",
+        "ob_opt_focus_technique": "Technique",
+        "ob_opt_focus_footwork": "Footwork & movement",
+        "ob_opt_focus_serve": "Serve",
+        "ob_opt_focus_all": "A bit of everything",
         "ob_val_level_beginner": "Beginner",
         "ob_val_level_recreational": "Recreational",
         "ob_val_level_advanced": "Advanced",
-        "ob_val_level_competitive": "Competitive",
-        "ob_val_focus_strokes": "Strokes",
-        "ob_val_focus_serve": "Serve",
-        "ob_val_focus_footwork": "Footwork",
-        "ob_val_focus_all": "A bit of everything",
+        "ob_val_level_competitive": "Pro",
         "ob_val_hand_right": "Right",
         "ob_val_hand_left": "Left",
+        "ob_val_frequency_1": "Once a week",
+        "ob_val_frequency_2": "Twice a week",
+        "ob_val_frequency_3_4": "3–4 times a week",
+        "ob_val_frequency_5_plus": "5+ times a week",
+        "ob_val_experience_under_1": "Less than a year",
+        "ob_val_experience_y1_3": "1–3 years",
+        "ob_val_experience_y3_7": "3–7 years",
+        "ob_val_experience_y7_15": "7–15 years",
+        "ob_val_experience_y15_plus": "15+ years",
+        "ob_val_coaching_individual": "Individual",
+        "ob_val_coaching_group": "Group",
+        "ob_val_coaching_both": "Both",
+        "ob_val_coaching_none": "No coaching",
+        "ob_val_focus_strokes": "Strokes",
+        "ob_val_focus_stability": "Consistency",
+        "ob_val_focus_power": "Power",
+        "ob_val_focus_technique": "Technique",
+        "ob_val_focus_footwork": "Footwork & movement",
+        "ob_val_focus_serve": "Serve",
+        "ob_val_focus_all": "A bit of everything",
     },
 }
 

@@ -111,6 +111,7 @@ from onboarding import (
     profile_reset_confirm_keyboard,
     set_reset_pending,
     start_onboarding_state,
+    step_progress,
 )
 from pricing import cost_for_usage
 from report_parser import format_scores_line, parse_report, sparkline
@@ -436,6 +437,8 @@ async def _send_onboarding_question(
     parts = []
     if intro:
         parts.append(intro)
+    n, total = step_progress(step)
+    parts.append(t(lang, "ob_progress", n=n, total=total))
     parts.append(t(lang, f"ob_question_{step}"))
     await message.reply_text(
         "\n\n".join(parts),

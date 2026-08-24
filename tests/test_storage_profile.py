@@ -15,8 +15,11 @@ def test_save_and_get_profile(tmp_path):
             1,
             {
                 "level": "recreational",
-                "focus": "strokes",
                 "hand": "right",
+                "frequency": "2",
+                "experience": "y3_7",
+                "coaching": "both",
+                "focus": "stability",
                 "injuries": "",
                 "skipped": False,
             },
@@ -25,8 +28,11 @@ def test_save_and_get_profile(tmp_path):
 
     assert profile is not None
     assert profile["level"] == "recreational"
-    assert profile["focus"] == "strokes"
     assert profile["hand"] == "right"
+    assert profile["frequency"] == "2"
+    assert profile["experience"] == "y3_7"
+    assert profile["coaching"] == "both"
+    assert profile["focus"] == "stability"
     assert profile["skipped"] is False
 
 
@@ -46,8 +52,11 @@ def test_is_profile_complete(tmp_path):
             4,
             {
                 "level": "advanced",
-                "focus": "serve",
                 "hand": "left",
+                "frequency": "5_plus",
+                "experience": "y15_plus",
+                "coaching": "none",
+                "focus": "serve",
                 "injuries": "elbow",
                 "skipped": False,
             },
@@ -69,8 +78,11 @@ def test_reset_player_data(tmp_path):
             1,
             {
                 "level": "recreational",
-                "focus": "strokes",
                 "hand": "right",
+                "frequency": "1",
+                "experience": "under_1",
+                "coaching": "group",
+                "focus": "power",
                 "injuries": "",
                 "skipped": False,
             },
@@ -95,8 +107,11 @@ def test_format_profile_complete(tmp_path):
             2,
             {
                 "level": "beginner",
-                "focus": "footwork",
                 "hand": "right",
+                "frequency": "3_4",
+                "experience": "y1_3",
+                "coaching": "individual",
+                "focus": "footwork",
                 "injuries": "",
                 "skipped": False,
             },
@@ -104,3 +119,5 @@ def test_format_profile_complete(tmp_path):
         text = storage.format_profile_for_user(2, "ru")
     assert "Начинающий" in text
     assert "Ноги" in text
+    assert "3–4 раза в неделю" in text
+    assert "Индивидуально" in text

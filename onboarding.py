@@ -10,16 +10,30 @@ ONBOARDING_KEY = "onboarding"
 ONBOARDING_ANSWERS_KEY = "onboarding_answers"
 PROFILE_RESET_PENDING_KEY = "profile_reset_pending"
 
-STEPS = ("level", "focus", "hand", "injuries")
+STEPS = (
+    "level",
+    "hand",
+    "frequency",
+    "experience",
+    "coaching",
+    "focus",
+    "injuries",
+)
 
 LEVEL_KEYS = ("beginner", "recreational", "advanced", "competitive")
-FOCUS_KEYS = ("strokes", "serve", "footwork", "all")
 HAND_KEYS = ("right", "left")
+FREQUENCY_KEYS = ("1", "2", "3_4", "5_plus")
+EXPERIENCE_KEYS = ("under_1", "y1_3", "y3_7", "y7_15", "y15_plus")
+COACHING_KEYS = ("individual", "group", "both", "none")
+FOCUS_KEYS = ("stability", "power", "technique", "footwork", "serve", "all")
 
 _STEP_OPTIONS = {
     "level": LEVEL_KEYS,
-    "focus": FOCUS_KEYS,
     "hand": HAND_KEYS,
+    "frequency": FREQUENCY_KEYS,
+    "experience": EXPERIENCE_KEYS,
+    "coaching": COACHING_KEYS,
+    "focus": FOCUS_KEYS,
 }
 
 
@@ -59,6 +73,10 @@ def advance_step(user_data: dict) -> Optional[str]:
     return next_step
 
 
+def step_progress(step: str) -> tuple[int, int]:
+    return STEPS.index(step) + 1, len(STEPS)
+
+
 def is_skip_text(lang: str, text: str) -> bool:
     return text == t(lang, "ob_skip")
 
@@ -89,37 +107,21 @@ def profile_value_label(lang: str, field: str, value: Optional[str]) -> str:
     return label if label != key else value
 
 
+def _rows_of_two(
+    lang: str, step: str, keys: tuple[str, ...]
+) -> list[list[KeyboardButton]]:
+    rows: list[list[KeyboardButton]] = []
+    for i in range(0, len(keys), 2):
+        chunk = keys[i : i + 2]
+        rows.append([KeyboardButton(option_label(lang, step, k)) for k in chunk])
+    return rows
+
+
 def _step_keyboard(lang: str, step: str) -> ReplyKeyboardMarkup:
     rows: list[list[KeyboardButton]] = []
-    if step == "level":
-        rows = [
-            [
-                KeyboardButton(option_label(lang, step, LEVEL_KEYS[0])),
-                KeyboardButton(option_label(lang, step, LEVEL_KEYS[1])),
-            ],
-            [
-                KeyboardButton(option_label(lang, step, LEVEL_KEYS[2])),
-                KeyboardButton(option_label(lang, step, LEVEL_KEYS[3])),
-            ],
-        ]
-    elif step == "focus":
-        rows = [
-            [
-                KeyboardButton(option_label(lang, step, FOCUS_KEYS[0])),
-                KeyboardButton(option_label(lang, step, FOCUS_KEYS[1])),
-            ],
-            [
-                KeyboardButton(option_label(lang, step, FOCUS_KEYS[2])),
-                KeyboardButton(option_label(lang, step, FOCUS_KEYS[3])),
-            ],
-        ]
-    elif step == "hand":
-        rows = [
-            [
-                KeyboardButton(option_label(lang, step, HAND_KEYS[0])),
-                KeyboardButton(option_label(lang, step, HAND_KEYS[1])),
-            ],
-        ]
+    keys = _STEP_OPTIONS.get(step)
+    if keys:
+        rows = _rows_of_two(lang, step, keys)
     elif step == "injuries":
         rows = [[KeyboardButton(t(lang, "ob_injuries_none"))]]
 
@@ -199,8 +201,11 @@ def is_reset_confirm_no(text: str) -> bool:
 def build_profile_dict(answers: dict[str, Any], *, skipped: bool = False) -> dict:
     return {
         "level": answers.get("level"),
-        "focus": answers.get("focus"),
         "hand": answers.get("hand"),
+        "frequency": answers.get("frequency"),
+        "experience": answers.get("experience"),
+        "coaching": answers.get("coaching"),
+        "focus": answers.get("focus"),
         "injuries": answers.get("injuries", ""),
         "skipped": skipped,
     }

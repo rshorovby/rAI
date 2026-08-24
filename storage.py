@@ -43,8 +43,11 @@ def _init_db(conn: sqlite3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS player_profiles (
             user_id     INTEGER PRIMARY KEY,
             level       TEXT,
-            focus       TEXT,
             hand        TEXT,
+            frequency   TEXT,
+            experience  TEXT,
+            coaching    TEXT,
+            focus       TEXT,
             injuries    TEXT    NOT NULL DEFAULT '',
             skipped     INTEGER NOT NULL DEFAULT 0,
             updated_at  TEXT    NOT NULL
@@ -238,6 +241,9 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         ("subscriptions", "reminder_sent_at", "TEXT"),
         ("users", "no_video_survey_sent_at", "TEXT"),
         ("users", "no_onboarding_survey_sent_at", "TEXT"),
+        ("player_profiles", "frequency", "TEXT"),
+        ("player_profiles", "experience", "TEXT"),
+        ("player_profiles", "coaching", "TEXT"),
     )
     for table, column, typedef in migrations:
         tables = {
@@ -421,7 +427,8 @@ def get_player_profile(user_id: int) -> Optional[dict]:
         _init_db(conn)
         row = conn.execute(
             """
-            SELECT level, focus, hand, injuries, skipped, updated_at
+            SELECT level, hand, frequency, experience, coaching, focus,
+                   injuries, skipped, updated_at
             FROM player_profiles
             WHERE user_id = ?
             """,
@@ -431,8 +438,11 @@ def get_player_profile(user_id: int) -> Optional[dict]:
         return None
     return {
         "level": row["level"],
-        "focus": row["focus"],
         "hand": row["hand"],
+        "frequency": row["frequency"],
+        "experience": row["experience"],
+        "coaching": row["coaching"],
+        "focus": row["focus"],
         "injuries": row["injuries"] or "",
         "skipped": bool(row["skipped"]),
         "updated_at": row["updated_at"],
@@ -446,12 +456,16 @@ def save_player_profile(user_id: int, profile: dict) -> None:
         conn.execute(
             """
             INSERT INTO player_profiles
-                (user_id, level, focus, hand, injuries, skipped, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                (user_id, level, hand, frequency, experience, coaching,
+                 focus, injuries, skipped, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id) DO UPDATE SET
                 level = excluded.level,
-                focus = excluded.focus,
                 hand = excluded.hand,
+                frequency = excluded.frequency,
+                experience = excluded.experience,
+                coaching = excluded.coaching,
+                focus = excluded.focus,
                 injuries = excluded.injuries,
                 skipped = excluded.skipped,
                 updated_at = excluded.updated_at
@@ -459,8 +473,11 @@ def save_player_profile(user_id: int, profile: dict) -> None:
             (
                 user_id,
                 profile.get("level"),
-                profile.get("focus"),
                 profile.get("hand"),
+                profile.get("frequency"),
+                profile.get("experience"),
+                profile.get("coaching"),
+                profile.get("focus"),
                 profile.get("injuries", ""),
                 1 if profile.get("skipped") else 0,
                 updated_at,
@@ -474,8 +491,11 @@ def mark_profile_skipped(user_id: int) -> None:
         user_id,
         {
             "level": None,
-            "focus": None,
             "hand": None,
+            "frequency": None,
+            "experience": None,
+            "coaching": None,
+            "focus": None,
             "injuries": "",
             "skipped": True,
         },
@@ -679,8 +699,13 @@ def format_profile_for_user(user_id: int, lang: str) -> str:
         ui_lang,
         "profile_view",
         level=profile_value_label(ui_lang, "level", profile.get("level")),
-        focus=profile_value_label(ui_lang, "focus", profile.get("focus")),
         hand=profile_value_label(ui_lang, "hand", profile.get("hand")),
+        frequency=profile_value_label(ui_lang, "frequency", profile.get("frequency")),
+        experience=profile_value_label(
+            ui_lang, "experience", profile.get("experience")
+        ),
+        coaching=profile_value_label(ui_lang, "coaching", profile.get("coaching")),
+        focus=profile_value_label(ui_lang, "focus", profile.get("focus")),
         injuries=injuries_text,
         updated_at=profile.get("updated_at", "—"),
     )
