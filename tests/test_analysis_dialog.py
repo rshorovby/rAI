@@ -80,9 +80,7 @@ def test_error_card_and_index():
     from analysis_dialog import format_error_card, start_dialog
 
     user_data: dict = {}
-    state = start_dialog(
-        user_data, SAMPLE, "ru", video_file_id="x", video_mime="video/mp4"
-    )
+    state = start_dialog(user_data, SAMPLE, "ru")
     card = format_error_card("ru", state)
     assert "1 из 3" in card
     assert "локоть" in card.lower()
@@ -93,15 +91,8 @@ def test_error_card_and_index():
 
 def test_start_and_clear_dialog():
     user_data: dict = {}
-    state = start_dialog(
-        user_data,
-        SAMPLE,
-        "ru",
-        video_file_id="abc",
-        video_mime="video/mp4",
-    )
+    state = start_dialog(user_data, SAMPLE, "ru")
     assert get_dialog(user_data) is state
-    assert state["video_file_id"] == "abc"
     assert state["step"] == "summary"
     clear_dialog(user_data)
     assert get_dialog(user_data) is None

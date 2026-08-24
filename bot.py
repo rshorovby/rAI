@@ -9,7 +9,6 @@ from telegram import (
     BotCommand,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    InputFile,
     KeyboardButton,
     LabeledPrice,
     ReplyKeyboardMarkup,
@@ -113,7 +112,6 @@ from onboarding import (
     set_reset_pending,
     start_onboarding_state,
 )
-from pose_analysis import cleanup_overlay, create_pose_overlay
 from pricing import cost_for_usage
 from report_parser import format_scores_line, parse_report, sparkline
 from video_intake import (
@@ -993,32 +991,6 @@ async def _handle_video_intake_text(
     await _begin_analysis_after_intake(update, context, lang, language_code)
 
 
-async def _send_pose_overlay(
-    context: ContextTypes.DEFAULT_TYPE,
-    chat_id: int,
-    lang: str,
-    pose_result,
-) -> None:
-    if pose_result is None:
-        return
-    if pose_result.ok and pose_result.overlay_path:
-        try:
-            with pose_result.overlay_path.open("rb") as video_file:
-                await context.bot.send_video(
-                    chat_id=chat_id,
-                    video=InputFile(video_file, filename="pose_overlay.mp4"),
-                    caption=t(lang, "pose_caption"),
-                    supports_streaming=True,
-                )
-            return
-        except Exception:
-            logger.exception("Не удалось отправить pose overlay")
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text=t(lang, "pose_unavailable"),
-    )
-
-
 async def _reply_dialog(
     context: ContextTypes.DEFAULT_TYPE,
     chat_id: int,
@@ -1118,68 +1090,6 @@ async def _send_feedback_step(
         text=t(lang, "feedback_prompt"),
         reply_markup=_feedback_keyboard(lang),
     )
-
-
-async def _run_lazy_skeleton(
-    context: ContextTypes.DEFAULT_TYPE,
-    chat_id: int,
-    lang: str,
-    state: dict,
-) -> None:
-    file_id = state.get("video_file_id")
-    mime_type = state.get("video_mime") or "video/mp4"
-    if not file_id:
-        await context.bot.send_message(
-            chat_id=chat_id, text=t(lang, "pose_unavailable")
-        )
-        return
-
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text=t(lang, "dialog_skeleton_explain"),
-        parse_mode=ParseMode.MARKDOWN,
-    )
-    status = await context.bot.send_message(
-        chat_id=chat_id, text=t(lang, "dialog_skeleton_working")
-    )
-
-    suffix = ".mp4"
-    if mime_type == "video/quicktime":
-        suffix = ".mov"
-    elif mime_type == "video/webm":
-        suffix = ".webm"
-
-    temp_path: Optional[Path] = None
-    pose_result = None
-    try:
-        telegram_file = await context.bot.get_file(file_id)
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-            temp_path = Path(tmp.name)
-            await telegram_file.download_to_drive(custom_path=str(temp_path))
-        pose_result = await asyncio.to_thread(create_pose_overlay, temp_path)
-        try:
-            await status.delete()
-        except BadRequest:
-            pass
-        await _send_pose_overlay(context, chat_id, lang, pose_result)
-        state["skeleton_shown"] = True
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=t(lang, "dialog_continue"),
-            reply_markup=keyboard_summary(lang, state),
-        )
-    except Exception:
-        logger.exception("Lazy skeleton failed")
-        try:
-            await status.edit_text(t(lang, "pose_unavailable"))
-        except BadRequest:
-            await context.bot.send_message(
-                chat_id=chat_id, text=t(lang, "pose_unavailable")
-            )
-    finally:
-        cleanup_overlay(pose_result)
-        if temp_path and temp_path.exists():
-            temp_path.unlink(missing_ok=True)
 
 
 def _restore_dialog_from_session(user_data: dict, user_id: int) -> Optional[dict]:
@@ -1476,7 +1386,7 @@ async def _handle_dialog_action(
             context,
             chat_id,
             format_summary_message(lang, state),
-            keyboard_summary(lang, state),
+            keyboard_summary(lang),
         )
         return
 
@@ -1717,10 +1627,6 @@ async def _handle_dialog_action(
         await _send_feedback_step(context, chat_id, lang, context.user_data)
         return
 
-    if action == "skeleton":
-        await _run_lazy_skeleton(context, chat_id, lang, state)
-        return
-
 
 async def _ensure_player_forum_topic(
     context: ContextTypes.DEFAULT_TYPE,
@@ -1935,8 +1841,6 @@ async def _present_analysis_to_player(
     report: str,
     scores: dict,
     stroke: str,
-    video_file_id: str,
-    mime_type: str,
     focus_text: str,
     drill_text: str,
     drill_id: Optional[str],
@@ -1949,9 +1853,6 @@ async def _present_analysis_to_player(
         "step": "summary",
         "language_code": language_code,
         "sections": parse_dialog_sections(report, language_code),
-        "skeleton_shown": False,
-        "video_file_id": video_file_id,
-        "video_mime": mime_type,
         "visited_categories": [],
         "error_index": 0,
     }
@@ -1976,7 +1877,7 @@ async def _present_analysis_to_player(
         context,
         chat_id,
         summary,
-        keyboard_summary(lang, state),
+        keyboard_summary(lang),
     )
 
     if drill_id or drill_text:
@@ -2017,8 +1918,6 @@ async def _deliver_review_to_player(
     user_id = int(job["user_id"])
     lang = "ru" if (job.get("language_code") or "").startswith("ru") else "en"
     language_code = job.get("language_code") or lang
-    video_file_id = job["video_file_id"]
-    mime_type = job.get("video_mime") or "video/mp4"
     focus_text = job.get("focus_text") or ""
     drill_text = job.get("drill_text") or ""
     drill_id = job.get("drill_id")
@@ -2058,8 +1957,6 @@ async def _deliver_review_to_player(
         report=final_text,
         scores=scores,
         stroke=stroke,
-        video_file_id=video_file_id,
-        mime_type=mime_type,
         focus_text=focus_text,
         drill_text=drill_text,
         drill_id=drill_id,
@@ -2312,8 +2209,6 @@ async def _run_video_analysis(
             report=report,
             scores=parsed.scores,
             stroke=stroke or "",
-            video_file_id=video_file_id,
-            mime_type=mime_type,
             focus_text=focus_text,
             drill_text=drill_text,
             drill_id=drill_id,

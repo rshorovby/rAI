@@ -98,18 +98,12 @@ def start_dialog(
     user_data: dict,
     report: str,
     language_code: str,
-    *,
-    video_file_id: str,
-    video_mime: str,
 ) -> dict:
     sections = parse_report(report, language_code)
     state = {
         "step": "summary",
         "language_code": language_code,
         "sections": sections,
-        "skeleton_shown": False,
-        "video_file_id": video_file_id,
-        "video_mime": video_mime,
         "visited_categories": [],
         "error_index": 0,
     }
@@ -138,7 +132,7 @@ def _with_summary_row(
     return InlineKeyboardMarkup(rows)
 
 
-def keyboard_summary(lang: str, state: dict) -> InlineKeyboardMarkup:
+def keyboard_summary(lang: str) -> InlineKeyboardMarkup:
     rows = [
         [_btn(lang, "dialog_btn_video", "d:video")],
         [_btn(lang, "dialog_btn_errors", "d:errors")],
@@ -147,8 +141,6 @@ def keyboard_summary(lang: str, state: dict) -> InlineKeyboardMarkup:
             _btn(lang, "dialog_btn_top3", "d:top3"),
         ],
     ]
-    if not state.get("skeleton_shown"):
-        rows.append([_btn(lang, "dialog_btn_skeleton", "d:skeleton")])
     rows.append([_btn(lang, "dialog_btn_finish", "d:finish")])
     return InlineKeyboardMarkup(rows)
 

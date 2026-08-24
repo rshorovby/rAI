@@ -239,8 +239,6 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "status_analyzing_comment": (
             "⏳ Видео и комментарий получены. Анализирую — это может занять до минуты..."
         ),
-        "pose_caption": "🦴 Ваша биомеханика на видео (приблизительно)",
-        "pose_unavailable": ("🦴 Не удалось наложить скелет — разбор ниже как обычно."),
         "dialog_ready": "✅ *Готово.* Кратко по видео:",
         "dialog_section_empty": "_В отчёте нет этой секции._",
         "dialog_title_video": "📹 *Подробнее про видео*",
@@ -256,7 +254,6 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "dialog_btn_errors": "🔴 Разбор ошибок",
         "dialog_btn_cats": "🔎 Углублённый анализ",
         "dialog_btn_top3": "📋 Советы на тренировку",
-        "dialog_btn_skeleton": "🦴 Показать скелет",
         "dialog_btn_drills": "🏋️ Упражнения",
         "dialog_btn_next": "📹 Что снять дальше",
         "dialog_btn_finish": "✅ Завершить разбор",
@@ -272,14 +269,6 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "Можете вернуться к резюме или завершить разбор."
         ),
         "dialog_no_errors": "В отчёте не нашлось приоритетных ошибок.",
-        "dialog_skeleton_explain": (
-            "🦴 *Что это такое*\n\n"
-            "Это *приблизительная* биомеханика: точки суставов поверх вашего видео.\n\n"
-            "*Зачем:* увидеть, где тело в момент удара, и сопоставить это с текстом "
-            "разбора. Можно сохранить и показать тренеру.\n\n"
-            "Это не Hawk-Eye и не меддиагноз — ориентир для глаз."
-        ),
-        "dialog_skeleton_working": "🦴 Накладываю скелет — до ~30 сек…",
         "dialog_continue": "Куда дальше?",
         "dialog_ask_hint": "💬 Напишите вопрос текстом — я помню этот разбор.",
         "dialog_stale": "Разбор уже закрыт. Отправьте новое видео или /new.",
@@ -742,10 +731,6 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "status_analyzing_comment": (
             "⏳ Video and caption received. Analyzing — this may take up to a minute..."
         ),
-        "pose_caption": "🦴 Your biomechanics on video (approximate)",
-        "pose_unavailable": (
-            "🦴 Could not overlay the skeleton — analysis below as usual."
-        ),
         "dialog_ready": "✅ *Done.* Brief take on the video:",
         "dialog_section_empty": "_This section is missing from the report._",
         "dialog_title_video": "📹 *More about the video*",
@@ -760,7 +745,6 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "dialog_btn_errors": "🔴 Error walkthrough",
         "dialog_btn_cats": "🔎 Deep dive",
         "dialog_btn_top3": "📋 Practice tips",
-        "dialog_btn_skeleton": "🦴 Show skeleton",
         "dialog_btn_drills": "🏋️ Drills",
         "dialog_btn_next": "📹 What to film next",
         "dialog_btn_finish": "✅ Finish analysis",
@@ -776,14 +760,6 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "You can go back to the summary or finish."
         ),
         "dialog_no_errors": "No priority errors found in the report.",
-        "dialog_skeleton_explain": (
-            "🦴 *What this is*\n\n"
-            "Approximate biomechanics: joint points overlaid on your video.\n\n"
-            "*Why:* see where the body is at contact and match it with the written "
-            "analysis. You can save it and show your coach.\n\n"
-            "Not Hawk-Eye and not a medical diagnosis — a visual guide."
-        ),
-        "dialog_skeleton_working": "🦴 Building skeleton overlay — up to ~30 sec…",
         "dialog_continue": "Where next?",
         "dialog_ask_hint": "💬 Type your question — I still have this analysis.",
         "dialog_stale": "This analysis is closed. Send a new video or /new.",

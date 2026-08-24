@@ -54,9 +54,6 @@ USER_PROMPT_RU = """\
 ## Следующее видео
 Обязательная секция (только для внутреннего использования — игроку покажут отдельным сообщением). 2–4 предложения: какой удар снять, с какого ракурса (сбоку / сзади-сбоку), длительность 10–20 сек, на что обратить внимание при съёмке, чтобы проверить прогресс по главному приоритету.
 
-## Ограничения анализа
-Что невозможно оценить из-за ракурса, длительности или качества видео.
-
 ## Метаданные (служебно)
 В самом конце ответа добавь JSON-блок в тройных backticks с типом json.
 Оцени навыки по шкале 0–10 (только по видимому на видео):
@@ -109,9 +106,6 @@ Numbered list from most to least important. Each item — one sentence with a co
 
 ## Next video
 Required section (for internal use only — the player sees it in a separate message). 2–4 sentences: which stroke to film, camera angle (side / back-side), 10–20 seconds, what to focus on when filming to check progress on the main priority.
-
-## Analysis limitations
-What cannot be assessed due to angle, duration, or video quality.
 
 ## Metadata (internal)
 At the very end, add a JSON block in triple backticks with type json.
