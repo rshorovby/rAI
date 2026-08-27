@@ -122,6 +122,7 @@ from video_intake import (
     get_intake_answers,
     get_intake_step,
     intake_keyboard,
+    intake_value_label,
     is_intake_active,
     is_intake_skip_text,
     match_intake_answer,
@@ -943,8 +944,17 @@ async def _begin_analysis_after_intake(
     user_id = message.from_user.id
     answers = get_intake_answers(context.user_data)
     pending = context.user_data.get("pending_video")
+    video_context = build_video_context(answers)
     if pending is not None:
-        pending["video_context"] = build_video_context(answers)
+        pending["video_context"] = video_context
+        sent = await _post_intake_video_to_cabinet(
+            context,
+            user_id,
+            pending,
+            video_context,
+            user=message.from_user,
+        )
+        pending["cabinet_video_sent"] = sent
     clear_intake_state(context.user_data)
 
     await message.reply_text(
@@ -1646,12 +1656,94 @@ async def _ensure_player_forum_topic(
     return await cabinet.ensure_player_topic(context.bot, forum_chat_id, user_id)
 
 
+async def _send_forum_video(
+    bot, forum_chat_id: int, thread_id: int, file_id: str
+) -> bool:
+    try:
+        await bot.send_video(
+            chat_id=forum_chat_id,
+            message_thread_id=thread_id,
+            video=file_id,
+        )
+        return True
+    except BadRequest:
+        logger.exception("send_video to forum failed, trying video_note")
+    try:
+        await bot.send_video_note(
+            chat_id=forum_chat_id,
+            message_thread_id=thread_id,
+            video_note=file_id,
+        )
+        return True
+    except BadRequest:
+        logger.exception("send_video_note to forum failed")
+        await bot.send_message(
+            chat_id=forum_chat_id,
+            message_thread_id=thread_id,
+            text=(
+                "⚠️ Не удалось переслать видео (file_id). "
+                "Попросите игрока прислать ещё раз."
+            ),
+        )
+        return False
+
+
+async def _post_intake_video_to_cabinet(
+    context: ContextTypes.DEFAULT_TYPE,
+    user_id: int,
+    pending: dict,
+    video_context: Optional[dict],
+    *,
+    user=None,
+) -> bool:
+    """Сразу после intake: видео в тему, не дожидаясь AI."""
+    settings: Settings = context.application.bot_data.get("settings")
+    if not settings or not settings.coach_forum_chat_id:
+        return False
+    file_id = (pending or {}).get("file_id")
+    if not file_id:
+        return False
+    forum_chat_id = int(settings.coach_forum_chat_id)
+    try:
+        thread_id = await cabinet.ensure_player_topic(
+            context.bot,
+            forum_chat_id,
+            user_id,
+            first_name=getattr(user, "first_name", "") or "",
+            username=getattr(user, "username", "") or "",
+        )
+    except Exception:
+        logger.exception("ensure topic for intake video failed user_id=%s", user_id)
+        return False
+    if thread_id is None:
+        return False
+    ctx = video_context or {}
+    header = cabinet.format_video_intake_ready(
+        user_id,
+        stroke=intake_value_label("ru", "stroke", ctx.get("stroke")),
+        look=intake_value_label("ru", "look", ctx.get("look")),
+        duration=int(pending.get("duration") or 0),
+        comment=pending.get("comment") or "",
+    )
+    try:
+        await context.bot.send_message(
+            chat_id=forum_chat_id,
+            message_thread_id=thread_id,
+            text=header,
+        )
+        return await _send_forum_video(context.bot, forum_chat_id, thread_id, file_id)
+    except Exception:
+        logger.exception("intake video to cabinet failed user_id=%s", user_id)
+        return False
+
+
 async def _post_review_job_to_forum(
     context: ContextTypes.DEFAULT_TYPE,
     job_id: int,
     user_id: int,
     *,
     manual: bool = False,
+    skip_video: bool = False,
 ) -> bool:
     settings: Settings = context.application.bot_data.get("settings")
     if not settings or not settings.coach_forum_chat_id:
@@ -1692,20 +1784,27 @@ async def _post_review_job_to_forum(
     )
 
     if manual:
+        video_hint = (
+            "Видео уже в теме — напишите игроку комментарий."
+            if skip_video
+            else "Видео ниже — напишите игроку комментарий в эту тему."
+        )
         header = (
             f"⚠️ Нужен ручной разбор #{job_id}\n"
             f"user_id: {user_id}\n"
             f"Фокус intake: {(job.get('stroke') or '—')}\n"
             f"Статус: AI не смог разобрать\n\n"
-            f"Видео ниже — напишите игроку комментарий в эту тему."
+            f"{video_hint}"
         )
     else:
+        video_hint = "Видео — в теме выше.\n" if skip_video else ""
         header = (
             f"🆕 Разбор #{job_id}\n"
             f"user_id: {user_id}\n"
             f"Фокус: {job.get('focus_text') or '—'}\n"
             f"Упражнение: {job.get('drill_text') or '—'}\n"
             f"Статус: AI уже у игрока\n\n"
+            f"{video_hint}"
             f"💬 «Ответить игроку» — текст / голос / кружок. На ИИ не влияет.\n"
             f"✏️ «Исправить ответ ИИ» — скопируйте разбор ниже, поправьте "
             f"и отправьте. Сохранится как эталон, игроку не уйдёт."
@@ -1716,21 +1815,12 @@ async def _post_review_job_to_forum(
             message_thread_id=thread_id,
             text=header,
         )
-        try:
-            await context.bot.send_video(
-                chat_id=forum_chat_id,
-                message_thread_id=thread_id,
-                video=job["video_file_id"],
-            )
-        except BadRequest:
-            logger.exception("send_video to forum failed job_id=%s", job_id)
-            await context.bot.send_message(
-                chat_id=forum_chat_id,
-                message_thread_id=thread_id,
-                text=(
-                    "⚠️ Не удалось переслать видео (file_id). "
-                    "Попросите игрока прислать ещё раз."
-                ),
+        if not skip_video:
+            await _send_forum_video(
+                context.bot,
+                forum_chat_id,
+                thread_id,
+                job["video_file_id"],
             )
         draft = (job.get("draft_text") or "").strip()
         attached_actions = False
@@ -1782,8 +1872,9 @@ async def _post_failed_analysis_to_cabinet(
     language_code: str,
     video_context: Optional[dict],
     error: Exception,
+    skip_video: bool = False,
 ) -> bool:
-    """Видео в кабинет даже если AI упал — тренер может разобрать вручную."""
+    """Черновик сбоя в кабинет; видео уже могло уйти сразу после intake."""
     stroke = ""
     if video_context:
         stroke = (video_context.get("stroke") or "") or ""
@@ -1801,7 +1892,9 @@ async def _post_failed_analysis_to_cabinet(
         scores={},
         stroke=stroke,
     )
-    posted = await _post_review_job_to_forum(context, job_id, user_id, manual=True)
+    posted = await _post_review_job_to_forum(
+        context, job_id, user_id, manual=True, skip_video=skip_video
+    )
     await asyncio.to_thread(
         storage.update_review_job,
         job_id,
@@ -2005,6 +2098,7 @@ async def _run_video_analysis(
     user_comment = pending.get("comment")
     video_context = pending.get("video_context")
     video_file_id = pending["file_id"]
+    cabinet_video_sent = bool(pending.get("cabinet_video_sent"))
 
     await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
 
@@ -2151,6 +2245,7 @@ async def _run_video_analysis(
                     language_code=language_code,
                     video_context=video_context,
                     error=fallback_exc,
+                    skip_video=cabinet_video_sent,
                 )
                 await _edit_or_reply_status(
                     context,
@@ -2263,7 +2358,9 @@ async def _run_video_analysis(
             stroke=stroke or "",
         )
         await _log_event(user_id, EVENT_REVIEW_QUEUED, str(job_id))
-        posted = await _post_review_job_to_forum(context, job_id, user_id)
+        posted = await _post_review_job_to_forum(
+            context, job_id, user_id, skip_video=cabinet_video_sent
+        )
         await asyncio.to_thread(
             storage.mark_review_sent,
             job_id,
@@ -2313,6 +2410,7 @@ async def _run_video_analysis(
                     language_code=language_code,
                     video_context=video_context,
                     error=exc,
+                    skip_video=cabinet_video_sent,
                 )
             except Exception:
                 logger.exception(

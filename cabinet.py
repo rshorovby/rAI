@@ -251,6 +251,28 @@ def format_video_uploaded(
     return "\n".join(lines)
 
 
+def format_video_intake_ready(
+    user_id: int,
+    *,
+    stroke: str = "",
+    look: str = "",
+    duration: int = 0,
+    comment: str = "",
+) -> str:
+    lines = [
+        f"🎬 Видео готово к разбору\nid: {user_id}",
+        f"удар: {(stroke or '').strip() or 'не указан'}",
+        f"акцент: {(look or '').strip() or 'не указан'}",
+    ]
+    if duration:
+        lines.append(f"длина: {duration} сек")
+    comment = (comment or "").strip()
+    if comment:
+        lines.append(f"подпись: {comment[:300]}")
+    lines.append("статус: AI ещё готовит черновик — можно смотреть видео")
+    return "\n".join(lines)
+
+
 def format_feedback(user_id: int, *, kind: str) -> str:
     labels = {
         "pos": "👍 Полезно",

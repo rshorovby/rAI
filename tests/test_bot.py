@@ -333,3 +333,89 @@ def test_coach_forum_fix_media_stays_in_cabinet(tmp_path):
         asyncio.run(_run())
         context.bot.copy_message.assert_not_awaited()
         assert "текст" in update.message.reply_text.await_args.args[0].lower()
+
+
+def test_post_intake_video_to_cabinet_sends_video_with_stroke():
+    from bot import _post_intake_video_to_cabinet
+
+    settings = _coach_forum_settings()
+    context = _make_coach_context(settings)
+    context.bot.send_video = AsyncMock()
+    pending = {
+        "file_id": "vid123",
+        "duration": 12,
+        "comment": "локоть",
+    }
+    user = MagicMock()
+    user.first_name = "Ann"
+    user.username = "ann"
+
+    async def _run():
+        with patch(
+            "bot.cabinet.ensure_player_topic", new=AsyncMock(return_value=77)
+        ) as ensure:
+            ok = await _post_intake_video_to_cabinet(
+                context,
+                99,
+                pending,
+                {"stroke": "forehand", "look": "technique"},
+                user=user,
+            )
+            ensure.assert_awaited()
+            return ok
+
+    assert asyncio.run(_run()) is True
+    header = context.bot.send_message.await_args.kwargs["text"]
+    assert "готово к разбору" in header.lower()
+    assert "Форхенд" in header or "форхенд" in header.lower()
+    assert context.bot.send_message.await_args.kwargs["message_thread_id"] == 77
+    context.bot.send_video.assert_awaited_once_with(
+        chat_id=-100123,
+        message_thread_id=77,
+        video="vid123",
+    )
+
+
+def test_begin_analysis_sends_cabinet_video_before_ai():
+    from bot import _begin_analysis_after_intake
+    from video_intake import get_intake_answers, start_intake_state
+
+    settings = _coach_forum_settings()
+    update = MagicMock()
+    update.message = MagicMock()
+    update.message.from_user.id = 99
+    update.message.from_user.first_name = "Ann"
+    update.message.chat_id = 99
+    update.message.reply_text = AsyncMock()
+    context = _make_coach_context(settings)
+    context.user_data["pending_video"] = {
+        "file_id": "vid",
+        "mime_type": "video/mp4",
+        "comment": "",
+        "duration": 10,
+        "video_context": None,
+    }
+    start_intake_state(context.user_data)
+    get_intake_answers(context.user_data)["stroke"] = "serve"
+    get_intake_answers(context.user_data)["look"] = "contact"
+
+    async def _run():
+        with (
+            patch(
+                "bot._post_intake_video_to_cabinet", new=AsyncMock(return_value=True)
+            ) as post_video,
+            patch("bot._run_video_analysis", new=AsyncMock()) as run_ai,
+        ):
+            await _begin_analysis_after_intake(update, context, "ru", "ru")
+            post_video.assert_awaited()
+            run_ai.assert_awaited()
+            assert post_video.await_count == 1
+            assert (
+                post_video.await_args.args[3]
+                == context.user_data["pending_video"]["video_context"]
+            )
+
+    asyncio.run(_run())
+    pending = context.user_data["pending_video"]
+    assert pending["video_context"] == {"stroke": "serve", "look": "contact"}
+    assert pending["cabinet_video_sent"] is True

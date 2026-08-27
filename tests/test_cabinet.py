@@ -51,6 +51,23 @@ def test_format_video_and_feedback():
     assert "Не помогло" in cabinet.format_feedback(1, kind="neg")
 
 
+def test_format_video_intake_ready():
+    text = cabinet.format_video_intake_ready(
+        5,
+        stroke="Форхенд",
+        look="Техника удара",
+        duration=18,
+        comment="болит локоть",
+    )
+    assert "готово к разбору" in text.lower()
+    assert "Форхенд" in text
+    assert "Техника удара" in text
+    assert "18" in text
+    assert "локоть" in text
+    empty = cabinet.format_video_intake_ready(5)
+    assert "не указан" in empty
+
+
 def test_format_practice_post_and_followup():
     post = cabinet.format_practice_post(2, answer="yes", focus="кисть", drill="shadow")
     assert "Сделал" in post
