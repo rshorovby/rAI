@@ -77,6 +77,7 @@ from analytics import (
     EVENT_SURVEY_SENT,
     EVENT_VIDEO_SENT,
     format_analytics_report,
+    format_daly_report,
 )
 from analyzer import VideoAnalyzer
 from config import Settings
@@ -786,6 +787,16 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     data = await asyncio.to_thread(storage.get_analytics_summary)
     report = format_analytics_report(data)
     await update.message.reply_text(report)
+
+
+async def daly_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    denied = _admin_gate(update, context)
+    if denied:
+        await update.message.reply_text(denied)
+        return
+
+    data = await asyncio.to_thread(storage.get_daly_summary)
+    await update.message.reply_text(format_daly_report(data))
 
 
 async def grant_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -3407,6 +3418,7 @@ def build_application(settings: Settings) -> Application:
     app.add_handler(CommandHandler("history", history_command))
     app.add_handler(CommandHandler("profile", profile_command))
     app.add_handler(CommandHandler("stats", stats_command))
+    app.add_handler(CommandHandler("daly", daly_command))
     app.add_handler(CommandHandler("grant", grant_command))
     app.add_handler(CallbackQueryHandler(handle_feedback, pattern=r"^fb:"))
     app.add_handler(CallbackQueryHandler(handle_practice, pattern=r"^p:"))

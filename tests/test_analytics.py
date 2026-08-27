@@ -14,6 +14,7 @@ from analytics import (
     EVENT_REMINDER_SENT,
     EVENT_VIDEO_SENT,
     format_analytics_report,
+    format_daly_report,
 )
 
 
@@ -113,3 +114,75 @@ def test_feedback_events_in_summary(tmp_path):
     assert data["events"][EVENT_FEEDBACK_POSITIVE] == 1
     assert data["events"][EVENT_FEEDBACK_NEGATIVE] == 1
     assert data["events"][EVENT_FEEDBACK_CLEAR] == 1
+
+
+def test_daly_summary_counts(tmp_path):
+    with _tmp_db(tmp_path):
+        storage.upsert_user(1, None, "A", None, "ru")
+        storage.upsert_user(2, None, "B", None, "ru")
+        storage.upsert_user(3, None, "C", None, "ru")
+        storage.save_session(1, "## Краткое резюме\none\n")
+        storage.save_session(1, "## Краткое резюме\ntwo\n")
+        storage.save_session(2, "## Краткое резюме\none\n")
+        storage.log_event(1, EVENT_VIDEO_SENT)
+        storage.log_event(1, EVENT_VIDEO_SENT)
+        storage.log_event(2, EVENT_VIDEO_SENT)
+        data = storage.get_daly_summary()
+
+    assert data["users_with_analysis"] == 2
+    assert data["users_2plus"] == 1
+    assert data["new_analyzers_today"] == 2
+    assert data["analyses_today"] == 3
+    assert data["analyses_total"] == 3
+    assert data["videos_today"] == 3
+    assert data["videos_total"] == 3
+    assert data["returned_7d"] == 0
+    assert data["active_7d"] == 3
+    assert data["active_30d"] == 3
+
+
+def test_daly_returned_users(tmp_path):
+    with _tmp_db(tmp_path):
+        storage.upsert_user(1, None, "A", None, "ru")
+        storage.save_session(1, "## Краткое резюме\nold\n")
+        with storage._connect() as conn:
+            storage._init_db(conn)
+            conn.execute(
+                "UPDATE player_sessions SET created_at = datetime('now', '-40 days')"
+            )
+            conn.commit()
+        storage.save_session(1, "## Краткое резюме\nnew\n")
+        data = storage.get_daly_summary()
+
+    assert data["users_2plus"] == 1
+    assert data["returned_7d"] == 1
+    assert data["returned_30d"] == 1
+    assert data["new_analyzers_today"] == 0
+
+
+def test_format_daly_report():
+    text = format_daly_report(
+        {
+            "users_with_analysis": 12,
+            "new_analyzers_today": 1,
+            "users_2plus": 4,
+            "active_7d": 5,
+            "active_30d": 8,
+            "videos_today": 3,
+            "videos_7d": 11,
+            "videos_total": 40,
+            "analyses_today": 2,
+            "analyses_7d": 9,
+            "analyses_total": 35,
+            "returned_7d": 2,
+            "returned_30d": 3,
+        }
+    )
+    assert "daily" in text
+    assert "С ≥1 разбором: 12 (+1 сегодня)" in text
+    assert "5 за 7д" in text
+    assert "С 2+ разборами: 4" in text
+    assert "Сегодня: 3" in text
+    assert "Всего: 35" in text
+    assert "За неделю: 2" in text
+    assert "За месяц: 3" in text

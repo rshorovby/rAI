@@ -680,6 +680,115 @@ def get_analytics_summary(recent_limit: int = 10) -> dict:
     }
 
 
+def get_daly_summary() -> dict:
+    """Короткая ежедневная сводка: разборы, активность, возвраты."""
+    from analytics import EVENT_VIDEO_SENT
+
+    def _count(conn, sql, params=()):
+        return int(conn.execute(sql, params).fetchone()[0])
+
+    with _connect() as conn:
+        _init_db(conn)
+        users_with_analysis = _count(
+            conn, "SELECT COUNT(DISTINCT user_id) FROM player_sessions"
+        )
+        users_2plus = _count(
+            conn,
+            """
+            SELECT COUNT(*) FROM (
+                SELECT user_id FROM player_sessions
+                GROUP BY user_id
+                HAVING COUNT(*) >= 2
+            )
+            """,
+        )
+        new_analyzers_today = _count(
+            conn,
+            """
+            SELECT COUNT(*) FROM (
+                SELECT user_id, MIN(created_at) AS first_at
+                FROM player_sessions
+                GROUP BY user_id
+                HAVING date(first_at) = date('now')
+            )
+            """,
+        )
+        active_7d = _count(
+            conn,
+            """
+            SELECT COUNT(*) FROM users
+            WHERE datetime(last_seen_at) >= datetime('now', '-7 days')
+            """,
+        )
+        active_30d = _count(
+            conn,
+            """
+            SELECT COUNT(*) FROM users
+            WHERE datetime(last_seen_at) >= datetime('now', '-30 days')
+            """,
+        )
+
+        def _events(window_sql: str, params=()) -> int:
+            return _count(
+                conn,
+                f"""
+                SELECT COUNT(*) FROM events
+                WHERE event_type = ?
+                  AND {window_sql}
+                """,
+                (EVENT_VIDEO_SENT, *params),
+            )
+
+        def _sessions(window_sql: str, params=()) -> int:
+            return _count(
+                conn,
+                f"SELECT COUNT(*) FROM player_sessions WHERE {window_sql}",
+                params,
+            )
+
+        def _returned(days: int) -> int:
+            bound = f"-{days} days"
+            return _count(
+                conn,
+                """
+                SELECT COUNT(DISTINCT s.user_id)
+                FROM player_sessions s
+                WHERE datetime(s.created_at) >= datetime('now', ?)
+                  AND EXISTS (
+                    SELECT 1 FROM player_sessions prev
+                    WHERE prev.user_id = s.user_id
+                      AND datetime(prev.created_at) < datetime('now', ?)
+                  )
+                """,
+                (bound, bound),
+            )
+
+        videos_today = _events("date(created_at) = date('now')")
+        videos_7d = _events("datetime(created_at) >= datetime('now', '-7 days')")
+        videos_total = _events("1=1")
+        analyses_today = _sessions("date(created_at) = date('now')")
+        analyses_7d = _sessions("datetime(created_at) >= datetime('now', '-7 days')")
+        analyses_total = _sessions("1=1")
+        returned_7d = _returned(7)
+        returned_30d = _returned(30)
+
+    return {
+        "users_with_analysis": users_with_analysis,
+        "new_analyzers_today": new_analyzers_today,
+        "users_2plus": users_2plus,
+        "active_7d": active_7d,
+        "active_30d": active_30d,
+        "videos_today": videos_today,
+        "videos_7d": videos_7d,
+        "videos_total": videos_total,
+        "analyses_today": analyses_today,
+        "analyses_7d": analyses_7d,
+        "analyses_total": analyses_total,
+        "returned_7d": returned_7d,
+        "returned_30d": returned_30d,
+    }
+
+
 def format_profile_for_user(user_id: int, lang: str) -> str:
     from onboarding import profile_value_label
 

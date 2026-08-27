@@ -170,3 +170,33 @@ def format_analytics_report(data: dict) -> str:
             )
 
     return "\n".join(lines)
+
+
+def format_daly_report(data: dict) -> str:
+    new_today = int(data.get("new_analyzers_today") or 0)
+    new_suffix = f" (+{new_today} сегодня)" if new_today else ""
+    return "\n".join(
+        [
+            "📈 RallyAI — daily",
+            "",
+            "Пользователи",
+            f"• С ≥1 разбором: {data.get('users_with_analysis', 0)}{new_suffix}",
+            f"• Активны: {data.get('active_7d', 0)} за 7д / "
+            f"{data.get('active_30d', 0)} за 30д",
+            f"• С 2+ разборами: {data.get('users_2plus', 0)}",
+            "",
+            "Видео",
+            f"• Сегодня: {data.get('videos_today', 0)}",
+            f"• За 7 дней: {data.get('videos_7d', 0)}",
+            f"• Всего: {data.get('videos_total', 0)}",
+            "",
+            "Разборы",
+            f"• Сегодня: {data.get('analyses_today', 0)}",
+            f"• За 7 дней: {data.get('analyses_7d', 0)}",
+            f"• Всего: {data.get('analyses_total', 0)}",
+            "",
+            "Вернулись с новым разбором",
+            f"• За неделю: {data.get('returned_7d', 0)}",
+            f"• За месяц: {data.get('returned_30d', 0)}",
+        ]
+    )
