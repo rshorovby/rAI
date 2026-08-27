@@ -2,6 +2,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import billing
+import review
 import storage
 from analytics import (
     EVENT_FEEDBACK_CLEAR,
@@ -80,15 +81,13 @@ def test_coach_forum_text_goes_to_player():
             ),
             patch("bot.storage.get_user_language_code", return_value="ru"),
             patch(
-                "bot.storage.get_latest_review_job_for_thread",
-                return_value={"id": 7},
+                "bot.storage.get_pending_review_job_for_thread",
+                return_value=None,
             ),
-            patch("bot.storage.append_coach_eval_delta") as append_delta,
+            patch("bot.storage.save_coach_correction") as save_corr,
         ):
             assert await _handle_coach_forum_message(update, context) is True
-            append_delta.assert_called_once()
-            assert append_delta.call_args.args[0] == 7
-            assert "кисть" in append_delta.call_args.args[1]
+            save_corr.assert_not_called()
 
     asyncio.run(_run())
     assert context.bot.send_message.await_count == 1
@@ -111,10 +110,10 @@ def test_coach_forum_photo_copied_to_player():
             ),
             patch("bot.storage.get_user_language_code", return_value="ru"),
             patch(
-                "bot.storage.get_latest_review_job_for_thread",
-                return_value={"id": 7},
+                "bot.storage.get_pending_review_job_for_thread",
+                return_value=None,
             ),
-            patch("bot.storage.append_coach_eval_delta"),
+            patch("bot.storage.save_coach_correction"),
         ):
             assert await _handle_coach_forum_message(update, context) is True
 
@@ -141,10 +140,10 @@ def test_handle_video_in_coach_forum_does_not_start_analysis():
             ),
             patch("bot.storage.get_user_language_code", return_value="en"),
             patch(
-                "bot.storage.get_latest_review_job_for_thread",
-                return_value={"id": 7},
+                "bot.storage.get_pending_review_job_for_thread",
+                return_value=None,
             ),
-            patch("bot.storage.append_coach_eval_delta"),
+            patch("bot.storage.save_coach_correction"),
             patch("bot._touch_user", new=AsyncMock()) as touch,
         ):
             await handle_video(update, context)
@@ -169,10 +168,10 @@ def test_handle_unsupported_in_coach_forum_forwards_voice():
             ),
             patch("bot.storage.get_user_language_code", return_value="ru"),
             patch(
-                "bot.storage.get_latest_review_job_for_thread",
-                return_value={"id": 7},
+                "bot.storage.get_pending_review_job_for_thread",
+                return_value=None,
             ),
-            patch("bot.storage.append_coach_eval_delta"),
+            patch("bot.storage.save_coach_correction"),
         ):
             await handle_unsupported(update, context)
 
@@ -266,17 +265,19 @@ def test_quota_blocks_when_exhausted(tmp_path):
         assert "лимит" in text.lower()
 
 
-def test_coach_eval_callback_saves_rating(tmp_path):
+def test_coach_action_callback_sets_fix_mode(tmp_path):
     from bot import handle_coach_eval_callback
 
     with patch.object(storage, "DB_PATH", tmp_path / "t.db"):
         job_id = storage.create_review_job(99, video_file_id="v", draft_text="draft")
+        storage.update_review_job(job_id, forum_chat_id=-100123, message_thread_id=77)
         settings = _coach_forum_settings()
         query = MagicMock()
-        query.data = f"ce:r:{job_id}:ok"
+        query.data = f"ce:a:{job_id}:fix"
         query.from_user.id = 42
         query.answer = AsyncMock()
-        query.edit_message_text = AsyncMock()
+        query.edit_message_reply_markup = AsyncMock()
+        query.message.reply_text = AsyncMock()
         update = MagicMock()
         update.callback_query = query
         context = _make_coach_context(settings)
@@ -286,7 +287,49 @@ def test_coach_eval_callback_saves_rating(tmp_path):
 
         asyncio.run(_run())
         query.answer.assert_awaited()
-        saved = storage.get_coach_evaluation(job_id)
-        assert saved is not None
-        assert saved["rating"] == "ok"
-        query.edit_message_text.assert_awaited()
+        job = storage.get_review_job(job_id)
+        assert job["pending_coach_action"] == "fix"
+        query.edit_message_reply_markup.assert_awaited()
+        query.message.reply_text.assert_awaited()
+        hint = query.message.reply_text.await_args.args[0]
+        assert "эталон" in hint.lower()
+
+
+def test_coach_forum_fix_saves_correction_not_player(tmp_path):
+    with patch.object(storage, "DB_PATH", tmp_path / "t.db"):
+        storage.save_player_forum_topic(99, -100123, 77, title="t")
+        job_id = storage.create_review_job(99, video_file_id="v", draft_text="AI draft")
+        storage.update_review_job(job_id, forum_chat_id=-100123, message_thread_id=77)
+        storage.set_pending_coach_action(job_id, review.ACTION_FIX_AI)
+        settings = _coach_forum_settings()
+        update = _make_coach_forum_update(text="Исправленный разбор: кисть впереди")
+        context = _make_coach_context(settings)
+
+        async def _run():
+            assert await _handle_coach_forum_message(update, context) is True
+
+        asyncio.run(_run())
+        assert context.bot.send_message.await_count == 0
+        context.bot.copy_message.assert_not_awaited()
+        row = storage.get_coach_evaluation(job_id)
+        assert row is not None
+        assert "кисть впереди" in row["delta_text"]
+        assert "Эталон" in update.message.reply_text.await_args.args[0]
+
+
+def test_coach_forum_fix_media_stays_in_cabinet(tmp_path):
+    with patch.object(storage, "DB_PATH", tmp_path / "t.db"):
+        storage.save_player_forum_topic(99, -100123, 77, title="t")
+        job_id = storage.create_review_job(99, video_file_id="v", draft_text="d")
+        storage.update_review_job(job_id, forum_chat_id=-100123, message_thread_id=77)
+        storage.set_pending_coach_action(job_id, review.ACTION_FIX_AI)
+        settings = _coach_forum_settings()
+        update = _make_coach_forum_update(video_note=MagicMock())
+        context = _make_coach_context(settings)
+
+        async def _run():
+            assert await _handle_coach_forum_message(update, context) is True
+
+        asyncio.run(_run())
+        context.bot.copy_message.assert_not_awaited()
+        assert "текст" in update.message.reply_text.await_args.args[0].lower()

@@ -212,12 +212,16 @@ def build_system_prompt(
     stroke: Optional[str] = None,
     active_focus: Optional[str] = None,
     drills_catalog: Optional[str] = None,
+    coach_corrections: Optional[list] = None,
 ) -> str:
     from wiki_context import build_knowledge_block
 
     coach_ctx = build_coach_context(player_history or [], language_code)
     player_ctx = build_player_context(player_profile, language_code)
     knowledge_ctx = build_knowledge_block(stroke, language_code)
+    correction_ctx = build_coach_correction_block(
+        coach_corrections or [], language_code
+    )
     lang_rule = language_instruction(language_code)
     parts = [SYSTEM_PROMPT_BASE.strip(), lang_rule]
     if player_ctx:
@@ -226,6 +230,8 @@ def build_system_prompt(
         parts.append(knowledge_ctx)
     if coach_ctx:
         parts.append(coach_ctx)
+    if correction_ctx:
+        parts.append(correction_ctx)
     if active_focus:
         parts.append(
             "Active weekly focus to verify on this video:\n"
@@ -255,12 +261,16 @@ def build_follow_up_system_prompt(
     player_history: Optional[list] = None,
     player_profile: Optional[dict] = None,
     stroke: Optional[str] = None,
+    coach_corrections: Optional[list] = None,
 ) -> str:
     from wiki_context import build_knowledge_block
 
     coach_ctx = build_coach_context(player_history or [], language_code)
     player_ctx = build_player_context(player_profile, language_code)
     knowledge_ctx = build_knowledge_block(stroke, language_code)
+    correction_ctx = build_coach_correction_block(
+        coach_corrections or [], language_code
+    )
     lang_rule = language_instruction(language_code)
     parts = [FOLLOW_UP_SYSTEM_PROMPT_BASE.strip(), lang_rule]
     if player_ctx:
@@ -269,6 +279,8 @@ def build_follow_up_system_prompt(
         parts.append(knowledge_ctx)
     if coach_ctx:
         parts.append(coach_ctx)
+    if correction_ctx:
+        parts.append(correction_ctx)
     return "\n\n".join(parts)
 
 
@@ -429,6 +441,100 @@ def build_analysis_prompt(
 
     parts.append(get_user_prompt_body(language_code))
     return "\n\n".join(parts)
+
+
+_MAX_CORRECTION_CHARS = 1100
+_MAX_GLOBAL_CORRECTIONS = 4
+_MAX_PLAYER_CORRECTIONS = 2
+
+
+def _clip_correction(text: str, limit: int = _MAX_CORRECTION_CHARS) -> str:
+    body = (text or "").strip()
+    if len(body) <= limit:
+        return body
+    return body[: limit - 1] + "…"
+
+
+def _pack_correction(item: dict) -> Optional[dict]:
+    preferred = _clip_correction((item or {}).get("delta_text") or "")
+    if not preferred:
+        return None
+    return {
+        "draft": _clip_correction((item or {}).get("draft_text") or ""),
+        "preferred": preferred,
+    }
+
+
+def _append_correction_examples(
+    lines: list, items: list, draft_l: str, coach_l: str
+) -> None:
+    for i, item in enumerate(items, 1):
+        lines.append(f"{i}. {draft_l}:")
+        lines.append(item["draft"] or "—")
+        lines.append(f"{coach_l}:")
+        lines.append(item["preferred"])
+        lines.append("")
+
+
+def build_coach_correction_block(corrections: list, language_code: str = "en") -> str:
+    """Эталон правок штатного тренера: глобальный стиль + слой по игроку."""
+    global_items = []
+    player_items = []
+    for raw in corrections or []:
+        packed = _pack_correction(raw or {})
+        if not packed:
+            continue
+        scope = (raw or {}).get("scope") or "global"
+        if scope == "player":
+            if len(player_items) < _MAX_PLAYER_CORRECTIONS:
+                player_items.append(packed)
+        elif len(global_items) < _MAX_GLOBAL_CORRECTIONS:
+            global_items.append(packed)
+    if not global_items and not player_items:
+        return ""
+
+    base = normalize_language_code(language_code)
+    if base == "ru":
+        header = "ЭТАЛОН ТРЕНЕРА (для всех разборов):"
+        global_l = "Глобальные правки (разные игроки — метод тренера):"
+        player_l = "Дополнительно по этому игроку:"
+        draft_l = "Черновик ИИ"
+        coach_l = "Версия тренера"
+        instructions = [
+            "Это не разбор текущего видео, а методика штатного тренера.",
+            "Не повторяй формулировки, акценты и советы, которые тренер вычеркнул или заменил.",
+            "Подмешивай техники, фокусы и тон, которые тренер добавляет и оставляет.",
+            "Не копируй текст эталона дословно и не переноси факты с чужого ролика.",
+            "Если эталон и текущее видео расходятся — верь видео, но держи метод тренера.",
+        ]
+    else:
+        header = "STAFF COACH GOLD STANDARD (for every review):"
+        global_l = "Global rewrites (different players — the coach's method):"
+        player_l = "Additionally for this player:"
+        draft_l = "AI draft"
+        coach_l = "Coach version"
+        instructions = [
+            "This is not a review of the current video — it is the staff coach's method.",
+            "Do not repeat wording, emphasis, or advice the coach deleted or replaced.",
+            "Prefer the techniques, foci, and tone the coach adds and keeps.",
+            "Do not copy the gold standard verbatim or carry facts from another clip.",
+            "If the gold standard and this video disagree — trust the video, keep the coach's method.",
+        ]
+
+    lines = [
+        "─────────────────────────────────────────",
+        header,
+        "",
+    ]
+    if global_items:
+        lines.append(global_l)
+        _append_correction_examples(lines, global_items, draft_l, coach_l)
+    if player_items:
+        lines.append(player_l)
+        _append_correction_examples(lines, player_items, draft_l, coach_l)
+    lines.extend(instructions)
+    lines.append("─────────────────────────────────────────")
+    return "\n".join(lines)
 
 
 def build_coach_context(history: list[dict], language_code: str = "en") -> str:

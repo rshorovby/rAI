@@ -1831,6 +1831,51 @@ def get_latest_review_job_for_thread(
     return dict(row) if row else None
 
 
+def get_pending_review_job_for_thread(
+    forum_chat_id: int, message_thread_id: int
+) -> Optional[dict]:
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            """
+            SELECT * FROM review_jobs
+            WHERE forum_chat_id = ?
+              AND message_thread_id = ?
+              AND status != 'cancelled'
+              AND pending_coach_action IS NOT NULL
+              AND TRIM(pending_coach_action) != ''
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (forum_chat_id, message_thread_id),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def set_pending_coach_action(job_id: int, action: Optional[str]) -> None:
+    job = get_review_job(job_id)
+    if not job:
+        return
+    forum_chat_id = job.get("forum_chat_id")
+    thread_id = job.get("message_thread_id")
+    with _connect() as conn:
+        _init_db(conn)
+        if forum_chat_id and thread_id:
+            conn.execute(
+                """
+                UPDATE review_jobs
+                SET pending_coach_action = NULL
+                WHERE forum_chat_id = ? AND message_thread_id = ?
+                """,
+                (forum_chat_id, thread_id),
+            )
+        conn.execute(
+            "UPDATE review_jobs SET pending_coach_action = ? WHERE id = ?",
+            (action, job_id),
+        )
+        conn.commit()
+
+
 def get_coach_evaluation(job_id: int) -> Optional[dict]:
     with _connect() as conn:
         _init_db(conn)
@@ -1916,6 +1961,125 @@ def append_coach_eval_delta(
         coach_user_id=coach_user_id,
         delta_text=merged,
     )
+
+
+def save_coach_correction(
+    job_id: int,
+    text: str,
+    *,
+    player_id: int,
+    coach_user_id: int,
+    append: bool = False,
+) -> Optional[dict]:
+    chunk = (text or "").strip()
+    if not chunk:
+        return get_coach_evaluation(job_id)
+    if append:
+        return append_coach_eval_delta(
+            job_id,
+            chunk,
+            player_id=player_id,
+            coach_user_id=coach_user_id,
+        )
+    if len(chunk) > _MAX_COACH_DELTA_CHARS:
+        chunk = chunk[-_MAX_COACH_DELTA_CHARS:]
+    return upsert_coach_evaluation(
+        job_id,
+        player_id=player_id,
+        coach_user_id=coach_user_id,
+        delta_text=chunk,
+    )
+
+
+def get_coach_corrections_for_player(player_id: int, limit: int = 2) -> list[dict]:
+    """Последние эталоны тренера для игрока: черновик ИИ + исправленный текст."""
+    n = max(1, min(int(limit), 5))
+    with _connect() as conn:
+        _init_db(conn)
+        rows = conn.execute(
+            """
+            SELECT
+                e.job_id,
+                e.delta_text,
+                e.updated_at,
+                j.draft_text
+            FROM coach_evaluations e
+            JOIN review_jobs j ON j.id = e.job_id
+            WHERE e.player_id = ?
+              AND TRIM(e.delta_text) != ''
+            ORDER BY e.updated_at DESC, e.job_id DESC
+            LIMIT ?
+            """,
+            (player_id, n),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_coach_corrections_global(
+    limit: int = 4, exclude_job_ids: Optional[set] = None
+) -> list[dict]:
+    """Последние эталоны тренера по всем игрокам — дом.стиль штатного тренера."""
+    n = max(1, min(int(limit), 8))
+    excluded = [int(x) for x in (exclude_job_ids or []) if x is not None]
+    with _connect() as conn:
+        _init_db(conn)
+        if excluded:
+            placeholders = ",".join("?" * len(excluded))
+            rows = conn.execute(
+                f"""
+                SELECT
+                    e.job_id,
+                    e.delta_text,
+                    e.updated_at,
+                    j.draft_text
+                FROM coach_evaluations e
+                JOIN review_jobs j ON j.id = e.job_id
+                WHERE TRIM(e.delta_text) != ''
+                  AND e.job_id NOT IN ({placeholders})
+                ORDER BY e.updated_at DESC, e.job_id DESC
+                LIMIT ?
+                """,
+                (*excluded, n),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT
+                    e.job_id,
+                    e.delta_text,
+                    e.updated_at,
+                    j.draft_text
+                FROM coach_evaluations e
+                JOIN review_jobs j ON j.id = e.job_id
+                WHERE TRIM(e.delta_text) != ''
+                ORDER BY e.updated_at DESC, e.job_id DESC
+                LIMIT ?
+                """,
+                (n,),
+            ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_coach_corrections_for_prompt(
+    player_id: Optional[int] = None,
+    *,
+    player_limit: int = 2,
+    global_limit: int = 4,
+) -> list[dict]:
+    """Глобальный стиль тренера + персональные правки игрока для system prompt."""
+    player_rows = []
+    if player_id:
+        for row in get_coach_corrections_for_player(int(player_id), limit=player_limit):
+            item = dict(row)
+            item["scope"] = "player"
+            player_rows.append(item)
+    seen = {int(row["job_id"]) for row in player_rows if row.get("job_id") is not None}
+    global_rows = []
+    for row in get_coach_corrections_global(limit=global_limit, exclude_job_ids=seen):
+        item = dict(row)
+        item["scope"] = "global"
+        global_rows.append(item)
+    return global_rows + player_rows
 
 
 def get_coach_eval_stats() -> dict:

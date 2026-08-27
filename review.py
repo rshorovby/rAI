@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from i18n import t
@@ -20,6 +18,13 @@ STATUS_CANCELLED = "cancelled"
 ACTION_SEND = "send"
 ACTION_REPLACE = "replace"
 ACTION_NOTES = "notes"
+
+# Режимы кабинета: ответ игроку vs эталон для ИИ.
+ACTION_REPLY_PLAYER = "reply"
+ACTION_FIX_AI = "fix"
+ACTION_FIX_AI_CONT = "fix_cont"
+VALID_COACH_ACTIONS = (ACTION_REPLY_PLAYER, ACTION_FIX_AI)
+FIX_AI_PENDING = (ACTION_FIX_AI, ACTION_FIX_AI_CONT)
 
 PLAYER_MSG_PENDING_KEY = "player_coach_message_pending"
 
@@ -57,7 +62,7 @@ def keyboard_message_coach(lang: str) -> InlineKeyboardMarkup:
     )
 
 
-# Оценка AI-черновика тренером (кабинет).
+# Старые оценки (колонка в БД, UI убран).
 RATING_OK = "ok"
 RATING_ADDED = "added"
 RATING_MISS = "miss"
@@ -76,74 +81,24 @@ VALID_TAGS = (
     TAG_HOMEWORK,
 )
 
-_RATING_BUTTONS = (
-    (RATING_OK, "✅ Ок"),
-    (RATING_ADDED, "✏️ Дополнил"),
-    (RATING_MISS, "❌ Мимо"),
+_ACTION_BUTTONS = (
+    (ACTION_REPLY_PLAYER, "💬 Ответить игроку"),
+    (ACTION_FIX_AI, "✏️ Исправить ответ ИИ"),
 )
-_TAG_BUTTONS = (
-    (TAG_PRIORITY, "приоритеты"),
-    (TAG_HALLUCINATION, "выдумал"),
-    (TAG_MISSED, "пропустил"),
-    (TAG_TONE, "тон"),
-    (TAG_HOMEWORK, "домашка"),
-)
-_RATING_LABELS = {
-    RATING_OK: "Ок — как есть",
-    RATING_ADDED: "Дополнил",
-    RATING_MISS: "Мимо",
-}
 
 
-def coach_eval_prompt(
-    job_id: int, rating: str = "", tags: Optional[list] = None
-) -> str:
-    lines = [
-        f"⭐ Оценка AI-разбора #{job_id}",
-        "",
-        "Как черновик для этого видео?",
-        "Ок — отправил бы как есть",
-        "Дополнил — в целом верно, допишу акцент",
-        "Мимо — не те приоритеты или факты",
-        "",
-        "Комментарий игроку в этой теме сохранится как эталон правки.",
-    ]
-    if rating in _RATING_LABELS:
-        lines.extend(["", f"Сейчас: {_RATING_LABELS[rating]}"])
-    selected = [tag for tag in (tags or []) if tag in dict(_TAG_BUTTONS)]
-    if selected:
-        labels = [label for key, label in _TAG_BUTTONS if key in selected]
-        lines.append("Теги: " + ", ".join(labels))
-    return "\n".join(lines)
-
-
-def coach_eval_keyboard(
-    job_id: int, rating: str = "", tags: Optional[list] = None
-) -> InlineKeyboardMarkup:
-    selected_tags = set(tags or [])
-    rating_row = []
-    for key, label in _RATING_BUTTONS:
-        mark = "· " if rating == key else ""
-        rating_row.append(
+def coach_action_keyboard(job_id: int, action: str = "") -> InlineKeyboardMarkup:
+    row = []
+    active = ACTION_FIX_AI if action in FIX_AI_PENDING else action
+    for key, label in _ACTION_BUTTONS:
+        mark = "· " if active == key else ""
+        row.append(
             InlineKeyboardButton(
                 f"{mark}{label}",
-                callback_data=f"ce:r:{job_id}:{key}",
+                callback_data=f"ce:a:{job_id}:{key}",
             )
         )
-    rows = [rating_row]
-    if rating in (RATING_ADDED, RATING_MISS):
-        tag_row = []
-        for key, label in _TAG_BUTTONS:
-            prefix = "✓ " if key in selected_tags else ""
-            tag_row.append(
-                InlineKeyboardButton(
-                    f"{prefix}{label}",
-                    callback_data=f"ce:t:{job_id}:{key}",
-                )
-            )
-        rows.append(tag_row[:3])
-        rows.append(tag_row[3:])
-    return InlineKeyboardMarkup(rows)
+    return InlineKeyboardMarkup([row])
 
 
 # Alias для старых импортов/тестов.

@@ -99,7 +99,7 @@ def test_format_analytics_report_contains_sections():
     assert "✅ Понятно что делать: 2" in report
     assert "Напоминания" in report
     assert "Отправлено: 4" in report
-    assert "Оценка тренера" in report
+    assert "Эталон тренера" in report
 
 
 def test_feedback_events_in_summary(tmp_path):

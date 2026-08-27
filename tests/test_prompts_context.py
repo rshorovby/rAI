@@ -1,4 +1,8 @@
-from prompts import build_coach_context
+from prompts import (
+    build_coach_context,
+    build_coach_correction_block,
+    build_system_prompt,
+)
 
 
 def test_empty_history_returns_empty_string():
@@ -39,3 +43,46 @@ def test_no_top3_doesnt_crash():
     history = [{"created_at": "01 Jan 2025", "summary": "Просто резюме.", "top3": ""}]
     result = build_coach_context(history, "ru")
     assert "Просто резюме." in result
+
+
+def test_correction_block_empty_without_delta():
+    assert build_coach_correction_block([]) == ""
+    assert build_coach_correction_block([{"draft_text": "x", "delta_text": ""}]) == ""
+
+
+def test_correction_block_in_system_prompt():
+    corrections = [
+        {
+            "draft_text": "AI: поздний замах",
+            "delta_text": "Главное — встретить мяч впереди",
+        }
+    ]
+    block = build_coach_correction_block(corrections, "ru")
+    assert "ЭТАЛОН ТРЕНЕРА" in block
+    assert "для всех" in block.lower()
+    assert "поздний замах" in block
+    assert "встретить мяч" in block
+    assert "вычеркнул" in block
+    system = build_system_prompt("ru", coach_corrections=corrections)
+    assert "ЭТАЛОН ТРЕНЕРА" in system
+    assert "не копируй" in system.lower() or "Не копируй" in system
+
+
+def test_correction_block_splits_global_and_player():
+    corrections = [
+        {
+            "scope": "global",
+            "draft_text": "глобальный черновик",
+            "delta_text": "глобальная версия тренера",
+        },
+        {
+            "scope": "player",
+            "draft_text": "личный черновик",
+            "delta_text": "личная версия тренера",
+        },
+    ]
+    block = build_coach_correction_block(corrections, "ru")
+    assert "Глобальные правки" in block
+    assert "по этому игроку" in block.lower()
+    assert "глобальная версия" in block
+    assert "личная версия" in block

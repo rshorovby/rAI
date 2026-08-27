@@ -102,25 +102,19 @@ def test_player_forum_thread_lookup(tmp_path):
         assert storage.get_player_by_forum_thread(-1001, 1) is None
 
 
-def test_coach_eval_keyboard_has_three_ratings():
-    markup = review.coach_eval_keyboard(12)
+def test_coach_action_keyboard_has_two_buttons():
+    markup = review.coach_action_keyboard(12)
     buttons = [btn for row in markup.inline_keyboard for btn in row]
     assert {btn.callback_data for btn in buttons} == {
-        "ce:r:12:ok",
-        "ce:r:12:added",
-        "ce:r:12:miss",
+        "ce:a:12:reply",
+        "ce:a:12:fix",
     }
 
 
-def test_coach_eval_tags_only_after_added_or_miss():
-    ok_kb = review.coach_eval_keyboard(1, rating=review.RATING_OK)
-    assert len(ok_kb.inline_keyboard) == 1
-    added_kb = review.coach_eval_keyboard(1, rating=review.RATING_ADDED)
-    tag_data = {
-        btn.callback_data for row in added_kb.inline_keyboard[1:] for btn in row
-    }
-    assert "ce:t:1:priority" in tag_data
-    assert "ce:t:1:hallucination" in tag_data
+def test_coach_action_keyboard_marks_active_fix():
+    markup = review.coach_action_keyboard(1, action=review.ACTION_FIX_AI_CONT)
+    labels = [btn.text for row in markup.inline_keyboard for btn in row]
+    assert any(text.startswith("· ") and "Исправить" in text for text in labels)
 
 
 def test_coach_evaluation_triple(tmp_path):
@@ -158,3 +152,88 @@ def test_coach_evaluation_triple(tmp_path):
         stats = storage.get_coach_eval_stats()
         assert stats["added"] == 1
         assert stats["with_delta"] == 1
+
+
+def test_save_coach_correction_replaces_then_appends(tmp_path):
+    with _tmp_db(tmp_path):
+        job_id = storage.create_review_job(8, video_file_id="v", draft_text="черновик")
+        storage.save_coach_correction(
+            job_id,
+            "первая версия",
+            player_id=8,
+            coach_user_id=1,
+        )
+        storage.save_coach_correction(
+            job_id,
+            "вторая версия",
+            player_id=8,
+            coach_user_id=1,
+        )
+        row = storage.get_coach_evaluation(job_id)
+        assert row["delta_text"] == "вторая версия"
+        storage.save_coach_correction(
+            job_id,
+            "дописка",
+            player_id=8,
+            coach_user_id=1,
+            append=True,
+        )
+        row = storage.get_coach_evaluation(job_id)
+        assert "вторая версия" in row["delta_text"]
+        assert "дописка" in row["delta_text"]
+
+
+def test_get_coach_corrections_for_player(tmp_path):
+    with _tmp_db(tmp_path):
+        a = storage.create_review_job(3, video_file_id="a", draft_text="AI A")
+        b = storage.create_review_job(3, video_file_id="b", draft_text="AI B")
+        other = storage.create_review_job(9, video_file_id="c", draft_text="AI C")
+        storage.save_coach_correction(a, "тренер A", player_id=3, coach_user_id=1)
+        storage.save_coach_correction(b, "тренер B", player_id=3, coach_user_id=1)
+        storage.save_coach_correction(other, "чужой", player_id=9, coach_user_id=1)
+        items = storage.get_coach_corrections_for_player(3)
+        assert [row["delta_text"] for row in items] == ["тренер B", "тренер A"]
+        assert items[0]["draft_text"] == "AI B"
+
+
+def test_get_coach_corrections_global_excludes_player_jobs(tmp_path):
+    with _tmp_db(tmp_path):
+        a = storage.create_review_job(3, video_file_id="a", draft_text="AI A")
+        b = storage.create_review_job(3, video_file_id="b", draft_text="AI B")
+        other = storage.create_review_job(9, video_file_id="c", draft_text="AI C")
+        storage.save_coach_correction(a, "тренер A", player_id=3, coach_user_id=1)
+        storage.save_coach_correction(b, "тренер B", player_id=3, coach_user_id=1)
+        storage.save_coach_correction(other, "чужой", player_id=9, coach_user_id=1)
+        global_items = storage.get_coach_corrections_global(
+            limit=4, exclude_job_ids={a, b}
+        )
+        assert [row["delta_text"] for row in global_items] == ["чужой"]
+        merged = storage.get_coach_corrections_for_prompt(3)
+        scopes = [(row["scope"], row["delta_text"]) for row in merged]
+        assert ("global", "чужой") in scopes
+        assert ("player", "тренер B") in scopes
+        assert ("player", "тренер A") in scopes
+
+
+def test_get_coach_corrections_for_prompt_without_player(tmp_path):
+    with _tmp_db(tmp_path):
+        job_id = storage.create_review_job(4, video_file_id="v", draft_text="AI")
+        storage.save_coach_correction(job_id, "эталон", player_id=4, coach_user_id=1)
+        items = storage.get_coach_corrections_for_prompt(None)
+        assert len(items) == 1
+        assert items[0]["scope"] == "global"
+        assert items[0]["delta_text"] == "эталон"
+
+
+def test_set_pending_coach_action_clears_other_jobs(tmp_path):
+    with _tmp_db(tmp_path):
+        a = storage.create_review_job(1, video_file_id="a", draft_text="1")
+        b = storage.create_review_job(1, video_file_id="b", draft_text="2")
+        storage.update_review_job(a, forum_chat_id=-1, message_thread_id=5)
+        storage.update_review_job(b, forum_chat_id=-1, message_thread_id=5)
+        storage.set_pending_coach_action(a, review.ACTION_FIX_AI)
+        storage.set_pending_coach_action(b, review.ACTION_REPLY_PLAYER)
+        assert storage.get_review_job(a)["pending_coach_action"] is None
+        assert storage.get_review_job(b)["pending_coach_action"] == "reply"
+        pending = storage.get_pending_review_job_for_thread(-1, 5)
+        assert pending["id"] == b

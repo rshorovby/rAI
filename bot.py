@@ -469,6 +469,11 @@ async def _cabinet_notify(
     )
 
 
+async def _load_coach_corrections(user_id: Optional[int]) -> list:
+    player_id = int(user_id) if user_id else None
+    return await asyncio.to_thread(storage.get_coach_corrections_for_prompt, player_id)
+
+
 async def _finish_onboarding_skip(
     update: Update, context: ContextTypes.DEFAULT_TYPE, lang: str, user_id: int
 ) -> None:
@@ -625,6 +630,7 @@ async def _process_followup(
         if user_id
         else None
     )
+    coach_corrections = await _load_coach_corrections(user_id)
 
     settings: Settings = context.application.bot_data.get("settings")
     use_model = (
@@ -651,6 +657,7 @@ async def _process_followup(
         player_profile,
         session.get("stroke"),
         use_model,
+        coach_corrections,
     )
     reply = result.text
     logger.info("Ответ ИИ получен (%s символов)", len(reply))
@@ -1699,9 +1706,9 @@ async def _post_review_job_to_forum(
             f"Фокус: {job.get('focus_text') or '—'}\n"
             f"Упражнение: {job.get('drill_text') or '—'}\n"
             f"Статус: AI уже у игрока\n\n"
-            f"💬 Пишите в тему свободно — каждое сообщение уйдёт игроку "
-            f"как комментарий тренера.\n"
-            f"⭐ Оцените AI-разбор кнопками под черновиком."
+            f"💬 «Ответить игроку» — текст / голос / кружок. На ИИ не влияет.\n"
+            f"✏️ «Исправить ответ ИИ» — скопируйте разбор ниже, поправьте "
+            f"и отправьте. Сохранится как эталон, игроку не уйдёт."
         )
     try:
         await context.bot.send_message(
@@ -1726,31 +1733,34 @@ async def _post_review_job_to_forum(
                 ),
             )
         draft = (job.get("draft_text") or "").strip()
+        attached_actions = False
         if manual:
             note = draft or "AI не вернул разбор."
-            for chunk in _split_message(f"⚠️ Сбой AI:\n\n{note}"):
-                await context.bot.send_message(
-                    chat_id=forum_chat_id,
-                    message_thread_id=thread_id,
-                    text=chunk,
-                )
+            chunks = _split_message(f"⚠️ Сбой AI:\n\n{note}")
         elif draft:
-            draft_chunks = _split_message(f"🤖 AI-разбор (уже у игрока):\n\n{draft}")
-            for chunk in draft_chunks:
+            chunks = _split_message(f"🤖 AI-разбор (уже у игрока):\n\n{draft}")
+        else:
+            chunks = []
+        if chunks:
+            last = len(chunks) - 1
+            for i, chunk in enumerate(chunks):
+                kwargs = {}
+                if i == last:
+                    kwargs["reply_markup"] = review.coach_action_keyboard(job_id)
+                    attached_actions = True
                 await context.bot.send_message(
                     chat_id=forum_chat_id,
                     message_thread_id=thread_id,
                     text=chunk,
+                    **kwargs,
                 )
-        try:
+        if not attached_actions:
             await context.bot.send_message(
                 chat_id=forum_chat_id,
                 message_thread_id=thread_id,
-                text=review.coach_eval_prompt(job_id),
-                reply_markup=review.coach_eval_keyboard(job_id),
+                text="Действия по этому разбору:",
+                reply_markup=review.coach_action_keyboard(job_id),
             )
-        except Exception:
-            logger.exception("coach eval prompt failed job_id=%s", job_id)
         logger.info("Review job_id=%s posted to forum thread_id=%s", job_id, thread_id)
     except Exception:
         logger.exception(
@@ -1813,6 +1823,7 @@ async def _analyze_video_once(
     use_model: str,
     active_focus,
     drills_catalog,
+    coach_corrections=None,
 ):
     try:
         return await asyncio.wait_for(
@@ -1827,6 +1838,7 @@ async def _analyze_video_once(
                 use_model,
                 active_focus,
                 drills_catalog,
+                coach_corrections,
             ),
             timeout=200,
         )
@@ -2029,6 +2041,7 @@ async def _run_video_analysis(
 
         player_history = await asyncio.to_thread(storage.get_player_history, user_id)
         player_profile = await asyncio.to_thread(storage.get_player_profile, user_id)
+        coach_corrections = await _load_coach_corrections(user_id)
         focus_row = await asyncio.to_thread(storage.get_player_focus, user_id)
         active_focus = (focus_row or {}).get("focus")
         drills_catalog = await asyncio.to_thread(drills.catalog_for_prompt)
@@ -2061,6 +2074,7 @@ async def _run_video_analysis(
                 use_model=use_model,
                 active_focus=active_focus,
                 drills_catalog=drills_catalog,
+                coach_corrections=coach_corrections,
             )
         except Exception as primary_exc:
             logger.warning(
@@ -2097,6 +2111,7 @@ async def _run_video_analysis(
                     use_model=fallback_model,
                     active_focus=active_focus,
                     drills_catalog=drills_catalog,
+                    coach_corrections=coach_corrections,
                 )
                 used_simple = True
                 logger.info(
@@ -2705,7 +2720,7 @@ async def handle_coach_eval_callback(
         return
     settings: Settings = context.application.bot_data.get("settings")
     if not settings or not settings.is_coach(query.from_user.id):
-        await query.answer("Оценивать разбор может только тренер.", show_alert=True)
+        await query.answer("Это может сделать только тренер.", show_alert=True)
         return
 
     parts = query.data.split(":")
@@ -2724,52 +2739,34 @@ async def handle_coach_eval_callback(
         await query.answer("Разбор не найден.", show_alert=True)
         return
 
-    player_id = int(job["user_id"])
-    coach_user_id = query.from_user.id
+    if kind in ("r", "t"):
+        await query.answer(
+            "Кнопки устарели. Используйте «Ответить игроку» или «Исправить ответ ИИ».",
+            show_alert=True,
+        )
+        return
 
-    if kind == "r":
-        if payload not in review.VALID_RATINGS:
-            await query.answer("Неизвестная оценка.", show_alert=True)
-            return
-        eval_row = await asyncio.to_thread(
-            storage.upsert_coach_evaluation,
-            job_id,
-            player_id=player_id,
-            coach_user_id=coach_user_id,
-            rating=payload,
-        )
-        await query.answer("Оценка сохранена.")
-    elif kind == "t":
-        if payload not in review.VALID_TAGS:
-            await query.answer("Неизвестный тег.", show_alert=True)
-            return
-        current = await asyncio.to_thread(storage.get_coach_evaluation, job_id)
-        tags = list((current or {}).get("tags") or [])
-        if payload in tags:
-            tags.remove(payload)
-        else:
-            tags.append(payload)
-        eval_row = await asyncio.to_thread(
-            storage.upsert_coach_evaluation,
-            job_id,
-            player_id=player_id,
-            coach_user_id=coach_user_id,
-            tags=tags,
-        )
-        await query.answer("Тег обновлён.")
-    else:
+    if kind != "a" or payload not in review.VALID_COACH_ACTIONS:
         await query.answer()
         return
 
-    rating = eval_row.get("rating") or ""
-    tags = eval_row.get("tags") or []
+    await asyncio.to_thread(storage.set_pending_coach_action, job_id, payload)
+    if payload == review.ACTION_FIX_AI:
+        await query.answer("Режим: исправить ИИ")
+        hint = (
+            "Скопируйте ответ ИИ, поправьте и отправьте. "
+            "Игроку не уйдёт — сохранится как эталон для следующих ответов."
+        )
+    else:
+        await query.answer("Режим: ответ игроку")
+        hint = "Пишите игроку (текст / голос / кружок). На ИИ не влияет."
     try:
-        await query.edit_message_text(
-            text=review.coach_eval_prompt(job_id, rating=rating, tags=tags),
-            reply_markup=review.coach_eval_keyboard(job_id, rating=rating, tags=tags),
+        await query.edit_message_reply_markup(
+            reply_markup=review.coach_action_keyboard(job_id, action=payload)
         )
     except BadRequest:
         pass
+    await query.message.reply_text(hint)
 
 
 def _coach_forum_has_content(message) -> bool:
@@ -2819,7 +2816,7 @@ async def _resolve_coach_forum_player(
 async def _handle_coach_forum_message(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> bool:
-    """Любое сообщение тренера в теме игрока — доставить игроку."""
+    """Сообщение тренера в теме: либо игроку, либо эталон для ИИ."""
     message = update.message
     if not message or not _coach_forum_has_content(message):
         return False
@@ -2847,6 +2844,15 @@ async def _handle_coach_forum_message(
             else:
                 await message.reply_text(t(lang, "survey_coach_failed"))
             return True
+
+    pending_job = await asyncio.to_thread(
+        storage.get_pending_review_job_for_thread,
+        int(settings.coach_forum_chat_id),
+        int(message.message_thread_id),
+    )
+    pending_action = (pending_job or {}).get("pending_coach_action") or ""
+    if pending_action in review.FIX_AI_PENDING:
+        return await _store_coach_ai_fix(message, pending_job, player_id)
 
     try:
         if message.text:
@@ -2887,37 +2893,44 @@ async def _handle_coach_forum_message(
         return True
 
     await message.reply_text("✅ Отправлено игроку.")
-    try:
-        await asyncio.to_thread(
-            _store_coach_forum_delta,
-            message,
-            player_id,
-            message.from_user.id,
-        )
-    except Exception:
-        logger.exception("Не удалось сохранить эталон правки user_id=%s", player_id)
     return True
 
 
-def _store_coach_forum_delta(message, player_id: int, coach_user_id: int) -> None:
-    thread_id = message.message_thread_id
-    if not thread_id:
-        return
-    job = storage.get_latest_review_job_for_thread(int(message.chat_id), int(thread_id))
-    if not job:
-        return
-    if message.text:
-        text = message.text.strip()
+async def _store_coach_ai_fix(message, job: dict, player_id: int) -> bool:
+    pending_action = job.get("pending_coach_action") or ""
+    if not message.text or not message.text.strip():
+        await message.reply_text(
+            "В режиме правки ИИ нужен текст. "
+            "Скопируйте разбор, поправьте и отправьте."
+        )
+        return True
+    append = pending_action == review.ACTION_FIX_AI_CONT
+    try:
+        await asyncio.to_thread(
+            storage.save_coach_correction,
+            int(job["id"]),
+            message.text.strip(),
+            player_id=int(player_id),
+            coach_user_id=int(message.from_user.id),
+            append=append,
+        )
+        await asyncio.to_thread(
+            storage.set_pending_coach_action,
+            int(job["id"]),
+            review.ACTION_FIX_AI_CONT,
+        )
+    except Exception:
+        logger.exception("Не удалось сохранить эталон правки user_id=%s", player_id)
+        await message.reply_text("⚠️ Не удалось сохранить эталон. Попробуйте ещё раз.")
+        return True
+    if append:
+        await message.reply_text("✅ Дописано к эталону. Игроку не отправлено.")
     else:
-        text = (message.caption or "").strip() or "[медиа]"
-    if not text:
-        return
-    storage.append_coach_eval_delta(
-        int(job["id"]),
-        text,
-        player_id=int(player_id),
-        coach_user_id=int(coach_user_id),
-    )
+        await message.reply_text(
+            "✅ Эталон сохранён. Игроку не отправлено. "
+            "Можно дописать ещё или нажать «Ответить игроку»."
+        )
+    return True
 
 
 async def _handle_player_coach_message(
