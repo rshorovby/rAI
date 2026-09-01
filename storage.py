@@ -2169,11 +2169,46 @@ def get_coach_corrections_global(
     return [dict(row) for row in rows]
 
 
+def get_coach_approved_drafts(
+    limit: int = 3, exclude_job_ids: Optional[set] = None
+) -> list[dict]:
+    """Черновики AI, которые тренер закрепил кнопкой ОК."""
+    n = max(1, min(int(limit), 8))
+    excluded = [int(x) for x in (exclude_job_ids or []) if x is not None]
+    with _connect() as conn:
+        _init_db(conn)
+        extra = ""
+        params = []
+        if excluded:
+            extra = f" AND e.job_id NOT IN ({','.join('?' * len(excluded))})"
+            params.extend(excluded)
+        rows = conn.execute(
+            f"""
+            SELECT
+                e.job_id,
+                e.delta_text,
+                e.updated_at,
+                j.draft_text
+            FROM coach_evaluations e
+            JOIN review_jobs j ON j.id = e.job_id
+            WHERE e.rating = 'ok'
+              AND TRIM(COALESCE(e.delta_text, '')) = ''
+              AND TRIM(j.draft_text) != ''
+              {extra}
+            ORDER BY e.updated_at DESC, e.job_id DESC
+            LIMIT ?
+            """,
+            (*params, n),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def get_coach_corrections_for_prompt(
     player_id: Optional[int] = None,
     *,
     player_limit: int = 2,
     global_limit: int = 4,
+    approved_limit: int = 3,
 ) -> list[dict]:
     """Глобальный стиль тренера + персональные правки игрока для system prompt."""
     player_rows = []
@@ -2188,7 +2223,14 @@ def get_coach_corrections_for_prompt(
         item = dict(row)
         item["scope"] = "global"
         global_rows.append(item)
-    return global_rows + player_rows
+        if item.get("job_id") is not None:
+            seen.add(int(item["job_id"]))
+    approved_rows = []
+    for row in get_coach_approved_drafts(limit=approved_limit, exclude_job_ids=seen):
+        item = dict(row)
+        item["scope"] = "approved"
+        approved_rows.append(item)
+    return approved_rows + global_rows + player_rows
 
 
 def get_coach_eval_stats() -> dict:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from i18n import t
@@ -19,12 +21,21 @@ ACTION_SEND = "send"
 ACTION_REPLACE = "replace"
 ACTION_NOTES = "notes"
 
-# Режимы кабинета: ответ игроку vs эталон для ИИ.
+# Режимы кабинета: ответ игроку vs эталон для ИИ vs закрепление черновика.
 ACTION_REPLY_PLAYER = "reply"
 ACTION_FIX_AI = "fix"
 ACTION_FIX_AI_CONT = "fix_cont"
+ACTION_APPROVE = "ok"
 VALID_COACH_ACTIONS = (ACTION_REPLY_PLAYER, ACTION_FIX_AI)
 FIX_AI_PENDING = (ACTION_FIX_AI, ACTION_FIX_AI_CONT)
+
+_CABINET_FIRST_HEADERS = ("Краткое резюме", "Brief summary")
+_CABINET_LAST_HEADERS = (
+    "Метаданные (служебно)",
+    "Метаданные",
+    "Metadata (internal)",
+    "Metadata",
+)
 
 PLAYER_MSG_PENDING_KEY = "player_coach_message_pending"
 
@@ -62,8 +73,7 @@ def keyboard_message_coach(lang: str) -> InlineKeyboardMarkup:
     )
 
 
-# Старые оценки (колонка в БД, UI убран).
-RATING_OK = "ok"
+RATING_OK = ACTION_APPROVE
 RATING_ADDED = "added"
 RATING_MISS = "miss"
 VALID_RATINGS = (RATING_OK, RATING_ADDED, RATING_MISS)
@@ -83,8 +93,42 @@ VALID_TAGS = (
 
 _ACTION_BUTTONS = (
     (ACTION_REPLY_PLAYER, "💬 Ответить игроку"),
-    (ACTION_FIX_AI, "✏️ Исправить ответ ИИ"),
+    (ACTION_FIX_AI, "✏️ Поправить AI"),
 )
+
+
+def _strip_h2_section(report: str, headers: tuple) -> str:
+    body = report
+    for header in headers:
+        pattern = rf"(?:^|\n)##\s*{re.escape(header)}\s*\n.*?(?=\n##\s|\Z)"
+        new_body, n = re.subn(
+            pattern, "\n", body, count=1, flags=re.DOTALL | re.IGNORECASE
+        )
+        if n:
+            return new_body.strip()
+    return body.strip()
+
+
+def strip_cabinet_draft(text: str) -> str:
+    """Полный разбор без первого блока (резюме) и хвоста (метаданные/JSON)."""
+    body = (text or "").strip()
+    if not body:
+        return ""
+    stripped = _strip_h2_section(body, _CABINET_FIRST_HEADERS)
+    stripped = _strip_h2_section(stripped, _CABINET_LAST_HEADERS)
+    stripped = re.sub(
+        r"\n```json\s*\n.*?```\s*$",
+        "",
+        stripped,
+        count=1,
+        flags=re.DOTALL | re.IGNORECASE,
+    ).strip()
+    if stripped and stripped != body:
+        return stripped
+    paras = [p.strip() for p in re.split(r"\n\s*\n", body) if p.strip()]
+    if len(paras) >= 3:
+        return "\n\n".join(paras[1:-1])
+    return stripped or body
 
 
 def coach_action_keyboard(job_id: int, action: str = "") -> InlineKeyboardMarkup:
@@ -98,7 +142,14 @@ def coach_action_keyboard(job_id: int, action: str = "") -> InlineKeyboardMarkup
                 callback_data=f"ce:a:{job_id}:{key}",
             )
         )
-    return InlineKeyboardMarkup([row])
+    ok_mark = "· " if active == ACTION_APPROVE else ""
+    ok_row = [
+        InlineKeyboardButton(
+            f"{ok_mark}✅ ОК",
+            callback_data=f"ce:a:{job_id}:{ACTION_APPROVE}",
+        )
+    ]
+    return InlineKeyboardMarkup([row, ok_row])
 
 
 # Alias для старых импортов/тестов.

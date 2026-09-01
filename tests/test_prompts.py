@@ -1,9 +1,24 @@
 from prompts import (
+    FOLLOW_UP_SYSTEM_PROMPT_BASE,
+    SYSTEM_PROMPT_BASE,
     USER_PROMPT_EN,
     USER_PROMPT_RU,
     build_analysis_prompt,
     build_video_context_block,
 )
+
+
+def test_prompts_assistant_not_coach_persona():
+    assert "You are an AI tennis-technique assistant" in SYSTEM_PROMPT_BASE
+    assert "human staff coach is in charge" in SYSTEM_PROMPT_BASE
+    assert "Gemini" not in SYSTEM_PROMPT_BASE
+    assert not SYSTEM_PROMPT_BASE.startswith("You are an experienced tennis coach")
+    assert (
+        "You are the same AI tennis-technique assistant" in FOLLOW_UP_SYSTEM_PROMPT_BASE
+    )
+    assert "Gemini" not in FOLLOW_UP_SYSTEM_PROMPT_BASE
+    assert "не от лица тренера" in USER_PROMPT_RU
+    assert "not as the coach" in USER_PROMPT_EN
 
 
 def test_user_prompt_requires_next_video_section():

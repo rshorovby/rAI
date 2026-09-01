@@ -1814,11 +1814,12 @@ async def _post_review_job_to_forum(
             f"user_id: {user_id}\n"
             f"Фокус: {job.get('focus_text') or '—'}\n"
             f"Упражнение: {job.get('drill_text') or '—'}\n"
-            f"Статус: AI уже у игрока\n\n"
+            f"Статус: черновик AI уже у игрока. Тренер — главный.\n\n"
             f"{video_hint}"
-            f"💬 «Ответить игроку» — текст / голос / кружок. На ИИ не влияет.\n"
-            f"✏️ «Исправить ответ ИИ» — скопируйте разбор ниже, поправьте "
-            f"и отправьте. Сохранится как эталон, игроку не уйдёт."
+            f"💬 «Ответить игроку» — текст / голос / кружок. На AI не влияет.\n"
+            f"✏️ «Поправить AI» — скопируйте разбор ниже, поправьте "
+            f"и отправьте. Сохранится как эталон, игроку не уйдёт.\n"
+            f"✅ «ОК» — разбор компетентный, закрепляем."
         )
     try:
         await context.bot.send_message(
@@ -1839,7 +1840,10 @@ async def _post_review_job_to_forum(
             note = draft or "AI не вернул разбор."
             chunks = _split_message(f"⚠️ Сбой AI:\n\n{note}")
         elif draft:
-            chunks = _split_message(f"🤖 AI-разбор (уже у игрока):\n\n{draft}")
+            cabinet_draft = review.strip_cabinet_draft(draft) or draft
+            chunks = _split_message(
+                f"🤖 Черновик AI (помощник, уже у игрока):\n\n{cabinet_draft}"
+            )
         else:
             chunks = []
         if chunks:
@@ -1947,7 +1951,7 @@ async def _analyze_video_once(
             timeout=200,
         )
     except asyncio.TimeoutError as exc:
-        raise TimeoutError("Превышено время ожидания ответа Gemini.") from exc
+        raise TimeoutError("Превышено время ожидания ответа AI.") from exc
 
 
 async def _present_analysis_to_player(
@@ -2850,25 +2854,54 @@ async def handle_coach_eval_callback(
 
     if kind in ("r", "t"):
         await query.answer(
-            "Кнопки устарели. Используйте «Ответить игроку» или «Исправить ответ ИИ».",
+            "Кнопки устарели. Используйте «Ответить игроку», "
+            "«Поправить AI» или «ОК».",
             show_alert=True,
         )
         return
 
-    if kind != "a" or payload not in review.VALID_COACH_ACTIONS:
+    if kind != "a":
+        await query.answer()
+        return
+
+    if payload == review.ACTION_APPROVE:
+        await asyncio.to_thread(
+            storage.upsert_coach_evaluation,
+            job_id,
+            player_id=int(job["user_id"]),
+            coach_user_id=int(query.from_user.id),
+            rating=review.RATING_OK,
+        )
+        await asyncio.to_thread(storage.set_pending_coach_action, job_id, None)
+        await query.answer("Закреплено")
+        try:
+            await query.edit_message_reply_markup(
+                reply_markup=review.coach_action_keyboard(
+                    job_id, action=review.ACTION_APPROVE
+                )
+            )
+        except BadRequest:
+            pass
+        await query.message.reply_text(
+            "✅ ОК — черновик AI закреплён как компетентный. "
+            "Помощник будет ориентироваться на такие разборы."
+        )
+        return
+
+    if payload not in review.VALID_COACH_ACTIONS:
         await query.answer()
         return
 
     await asyncio.to_thread(storage.set_pending_coach_action, job_id, payload)
     if payload == review.ACTION_FIX_AI:
-        await query.answer("Режим: исправить ИИ")
+        await query.answer("Режим: поправить AI")
         hint = (
-            "Скопируйте ответ ИИ, поправьте и отправьте. "
+            "Скопируйте черновик AI, поправьте и отправьте. "
             "Игроку не уйдёт — сохранится как эталон для следующих ответов."
         )
     else:
         await query.answer("Режим: ответ игроку")
-        hint = "Пишите игроку (текст / голос / кружок). На ИИ не влияет."
+        hint = "Пишите игроку (текст / голос / кружок). На AI не влияет."
     try:
         await query.edit_message_reply_markup(
             reply_markup=review.coach_action_keyboard(job_id, action=payload)
@@ -3009,7 +3042,7 @@ async def _store_coach_ai_fix(message, job: dict, player_id: int) -> bool:
     pending_action = job.get("pending_coach_action") or ""
     if not message.text or not message.text.strip():
         await message.reply_text(
-            "В режиме правки ИИ нужен текст. "
+            "В режиме правки AI нужен текст. "
             "Скопируйте разбор, поправьте и отправьте."
         )
         return True

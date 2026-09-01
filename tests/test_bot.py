@@ -295,6 +295,37 @@ def test_coach_action_callback_sets_fix_mode(tmp_path):
         assert "эталон" in hint.lower()
 
 
+def test_coach_action_callback_ok_pins_draft(tmp_path):
+    from bot import handle_coach_eval_callback
+
+    with patch.object(storage, "DB_PATH", tmp_path / "t.db"):
+        job_id = storage.create_review_job(99, video_file_id="v", draft_text="draft")
+        storage.update_review_job(job_id, forum_chat_id=-100123, message_thread_id=77)
+        storage.set_pending_coach_action(job_id, review.ACTION_FIX_AI)
+        settings = _coach_forum_settings()
+        query = MagicMock()
+        query.data = f"ce:a:{job_id}:ok"
+        query.from_user.id = 42
+        query.answer = AsyncMock()
+        query.edit_message_reply_markup = AsyncMock()
+        query.message.reply_text = AsyncMock()
+        update = MagicMock()
+        update.callback_query = query
+        context = _make_coach_context(settings)
+
+        async def _run():
+            await handle_coach_eval_callback(update, context)
+
+        asyncio.run(_run())
+        query.answer.assert_awaited()
+        job = storage.get_review_job(job_id)
+        assert not job["pending_coach_action"]
+        row = storage.get_coach_evaluation(job_id)
+        assert row["rating"] == review.RATING_OK
+        hint = query.message.reply_text.await_args.args[0]
+        assert "закрепл" in hint.lower()
+
+
 def test_coach_forum_fix_saves_correction_not_player(tmp_path):
     with patch.object(storage, "DB_PATH", tmp_path / "t.db"):
         storage.save_player_forum_topic(99, -100123, 77, title="t")

@@ -3,9 +3,15 @@ from typing import Optional
 from i18n import language_instruction, normalize_language_code
 
 SYSTEM_PROMPT_BASE = """\
-You are an experienced tennis coach with 15+ years working with recreational \
-and semi-professional players. Your task is to provide a technical breakdown of \
-a short video (10–30 seconds) showing a player from one or more angles.
+You are an AI tennis-technique assistant. A human staff coach is in charge; \
+you prepare a draft they may approve, rewrite, or ignore. Never speak as the player's \
+coach and never write in first person as a coach (no "as your coach", "on my lesson", \
+"я как тренер"). Do not imply the review comes from a human. Write as an assistant's \
+technical notes. Use the knowledge of an experienced tennis coach with 15+ years \
+working with recreational and semi-professional players.
+
+Your task is to provide a technical breakdown of a short video (10–30 seconds) \
+showing a player from one or more angles.
 
 Analysis rules:
 1. Identify visible strokes/actions (serve, forehand, backhand, volley, smash, movement without a hit).
@@ -20,6 +26,7 @@ Analysis rules:
 
 USER_PROMPT_RU = """\
 Проанализируй прикреплённое видео теннисиста и подготовь структурированный отчёт.
+Пиши как AI-помощник, не от лица тренера. Тренер — человек и главный; ты готовишь черновик.
 
 Формат ответа (строго придерживайся этой структуры):
 
@@ -73,6 +80,7 @@ USER_PROMPT_RU = """\
 
 USER_PROMPT_EN = """\
 Analyze the attached tennis video and prepare a structured report.
+Write as an AI assistant, not as the coach. The human coach is in charge; you prepare a draft.
 
 Response format (strictly follow this structure):
 
@@ -125,8 +133,10 @@ Important: if the video shows no tennis actions or content is unsuitable — say
 """
 
 FOLLOW_UP_SYSTEM_PROMPT_BASE = """\
-You are the same tennis coach who already analyzed the player's video. \
-The user received the report and is asking follow-up questions in chat.
+You are the same AI tennis-technique assistant who prepared the draft \
+the player already received. A human staff coach is in charge. Never speak as \
+the player's coach and never write in first person as a coach. The user is asking \
+follow-up questions in chat.
 
 Rules:
 1. Answer in the context of the given analysis. The video is not available now — rely on the report and tennis knowledge.
@@ -446,6 +456,7 @@ def build_analysis_prompt(
 _MAX_CORRECTION_CHARS = 1100
 _MAX_GLOBAL_CORRECTIONS = 4
 _MAX_PLAYER_CORRECTIONS = 2
+_MAX_APPROVED_CORRECTIONS = 3
 
 
 def _clip_correction(text: str, limit: int = _MAX_CORRECTION_CHARS) -> str:
@@ -456,12 +467,19 @@ def _clip_correction(text: str, limit: int = _MAX_CORRECTION_CHARS) -> str:
 
 
 def _pack_correction(item: dict) -> Optional[dict]:
+    scope = (item or {}).get("scope") or "global"
+    if scope == "approved":
+        body = _clip_correction((item or {}).get("draft_text") or "")
+        if not body:
+            return None
+        return {"draft": "", "preferred": body, "kind": "approved"}
     preferred = _clip_correction((item or {}).get("delta_text") or "")
     if not preferred:
         return None
     return {
         "draft": _clip_correction((item or {}).get("draft_text") or ""),
         "preferred": preferred,
+        "kind": "rewrite",
     }
 
 
@@ -476,8 +494,16 @@ def _append_correction_examples(
         lines.append("")
 
 
+def _append_approved_examples(lines: list, items: list) -> None:
+    for i, item in enumerate(items, 1):
+        lines.append(f"{i}.")
+        lines.append(item["preferred"])
+        lines.append("")
+
+
 def build_coach_correction_block(corrections: list, language_code: str = "en") -> str:
     """Эталон правок штатного тренера: глобальный стиль + слой по игроку."""
+    approved_items = []
     global_items = []
     player_items = []
     for raw in corrections or []:
@@ -485,23 +511,29 @@ def build_coach_correction_block(corrections: list, language_code: str = "en") -
         if not packed:
             continue
         scope = (raw or {}).get("scope") or "global"
-        if scope == "player":
+        if packed.get("kind") == "approved":
+            if len(approved_items) < _MAX_APPROVED_CORRECTIONS:
+                approved_items.append(packed)
+        elif scope == "player":
             if len(player_items) < _MAX_PLAYER_CORRECTIONS:
                 player_items.append(packed)
         elif len(global_items) < _MAX_GLOBAL_CORRECTIONS:
             global_items.append(packed)
-    if not global_items and not player_items:
+    if not approved_items and not global_items and not player_items:
         return ""
 
     base = normalize_language_code(language_code)
     if base == "ru":
         header = "ЭТАЛОН ТРЕНЕРА (для всех разборов):"
+        approved_l = "Одобренные черновики AI (тренер нажал ОК — так и надо):"
         global_l = "Глобальные правки (разные игроки — метод тренера):"
         player_l = "Дополнительно по этому игроку:"
-        draft_l = "Черновик ИИ"
+        draft_l = "Черновик AI"
         coach_l = "Версия тренера"
         instructions = [
+            "Ты — AI-помощник. Штатный тренер — главный. Не пиши от его лица.",
             "Это не разбор текущего видео, а методика штатного тренера.",
+            "Черновики с ОК тренер закрепил как компетентные: держи этот уровень, структуру и приоритеты.",
             "Не повторяй формулировки, акценты и советы, которые тренер вычеркнул или заменил.",
             "Подмешивай техники, фокусы и тон, которые тренер добавляет и оставляет.",
             "Не копируй текст эталона дословно и не переноси факты с чужого ролика.",
@@ -509,12 +541,15 @@ def build_coach_correction_block(corrections: list, language_code: str = "en") -
         ]
     else:
         header = "STAFF COACH GOLD STANDARD (for every review):"
+        approved_l = "Approved AI drafts (the coach pressed OK — match this bar):"
         global_l = "Global rewrites (different players — the coach's method):"
         player_l = "Additionally for this player:"
         draft_l = "AI draft"
         coach_l = "Coach version"
         instructions = [
+            "You are the AI assistant. The staff coach is in charge. Do not write in their voice.",
             "This is not a review of the current video — it is the staff coach's method.",
+            "OK drafts were pinned as competent: match that level, structure, and priorities.",
             "Do not repeat wording, emphasis, or advice the coach deleted or replaced.",
             "Prefer the techniques, foci, and tone the coach adds and keeps.",
             "Do not copy the gold standard verbatim or carry facts from another clip.",
@@ -526,6 +561,9 @@ def build_coach_correction_block(corrections: list, language_code: str = "en") -
         header,
         "",
     ]
+    if approved_items:
+        lines.append(approved_l)
+        _append_approved_examples(lines, approved_items)
     if global_items:
         lines.append(global_l)
         _append_correction_examples(lines, global_items, draft_l, coach_l)

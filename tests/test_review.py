@@ -102,19 +102,57 @@ def test_player_forum_thread_lookup(tmp_path):
         assert storage.get_player_by_forum_thread(-1001, 1) is None
 
 
-def test_coach_action_keyboard_has_two_buttons():
+def test_coach_action_keyboard_has_reply_fix_and_ok():
     markup = review.coach_action_keyboard(12)
     buttons = [btn for row in markup.inline_keyboard for btn in row]
     assert {btn.callback_data for btn in buttons} == {
         "ce:a:12:reply",
         "ce:a:12:fix",
+        "ce:a:12:ok",
     }
+    assert any(btn.text == "✅ ОК" for btn in buttons)
 
 
 def test_coach_action_keyboard_marks_active_fix():
     markup = review.coach_action_keyboard(1, action=review.ACTION_FIX_AI_CONT)
     labels = [btn.text for row in markup.inline_keyboard for btn in row]
-    assert any(text.startswith("· ") and "Исправить" in text for text in labels)
+    assert any(text.startswith("· ") and "Поправить" in text for text in labels)
+
+
+def test_coach_action_keyboard_marks_ok():
+    markup = review.coach_action_keyboard(1, action=review.ACTION_APPROVE)
+    labels = [btn.text for row in markup.inline_keyboard for btn in row]
+    assert any(text.startswith("· ") and "ОК" in text for text in labels)
+
+
+def test_strip_cabinet_draft_drops_summary_and_metadata():
+    report = (
+        "## Краткое резюме\n"
+        "Любитель. Главное — точка контакта.\n\n"
+        "## Что происходит на видео\n"
+        "Форхенд сбоку, 12 секунд.\n\n"
+        "## Топ-3 приоритета для тренировки\n"
+        "1. Встретить мяч впереди.\n\n"
+        "## Следующее видео\n"
+        "Снять форхенд сбоку.\n\n"
+        "## Метаданные (служебно)\n"
+        "```json\n"
+        '{"scores":{"footwork":6}}\n'
+        "```"
+    )
+    body = review.strip_cabinet_draft(report)
+    assert "Краткое резюме" not in body
+    assert "Любитель. Главное" not in body
+    assert "Метаданные" not in body
+    assert "footwork" not in body
+    assert "Что происходит на видео" in body
+    assert "Встретить мяч впереди" in body
+    assert "Следующее видео" in body
+
+
+def test_strip_cabinet_draft_fallback_drops_first_and_last_paragraphs():
+    text = "первый абзац\n\nсередина разбора\n\nпоследний абзац"
+    assert review.strip_cabinet_draft(text) == "середина разбора"
 
 
 def test_coach_evaluation_triple(tmp_path):
@@ -223,6 +261,40 @@ def test_get_coach_corrections_for_prompt_without_player(tmp_path):
         assert len(items) == 1
         assert items[0]["scope"] == "global"
         assert items[0]["delta_text"] == "эталон"
+
+
+def test_get_coach_approved_drafts_for_prompt(tmp_path):
+    with _tmp_db(tmp_path):
+        ok_job = storage.create_review_job(
+            4, video_file_id="ok", draft_text="компетентный черновик"
+        )
+        fixed = storage.create_review_job(5, video_file_id="fx", draft_text="черновик")
+        skipped = storage.create_review_job(
+            6, video_file_id="sk", draft_text="тоже ок, но с правкой"
+        )
+        storage.upsert_coach_evaluation(
+            ok_job, player_id=4, coach_user_id=1, rating=review.RATING_OK
+        )
+        storage.save_coach_correction(
+            fixed, "эталон правки", player_id=5, coach_user_id=1
+        )
+        storage.upsert_coach_evaluation(
+            skipped,
+            player_id=6,
+            coach_user_id=1,
+            rating=review.RATING_OK,
+            delta_text="правка поверх",
+        )
+        items = storage.get_coach_corrections_for_prompt(None)
+        scopes = [
+            (row["scope"], row.get("draft_text"), row.get("delta_text"))
+            for row in items
+        ]
+        assert ("approved", "компетентный черновик", "") in scopes
+        assert ("global", "черновик", "эталон правки") in scopes
+        assert all(
+            row["job_id"] != skipped for row in items if row["scope"] == "approved"
+        )
 
 
 def test_set_pending_coach_action_clears_other_jobs(tmp_path):

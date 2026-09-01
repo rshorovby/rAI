@@ -50,6 +50,22 @@ def test_correction_block_empty_without_delta():
     assert build_coach_correction_block([{"draft_text": "x", "delta_text": ""}]) == ""
 
 
+def test_correction_block_includes_approved():
+    corrections = [
+        {
+            "scope": "approved",
+            "draft_text": "Точка контакта впереди. Главное — встретить мяч.",
+            "delta_text": "",
+        }
+    ]
+    block = build_coach_correction_block(corrections, "ru")
+    assert "нажал ОК" in block
+    assert "Точка контакта" in block
+    assert "AI-помощник" in block
+    system = build_system_prompt("ru", coach_corrections=corrections)
+    assert "нажал ОК" in system
+
+
 def test_correction_block_in_system_prompt():
     corrections = [
         {
