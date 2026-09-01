@@ -147,7 +147,8 @@ def test_strip_cabinet_draft_drops_summary_and_metadata():
     assert "footwork" not in body
     assert "Что происходит на видео" in body
     assert "Встретить мяч впереди" in body
-    assert "Следующее видео" in body
+    assert "Следующее видео" not in body
+    assert "Снять форхенд сбоку" not in body
 
 
 def test_strip_cabinet_draft_fallback_drops_first_and_last_paragraphs():

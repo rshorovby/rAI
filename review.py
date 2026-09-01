@@ -29,8 +29,11 @@ ACTION_APPROVE = "ok"
 VALID_COACH_ACTIONS = (ACTION_REPLY_PLAYER, ACTION_FIX_AI)
 FIX_AI_PENDING = (ACTION_FIX_AI, ACTION_FIX_AI_CONT)
 
-_CABINET_FIRST_HEADERS = ("Краткое резюме", "Brief summary")
-_CABINET_LAST_HEADERS = (
+_CABINET_DROP_HEADERS = (
+    "Краткое резюме",
+    "Brief summary",
+    "Следующее видео",
+    "Next video",
     "Метаданные (служебно)",
     "Метаданные",
     "Metadata (internal)",
@@ -97,25 +100,20 @@ _ACTION_BUTTONS = (
 )
 
 
-def _strip_h2_section(report: str, headers: tuple) -> str:
+def _strip_h2_sections(report: str, headers: tuple) -> str:
     body = report
     for header in headers:
         pattern = rf"(?:^|\n)##\s*{re.escape(header)}\s*\n.*?(?=\n##\s|\Z)"
-        new_body, n = re.subn(
-            pattern, "\n", body, count=1, flags=re.DOTALL | re.IGNORECASE
-        )
-        if n:
-            return new_body.strip()
+        body = re.sub(pattern, "\n", body, count=1, flags=re.DOTALL | re.IGNORECASE)
     return body.strip()
 
 
 def strip_cabinet_draft(text: str) -> str:
-    """Полный разбор без первого блока (резюме) и хвоста (метаданные/JSON)."""
+    """Полный разбор без резюме, «следующего видео» и метаданных."""
     body = (text or "").strip()
     if not body:
         return ""
-    stripped = _strip_h2_section(body, _CABINET_FIRST_HEADERS)
-    stripped = _strip_h2_section(stripped, _CABINET_LAST_HEADERS)
+    stripped = _strip_h2_sections(body, _CABINET_DROP_HEADERS)
     stripped = re.sub(
         r"\n```json\s*\n.*?```\s*$",
         "",
