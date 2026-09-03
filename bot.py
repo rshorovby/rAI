@@ -29,8 +29,10 @@ from telegram.ext import (
 import billing
 import cabinet
 import drills
+import identity
 import practice
 import review
+import services
 import storage
 import survey
 from analysis_dialog import (
@@ -115,7 +117,7 @@ from onboarding import (
     step_progress,
 )
 from pricing import cost_for_usage
-from report_parser import format_scores_line, parse_report, sparkline
+from report_parser import format_scores_line, sparkline
 from video_intake import (
     advance_intake_step,
     build_video_context,
@@ -196,11 +198,13 @@ def _telegram_user_from_update(update: Update):
     return update.effective_user
 
 
-async def _touch_user(update: Update) -> None:
+async def _touch_user(
+    update: Update, context: Optional[ContextTypes.DEFAULT_TYPE] = None
+) -> Optional[int]:
     user = _telegram_user_from_update(update)
     if not user:
-        return
-    await asyncio.to_thread(
+        return None
+    player_id = await asyncio.to_thread(
         storage.upsert_user,
         user.id,
         user.username,
@@ -208,6 +212,15 @@ async def _touch_user(update: Update) -> None:
         user.last_name,
         user.language_code,
     )
+    if context is not None:
+        context.user_data["telegram_id"] = user.id
+        context.user_data["player_id"] = player_id
+        context.user_data["user_id"] = player_id
+    return player_id
+
+
+def _player_chat_id(player_id: int) -> Optional[int]:
+    return identity.telegram_id_for(player_id)
 
 
 async def _log_event(user_id: int, event_type: str, payload: str = "") -> None:
@@ -688,17 +701,17 @@ async def _process_followup(
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     lang = _lang_from_update(update, context)
-    user_id = update.message.from_user.id
-    context.user_data["user_id"] = user_id
-    await _touch_user(update)
+    player_id = await _touch_user(update, context)
+    if player_id is None:
+        return
 
-    has_record = await asyncio.to_thread(storage.has_profile_record, user_id)
+    has_record = await asyncio.to_thread(storage.has_profile_record, player_id)
     user = update.effective_user or update.message.from_user
     await _cabinet_notify(
         context,
-        user_id,
+        player_id,
         cabinet.format_start(
-            user_id,
+            player_id,
             first_name=getattr(user, "first_name", "") or "",
             username=getattr(user, "username", "") or "",
             is_new=not has_record,
@@ -706,7 +719,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         user=user,
     )
     if not has_record:
-        await _begin_onboarding(context, user_id, is_new_user=True)
+        await _begin_onboarding(context, player_id, is_new_user=True)
         await _send_onboarding_question(
             update.message, lang, "level", intro=t(lang, "ob_intro")
         )
@@ -742,9 +755,10 @@ async def new_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     lang = _lang_from_update(update, context)
-    user_id = update.message.from_user.id
-    context.user_data["user_id"] = user_id
-    text = await asyncio.to_thread(storage.format_history_for_user, user_id, lang)
+    player_id = await _touch_user(update, context)
+    if player_id is None:
+        return
+    text = await asyncio.to_thread(storage.format_history_for_user, player_id, lang)
     if not text:
         await update.message.reply_text(
             t(lang, "history_empty"),
@@ -763,7 +777,7 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     user_id = update.message.from_user.id
     context.user_data["user_id"] = user_id
     clear_reset_pending(context.user_data)
-    await _touch_user(update)
+    await _touch_user(update, context)
     await _show_profile(update.message, lang, user_id)
 
 
@@ -826,8 +840,8 @@ async def grant_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             return
 
     sub = await asyncio.to_thread(
-        billing.grant_pro,
-        target_id,
+        services.grant_pro,
+        identity.get_or_create_telegram_player(target_id),
         months,
         billing.PROVIDER_ADMIN,
         None,
@@ -872,21 +886,21 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         )
         return
 
-    user_id = message.from_user.id
-    context.user_data["user_id"] = user_id
-    await _touch_user(update)
+    player_id = await _touch_user(update, context)
+    if player_id is None:
+        return
 
-    has_record = await asyncio.to_thread(storage.has_profile_record, user_id)
+    has_record = await asyncio.to_thread(storage.has_profile_record, player_id)
     if not has_record:
-        await _begin_onboarding(context, user_id, is_new_user=True)
+        await _begin_onboarding(context, player_id, is_new_user=True)
         await _send_onboarding_question(
             message, lang, "level", intro=t(lang, "ob_intro")
         )
         return
 
-    plan = await asyncio.to_thread(billing.get_plan, user_id)
+    plan = await asyncio.to_thread(services.get_plan, player_id)
     if billing.MONETIZATION_ENABLED and plan.analyses_left <= 0:
-        await _log_event(user_id, EVENT_PAYWALL_SHOWN)
+        await _log_event(player_id, EVENT_PAYWALL_SHOWN)
         await message.reply_text(
             t(
                 lang,
@@ -929,12 +943,12 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     }
     clear_intake_state(context.user_data)
     start_intake_state(context.user_data)
-    await _log_event(user_id, EVENT_VIDEO_SENT)
+    await _log_event(player_id, EVENT_VIDEO_SENT)
     await _cabinet_notify(
         context,
-        user_id,
+        player_id,
         cabinet.format_video_uploaded(
-            user_id, duration=int(duration or 0), comment=user_comment or ""
+            player_id, duration=int(duration or 0), comment=user_comment or ""
         ),
         user=message.from_user,
     )
@@ -952,7 +966,13 @@ async def _begin_analysis_after_intake(
     language_code: str,
 ) -> None:
     message = update.message
-    user_id = message.from_user.id
+    if not message:
+        return
+    player_id = _get_user_id(context.user_data)
+    if player_id is None:
+        player_id = await _touch_user(update, context)
+    if player_id is None:
+        return
     answers = get_intake_answers(context.user_data)
     pending = context.user_data.get("pending_video")
     video_context = build_video_context(answers)
@@ -960,7 +980,7 @@ async def _begin_analysis_after_intake(
         pending["video_context"] = video_context
         sent = await _post_intake_video_to_cabinet(
             context,
-            user_id,
+            player_id,
             pending,
             video_context,
             user=message.from_user,
@@ -974,7 +994,7 @@ async def _begin_analysis_after_intake(
     )
     status_message = await message.reply_text(t(lang, "review_preparing"))
     await _run_video_analysis(
-        context, message.chat_id, user_id, status_message, lang, language_code
+        context, message.chat_id, player_id, status_message, lang, language_code
     )
 
 
@@ -1176,16 +1196,20 @@ async def _send_survey(
     await asyncio.to_thread(storage.save_active_session, user_id, session_payload)
 
     intro_key = survey.intro_key_for(survey_type)
+    chat_id = _player_chat_id(user_id)
+    if chat_id is None:
+        logger.warning("survey: нет telegram identity player_id=%s", user_id)
+        return False
     try:
         msg = await bot.send_message(
-            chat_id=user_id,
+            chat_id=chat_id,
             text=t(lang, intro_key),
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=survey.build_survey_keyboard(lang, survey_type, set()),
         )
     except BadRequest:
         msg = await bot.send_message(
-            chat_id=user_id,
+            chat_id=chat_id,
             text=t(lang, intro_key),
             reply_markup=survey.build_survey_keyboard(lang, survey_type, set()),
         )
@@ -1274,7 +1298,9 @@ async def _complete_survey(
         )
 
     thanks_key = survey.thanks_key_for(survey_type)
-    await context.bot.send_message(chat_id=user_id, text=t(lang, thanks_key))
+    chat_id = _player_chat_id(user_id)
+    if chat_id is not None:
+        await context.bot.send_message(chat_id=chat_id, text=t(lang, thanks_key))
 
 
 async def handle_survey(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1285,7 +1311,7 @@ async def handle_survey(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     lang = sync_user_lang(context.user_data, query.from_user.language_code)
     user_id = query.from_user.id
     context.user_data["user_id"] = user_id
-    await _touch_user(update)
+    await _touch_user(update, context)
 
     session = _get_session(context.user_data)
     survey_state = survey.get_survey_state(session)
@@ -1382,7 +1408,7 @@ async def handle_dialog(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     chat_id = query.message.chat_id
     user_id = query.from_user.id
     context.user_data["user_id"] = user_id
-    await _touch_user(update)
+    await _touch_user(update, context)
 
     state = _restore_dialog_from_session(context.user_data, user_id)
     if not state:
@@ -2071,9 +2097,13 @@ async def _deliver_review_to_player(
         if status == review.STATUS_SENT_COACH
         else None
     )
+    chat_id = _player_chat_id(user_id)
+    if chat_id is None:
+        logger.warning("deliver: нет telegram identity player_id=%s", user_id)
+        return
     await _present_analysis_to_player(
         context,
-        chat_id=user_id,
+        chat_id=chat_id,
         user_id=user_id,
         lang=lang,
         language_code=language_code,
@@ -2133,7 +2163,7 @@ async def _run_video_analysis(
             await telegram_file.download_to_drive(custom_path=str(temp_path))
 
         # квота ещё раз перед дорогим вызовом (гонка / ретраи)
-        plan = await asyncio.to_thread(billing.get_plan, user_id)
+        plan = await asyncio.to_thread(services.get_plan, user_id)
         if billing.MONETIZATION_ENABLED and plan.analyses_left <= 0:
             await _log_event(user_id, EVENT_PAYWALL_SHOWN)
             await status_message.edit_text(
@@ -2148,12 +2178,12 @@ async def _run_video_analysis(
             )
             return
 
-        player_history = await asyncio.to_thread(storage.get_player_history, user_id)
-        player_profile = await asyncio.to_thread(storage.get_player_profile, user_id)
-        coach_corrections = await _load_coach_corrections(user_id)
-        focus_row = await asyncio.to_thread(storage.get_player_focus, user_id)
-        active_focus = (focus_row or {}).get("focus")
-        drills_catalog = await asyncio.to_thread(drills.catalog_for_prompt)
+        analysis_ctx = await asyncio.to_thread(services.load_analysis_context, user_id)
+        player_history = analysis_ctx["history"]
+        player_profile = analysis_ctx["profile"]
+        coach_corrections = analysis_ctx["corrections"]
+        active_focus = analysis_ctx["focus"]
+        drills_catalog = analysis_ctx["drills_catalog"]
         settings: Settings = context.application.bot_data.get("settings")
         if model_override:
             use_model = model_override
@@ -2271,9 +2301,9 @@ async def _run_video_analysis(
                 )
                 return
 
-        parsed = parse_report(result.text)
-        report = parsed.text
-        stroke = (video_context or {}).get("stroke") if video_context else None
+        prepared = services.prepare_report(result, video_context)
+        report = prepared.text
+        stroke = prepared.stroke or None
         video_seconds = pending.get("duration")
 
         await asyncio.to_thread(
@@ -2288,23 +2318,15 @@ async def _run_video_analysis(
             cost_for_usage(result.usage, result.model),
         )
 
-        focus_text = parsed.focus or ""
+        focus_text = prepared.focus
         await asyncio.to_thread(
-            storage.save_session,
-            user_id,
-            report,
-            language_code,
-            parsed.scores,
-            focus_text,
-            stroke or "",
+            services.save_analysis_session, user_id, prepared, language_code
         )
-        if focus_text:
-            await asyncio.to_thread(
-                storage.set_player_focus, user_id, focus_text, stroke, 7
-            )
         context.user_data.pop("pending_video", None)
 
-        picked = await asyncio.to_thread(drills.pick_drills, parsed.drill_ids, None, 2)
+        picked = await asyncio.to_thread(
+            drills.pick_drills, prepared.drill_ids, None, 2
+        )
         primary = picked[0] if picked else None
         drill_text = ""
         drill_id = None
@@ -2335,7 +2357,7 @@ async def _run_video_analysis(
             lang=lang,
             language_code=language_code,
             report=report,
-            scores=parsed.scores,
+            scores=prepared.scores,
             stroke=stroke or "",
             focus_text=focus_text,
             drill_text=drill_text,
@@ -2360,17 +2382,14 @@ async def _run_video_analysis(
 
         # Тот же разбор — в кабинет тренера; тренер дополняет свободными сообщениями.
         job_id = await asyncio.to_thread(
-            storage.create_review_job,
+            services.enqueue_review,
             user_id,
+            prepared,
+            language_code=language_code,
             video_file_id=video_file_id,
             video_mime=mime_type,
-            language_code=language_code,
-            draft_text=report,
-            focus_text=focus_text,
             drill_text=drill_text,
             drill_id=drill_id,
-            scores=parsed.scores,
-            stroke=stroke or "",
         )
         await _log_event(user_id, EVENT_REVIEW_QUEUED, str(job_id))
         posted = await _post_review_job_to_forum(
@@ -2495,7 +2514,7 @@ async def handle_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     user_id = query.from_user.id
     context.user_data["user_id"] = user_id
-    await _touch_user(update)
+    await _touch_user(update, context)
     await _log_event(user_id, event_type)
     await _cabinet_notify(
         context,
@@ -2519,9 +2538,9 @@ async def handle_retry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     lang = sync_user_lang(context.user_data, query.from_user.language_code)
     language_code = _language_code_from_context(context)
 
-    user_id = query.from_user.id
-    context.user_data["user_id"] = user_id
-    await _touch_user(update)
+    player_id = await _touch_user(update, context)
+    if player_id is None:
+        return
 
     if not context.user_data.get("pending_video"):
         await query.message.reply_text(
@@ -2533,8 +2552,8 @@ async def handle_retry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     use_simple = (query.data or "") == "retry:simple"
     await _cabinet_notify(
         context,
-        user_id,
-        cabinet.format_analysis_failed(user_id, retry=True, simple=use_simple),
+        player_id,
+        cabinet.format_analysis_failed(player_id, retry=True, simple=use_simple),
         user=query.from_user,
     )
     settings: Settings = context.application.bot_data.get("settings")
@@ -2549,7 +2568,7 @@ async def handle_retry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await _run_video_analysis(
         context,
         query.message.chat_id,
-        user_id,
+        player_id,
         status_message,
         lang,
         language_code,
@@ -2567,7 +2586,7 @@ async def handle_practice(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     user_id = query.from_user.id
     chat_id = query.message.chat_id
     context.user_data["user_id"] = user_id
-    await _touch_user(update)
+    await _touch_user(update, context)
 
     parts = query.data.split(":")
     if len(parts) < 2:
@@ -2763,7 +2782,7 @@ async def handle_quick_question(
     label = prompts[label_key]
     prompt = prompts[prompt_key]
     context.user_data["user_id"] = query.from_user.id
-    await _touch_user(update)
+    await _touch_user(update, context)
 
     session = _get_session(context.user_data)
     if not session.get("analysis"):
@@ -2996,6 +3015,12 @@ async def _handle_coach_forum_message(
     if pending_action in review.FIX_AI_PENDING:
         return await _store_coach_ai_fix(message, pending_job, player_id)
 
+    chat_id = _player_chat_id(player_id)
+    if chat_id is None:
+        logger.warning("coach message: нет telegram identity player_id=%s", player_id)
+        await message.reply_text("⚠️ У игрока нет Telegram — сообщение не доставлено.")
+        return True
+
     try:
         if message.text:
             user_text = message.text.strip()
@@ -3003,27 +3028,27 @@ async def _handle_coach_forum_message(
                 return False
             try:
                 await context.bot.send_message(
-                    chat_id=player_id,
+                    chat_id=chat_id,
                     text=t(lang, "review_coach_message", text=user_text),
                     parse_mode=ParseMode.MARKDOWN,
                 )
             except BadRequest:
                 await context.bot.send_message(
-                    chat_id=player_id,
+                    chat_id=chat_id,
                     text=t(lang, "review_coach_message", text=user_text),
                 )
         else:
             header = t(lang, "review_coach_media_header")
             try:
                 await context.bot.send_message(
-                    chat_id=player_id,
+                    chat_id=chat_id,
                     text=header,
                     parse_mode=ParseMode.MARKDOWN,
                 )
             except BadRequest:
-                await context.bot.send_message(chat_id=player_id, text=header)
+                await context.bot.send_message(chat_id=chat_id, text=header)
             await context.bot.copy_message(
-                chat_id=player_id,
+                chat_id=chat_id,
                 from_chat_id=message.chat_id,
                 message_id=message.message_id,
             )
@@ -3090,8 +3115,9 @@ async def _handle_player_coach_message(
     if not forum_chat_id:
         await message.reply_text(t(lang, "review_no_topic"))
         return True
+    player_id = _get_user_id(context.user_data) or user_id
     topic = await asyncio.to_thread(
-        storage.get_player_forum_topic, user_id, int(forum_chat_id)
+        storage.get_player_forum_topic, player_id, int(forum_chat_id)
     )
     if not topic:
         await message.reply_text(t(lang, "review_no_topic"))
@@ -3101,7 +3127,7 @@ async def _handle_player_coach_message(
     await context.bot.send_message(
         chat_id=int(forum_chat_id),
         message_thread_id=int(topic["message_thread_id"]),
-        text=(f"💬 Сообщение от игрока (@{uname} / {user_id}):\n\n{user_text}"),
+        text=(f"💬 Сообщение от игрока (@{uname} / {player_id}):\n\n{user_text}"),
     )
     await message.reply_text(t(lang, "review_message_sent"))
     return True
@@ -3119,7 +3145,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if not user_text:
         return
 
-    await _touch_user(update)
+    await _touch_user(update, context)
 
     if await _handle_survey_other_text(update, context, user_text):
         return
@@ -3245,8 +3271,8 @@ async def plan_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     lang = _lang_from_update(update, context)
     user_id = message.from_user.id
     context.user_data["user_id"] = user_id
-    await _touch_user(update)
-    plan = await asyncio.to_thread(billing.get_plan, user_id)
+    await _touch_user(update, context)
+    plan = await asyncio.to_thread(services.get_plan, user_id)
     if not billing.MONETIZATION_ENABLED:
         await message.reply_text(
             t(
@@ -3281,7 +3307,7 @@ async def focus_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     lang = _lang_from_update(update, context)
     user_id = message.from_user.id
     context.user_data["user_id"] = user_id
-    await _touch_user(update)
+    await _touch_user(update, context)
     focus = await asyncio.to_thread(storage.get_player_focus, user_id)
     if not focus:
         await message.reply_text(t(lang, "focus_empty"))
@@ -3305,8 +3331,8 @@ async def progress_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     lang = _lang_from_update(update, context)
     user_id = message.from_user.id
     context.user_data["user_id"] = user_id
-    await _touch_user(update)
-    rows = await asyncio.to_thread(storage.get_progress_scores, user_id, 90)
+    await _touch_user(update, context)
+    rows = await asyncio.to_thread(services.progress_scores, user_id, 90)
     if not rows:
         await message.reply_text(t(lang, "progress_empty"))
         return
@@ -3340,7 +3366,10 @@ async def send_pro_invoice(
             chat_id=chat.id, text=t(lang, "monetization_off")
         )
         return
-    payload = billing.stars_payload(user_id)
+    player_id = await _touch_user(update, context)
+    if player_id is None:
+        return
+    payload = billing.stars_payload(player_id)
     title = t(lang, "invoice_title")
     description = t(lang, "invoice_description")
     await context.bot.send_invoice(
@@ -3352,7 +3381,7 @@ async def send_pro_invoice(
         currency=billing.STARS_CURRENCY,
         prices=[LabeledPrice(label=title, amount=billing.DEFAULT_STARS_PRICE)],
     )
-    await _log_event(user_id, EVENT_INVOICE_SENT)
+    await _log_event(player_id, EVENT_INVOICE_SENT)
 
 
 async def handle_pay_callback(
@@ -3365,7 +3394,7 @@ async def handle_pay_callback(
     lang = sync_user_lang(context.user_data, query.from_user.language_code)
     user_id = query.from_user.id
     context.user_data["user_id"] = user_id
-    await _touch_user(update)
+    await _touch_user(update, context)
     await send_pro_invoice(update, context, lang, user_id)
 
 
@@ -3378,8 +3407,9 @@ async def handle_precheckout(
     if not billing.MONETIZATION_ENABLED:
         await query.answer(ok=False, error_message="Payments are temporarily disabled")
         return
-    user_id = billing.parse_stars_payload(query.invoice_payload or "")
-    if user_id is None or user_id != query.from_user.id:
+    payload_player_id = billing.parse_stars_payload(query.invoice_payload or "")
+    resolved = identity.player_id_for_telegram(query.from_user.id)
+    if payload_player_id is None or resolved is None or payload_player_id != resolved:
         await query.answer(ok=False, error_message="Invalid payment payload")
         return
     await query.answer(ok=True)
@@ -3392,20 +3422,21 @@ async def handle_successful_payment(
     if not message or not message.successful_payment:
         return
     lang = _lang_from_update(update, context)
-    user_id = message.from_user.id
-    context.user_data["user_id"] = user_id
+    player_id = await _touch_user(update, context)
+    if player_id is None:
+        return
     payment = message.successful_payment
     payment_id = (
         payment.telegram_payment_charge_id or payment.provider_payment_charge_id
     )
     await asyncio.to_thread(
-        billing.grant_pro,
-        user_id,
+        services.grant_pro,
+        player_id,
         1,
         billing.PROVIDER_STARS,
         payment_id,
     )
-    await _log_event(user_id, EVENT_PAYMENT_SUCCESS, payment_id or "")
+    await _log_event(player_id, EVENT_PAYMENT_SUCCESS, payment_id or "")
     await message.reply_text(t(lang, "payment_success"), parse_mode=ParseMode.MARKDOWN)
 
 

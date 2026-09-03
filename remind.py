@@ -8,6 +8,7 @@ import sys
 from telegram import Bot
 
 import cabinet
+import identity
 import practice
 import review
 import storage
@@ -27,6 +28,10 @@ def _ui_lang(language_code: str) -> str:
     return "ru" if normalize_language_code(language_code or "") == "ru" else "en"
 
 
+def _telegram_chat(player_id: int):
+    return identity.telegram_id_for(int(player_id))
+
+
 def _focus_drill(row: dict) -> tuple[str, str]:
     focus = (row.get("focus_text") or "").strip() or "—"
     drill = (row.get("drill_text") or "").strip() or "—"
@@ -40,6 +45,10 @@ async def run_reminders(days: int = 7) -> int:
     sent = 0
     for row in users:
         user_id = row["user_id"]
+        chat_id = identity.telegram_id_for(int(user_id))
+        if chat_id is None:
+            logger.warning("reminder: нет telegram identity player_id=%s", user_id)
+            continue
         lang = _ui_lang(row.get("language_code") or "")
         task = (row.get("next_video") or "").strip()
         if task:
@@ -47,7 +56,7 @@ async def run_reminders(days: int = 7) -> int:
         else:
             text = t(lang, "reminder_generic")
         try:
-            await bot.send_message(chat_id=user_id, text=text)
+            await bot.send_message(chat_id=chat_id, text=text)
             storage.mark_reminder_sent(user_id)
             storage.log_event(user_id, EVENT_REMINDER_SENT)
             await cabinet.notify(
@@ -74,6 +83,10 @@ async def run_digests() -> int:
     sent = 0
     for row in users:
         user_id = int(row["user_id"])
+        chat_id = _telegram_chat(user_id)
+        if chat_id is None:
+            logger.warning("digest: нет telegram identity player_id=%s", user_id)
+            continue
         lang = _ui_lang(row.get("language_code") or "")
         focus_row = storage.get_player_focus(user_id)
         focus = (focus_row or {}).get("focus") or "—"
@@ -87,7 +100,7 @@ async def run_digests() -> int:
             analyses=analyses,
         )
         try:
-            await bot.send_message(chat_id=user_id, text=text, parse_mode="Markdown")
+            await bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown")
             storage.mark_digest_sent(user_id, had_analysis=analyses > 0)
             sent += 1
             logger.info("Дайджест отправлен user_id=%s", user_id)
@@ -108,11 +121,17 @@ async def run_practice_nudges() -> tuple[int, int]:
     if practice.should_send_pre_now():
         for row in storage.list_due_practice_pre(today):
             user_id = int(row["user_id"])
+            chat_id = _telegram_chat(user_id)
+            if chat_id is None:
+                logger.warning(
+                    "practice pre: нет telegram identity player_id=%s", user_id
+                )
+                continue
             lang = _ui_lang(row.get("language_code") or "")
             focus, drill = _focus_drill(row)
             try:
                 await bot.send_message(
-                    chat_id=user_id,
+                    chat_id=chat_id,
                     text=t(lang, "practice_pre", focus=focus, drill=drill),
                     parse_mode="Markdown",
                     reply_markup=keyboard_pre_nudge(lang),
@@ -139,11 +158,17 @@ async def run_practice_nudges() -> tuple[int, int]:
     if practice.should_send_post_now():
         for row in storage.list_due_practice_post(today):
             user_id = int(row["user_id"])
+            chat_id = _telegram_chat(user_id)
+            if chat_id is None:
+                logger.warning(
+                    "practice post: нет telegram identity player_id=%s", user_id
+                )
+                continue
             lang = _ui_lang(row.get("language_code") or "")
             focus, drill = _focus_drill(row)
             try:
                 await bot.send_message(
-                    chat_id=user_id,
+                    chat_id=chat_id,
                     text=t(lang, "practice_post", drill=drill),
                     reply_markup=keyboard_post_checkin(lang),
                 )

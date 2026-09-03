@@ -13,6 +13,26 @@ DB_PATH = Path(__file__).parent / "data" / "rally.db"
 MAX_HISTORY_SESSIONS = 5  # столько последних сессий попадает в контекст тренера
 ACTIVE_SESSION_TTL_DAYS = 7
 
+PROVIDER_TELEGRAM = "telegram"
+PROVIDER_APPLE = "apple"
+
+_PLAYER_ID_COLUMNS = (
+    ("users", "user_id"),
+    ("player_sessions", "user_id"),
+    ("player_profiles", "user_id"),
+    ("events", "user_id"),
+    ("usage_log", "user_id"),
+    ("active_sessions", "user_id"),
+    ("subscriptions", "user_id"),
+    ("payments", "user_id"),
+    ("player_focus", "user_id"),
+    ("practice_plans", "user_id"),
+    ("player_forum_topics", "user_id"),
+    ("review_jobs", "user_id"),
+    ("survey_responses", "user_id"),
+    ("coach_evaluations", "player_id"),
+)
+
 
 # ---------------------------------------------------------------------------
 # Подключение / инициализация
@@ -21,14 +41,31 @@ ACTIVE_SESSION_TTL_DAYS = 7
 
 def _connect() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
     return conn
 
 
 def _init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(
         """
+        CREATE TABLE IF NOT EXISTS players (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at  TEXT    NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS identities (
+            player_id   INTEGER NOT NULL,
+            provider    TEXT    NOT NULL,
+            subject     TEXT    NOT NULL,
+            created_at  TEXT    NOT NULL,
+            PRIMARY KEY (provider, subject),
+            UNIQUE (player_id, provider)
+        );
+        CREATE INDEX IF NOT EXISTS idx_identities_player
+            ON identities (player_id);
+
         CREATE TABLE IF NOT EXISTS player_sessions (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id     INTEGER NOT NULL,
@@ -255,6 +292,119 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
         if column not in cols:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {typedef}")
+    _backfill_telegram_identities(conn)
+
+
+def _table_names(conn: sqlite3.Connection) -> set:
+    return {
+        row[0]
+        for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    }
+
+
+def _backfill_telegram_identities(conn: sqlite3.Connection) -> None:
+    """Каждый существующий user_id игрока → player + identity telegram."""
+    tables = _table_names(conn)
+    ids = set()
+    for table, column in _PLAYER_ID_COLUMNS:
+        if table not in tables:
+            continue
+        cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in cols:
+            continue
+        for row in conn.execute(
+            f"SELECT DISTINCT {column} FROM {table} WHERE {column} IS NOT NULL"
+        ):
+            ids.add(int(row[0]))
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    for uid in ids:
+        conn.execute(
+            "INSERT OR IGNORE INTO players (id, created_at) VALUES (?, ?)",
+            (uid, now),
+        )
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO identities
+                (player_id, provider, subject, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (uid, PROVIDER_TELEGRAM, str(uid), now),
+        )
+
+
+def get_or_create_telegram_player(telegram_user_id: int) -> int:
+    """Telegram-origin: player_id совпадает с telegram id (см. PRODUCT_IOS.md)."""
+    telegram_user_id = int(telegram_user_id)
+    subject = str(telegram_user_id)
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            """
+            SELECT player_id FROM identities
+            WHERE provider = ? AND subject = ?
+            """,
+            (PROVIDER_TELEGRAM, subject),
+        ).fetchone()
+        if row:
+            return int(row["player_id"])
+        conn.execute(
+            "INSERT OR IGNORE INTO players (id, created_at) VALUES (?, ?)",
+            (telegram_user_id, now),
+        )
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO identities
+                (player_id, provider, subject, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (telegram_user_id, PROVIDER_TELEGRAM, subject, now),
+        )
+        row = conn.execute(
+            """
+            SELECT player_id FROM identities
+            WHERE provider = ? AND subject = ?
+            """,
+            (PROVIDER_TELEGRAM, subject),
+        ).fetchone()
+        conn.commit()
+    if not row:
+        raise RuntimeError(f"не удалось создать identity telegram={telegram_user_id}")
+    return int(row["player_id"])
+
+
+def player_id_for_telegram(telegram_user_id: int) -> Optional[int]:
+    subject = str(int(telegram_user_id))
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            """
+            SELECT player_id FROM identities
+            WHERE provider = ? AND subject = ?
+            """,
+            (PROVIDER_TELEGRAM, subject),
+        ).fetchone()
+    if not row:
+        return None
+    return int(row["player_id"])
+
+
+def telegram_id_for(player_id: int) -> Optional[int]:
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            """
+            SELECT subject FROM identities
+            WHERE player_id = ? AND provider = ?
+            """,
+            (int(player_id), PROVIDER_TELEGRAM),
+        ).fetchone()
+    if not row:
+        return None
+    try:
+        return int(row["subject"])
+    except (TypeError, ValueError):
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -527,13 +677,15 @@ def upsert_user(
     first_name: Optional[str],
     last_name: Optional[str],
     language_code: Optional[str],
-) -> None:
+) -> int:
+    """user_id здесь — Telegram id. Возвращает player_id."""
+    player_id = get_or_create_telegram_player(user_id)
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with _connect() as conn:
         _init_db(conn)
         existing = conn.execute(
             "SELECT user_id FROM users WHERE user_id = ?",
-            (user_id,),
+            (player_id,),
         ).fetchone()
         if existing:
             conn.execute(
@@ -547,7 +699,7 @@ def upsert_user(
                     reminder_sent_at = NULL
                 WHERE user_id = ?
                 """,
-                (username, first_name, last_name, language_code, now, user_id),
+                (username, first_name, last_name, language_code, now, player_id),
             )
         else:
             conn.execute(
@@ -558,7 +710,7 @@ def upsert_user(
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    user_id,
+                    player_id,
                     username,
                     first_name,
                     last_name,
@@ -568,6 +720,7 @@ def upsert_user(
                 ),
             )
         conn.commit()
+    return player_id
 
 
 def log_event(user_id: int, event_type: str, payload: str = "") -> None:

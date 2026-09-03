@@ -8,6 +8,7 @@ from typing import Optional
 from telegram import Bot
 from telegram.error import BadRequest
 
+import identity
 import review
 import storage
 
@@ -52,14 +53,19 @@ async def ensure_player_topic(
         return int(existing["message_thread_id"])
 
     if not first_name and not username:
-        try:
-            chat = await bot.get_chat(user_id)
-            first_name = getattr(chat, "first_name", "") or ""
-            username = getattr(chat, "username", "") or ""
-        except Exception:
-            logger.exception("get_chat failed for topic title user_id=%s", user_id)
+        tg_id = identity.telegram_id_for(user_id)
+        if tg_id:
+            try:
+                chat = await bot.get_chat(tg_id)
+                first_name = getattr(chat, "first_name", "") or ""
+                username = getattr(chat, "username", "") or ""
+            except Exception:
+                logger.exception(
+                    "get_chat failed for topic title telegram_id=%s", tg_id
+                )
 
-    title = review.topic_title(user_id, first_name, username)
+    title_id = identity.telegram_id_for(user_id) or user_id
+    title = review.topic_title(title_id, first_name, username)
     try:
         topic = await bot.create_forum_topic(chat_id=forum_chat_id, name=title)
     except Exception:

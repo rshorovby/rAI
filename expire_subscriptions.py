@@ -7,6 +7,7 @@ import logging
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 
 import billing
+import identity
 import storage
 from analytics import EVENT_SUBSCRIPTION_EXPIRED
 from config import load_settings
@@ -27,11 +28,17 @@ async def run() -> tuple[int, int]:
     bot = Bot(settings.telegram_token)
     reminded = 0
     for row in billing.subscriptions_needing_reminder(3):
-        user_id = int(row["user_id"])
+        player_id = int(row["user_id"])
+        chat_id = identity.telegram_id_for(player_id)
+        if chat_id is None:
+            logger.warning(
+                "expire reminder: нет telegram identity player_id=%s", player_id
+            )
+            continue
         with storage._connect() as conn:
             storage._init_db(conn)
             u = conn.execute(
-                "SELECT language_code FROM users WHERE user_id = ?", (user_id,)
+                "SELECT language_code FROM users WHERE user_id = ?", (player_id,)
             ).fetchone()
         lang = _ui_lang((u["language_code"] if u else None) or "")
         keyboard = InlineKeyboardMarkup(
@@ -45,23 +52,27 @@ async def run() -> tuple[int, int]:
         )
         try:
             await bot.send_message(
-                chat_id=user_id,
+                chat_id=chat_id,
                 text=t(lang, "subscription_expiring", expires=row.get("expires_at")),
                 parse_mode="Markdown",
                 reply_markup=keyboard,
             )
-            billing.mark_subscription_reminded(user_id)
+            billing.mark_subscription_reminded(player_id)
             reminded += 1
         except Exception:
-            logger.exception("Не удалось напомнить о подписке user_id=%s", user_id)
+            logger.exception("Не удалось напомнить о подписке user_id=%s", player_id)
 
     expired_ids = billing.expire_subscriptions()
-    for user_id in expired_ids:
-        storage.log_event(user_id, EVENT_SUBSCRIPTION_EXPIRED)
+    for player_id in expired_ids:
+        storage.log_event(player_id, EVENT_SUBSCRIPTION_EXPIRED)
+        chat_id = identity.telegram_id_for(player_id)
+        if chat_id is None:
+            logger.warning("expire: нет telegram identity player_id=%s", player_id)
+            continue
         with storage._connect() as conn:
             storage._init_db(conn)
             u = conn.execute(
-                "SELECT language_code FROM users WHERE user_id = ?", (user_id,)
+                "SELECT language_code FROM users WHERE user_id = ?", (player_id,)
             ).fetchone()
         lang = _ui_lang((u["language_code"] if u else None) or "")
         keyboard = InlineKeyboardMarkup(
@@ -75,13 +86,13 @@ async def run() -> tuple[int, int]:
         )
         try:
             await bot.send_message(
-                chat_id=user_id,
+                chat_id=chat_id,
                 text=t(lang, "subscription_expired"),
                 parse_mode="Markdown",
                 reply_markup=keyboard,
             )
         except Exception:
-            logger.exception("Не удалось уведомить об истечении user_id=%s", user_id)
+            logger.exception("Не удалось уведомить об истечении user_id=%s", player_id)
     return reminded, len(expired_ids)
 
 

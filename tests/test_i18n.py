@@ -34,8 +34,8 @@ def test_sync_user_lang():
 
 
 def test_t_russian_and_english():
-    assert "теннис" in t("ru", "welcome").lower()
-    assert "tennis" in t("en", "welcome").lower()
+    assert "видео" in t("ru", "welcome").lower()
+    assert "video" in t("en", "welcome").lower()
 
 
 def test_t_unknown_lang_falls_back_to_en():

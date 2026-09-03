@@ -79,6 +79,7 @@ def test_coach_forum_text_goes_to_player():
                 "bot.storage.get_player_by_forum_thread",
                 return_value={"user_id": 99},
             ),
+            patch("bot.identity.telegram_id_for", return_value=99),
             patch("bot.storage.get_user_language_code", return_value="ru"),
             patch(
                 "bot.storage.get_pending_review_job_for_thread",
@@ -108,6 +109,7 @@ def test_coach_forum_photo_copied_to_player():
                 "bot.storage.get_player_by_forum_thread",
                 return_value={"user_id": 99},
             ),
+            patch("bot.identity.telegram_id_for", return_value=99),
             patch("bot.storage.get_user_language_code", return_value="ru"),
             patch(
                 "bot.storage.get_pending_review_job_for_thread",
@@ -138,6 +140,7 @@ def test_handle_video_in_coach_forum_does_not_start_analysis():
                 "bot.storage.get_player_by_forum_thread",
                 return_value={"user_id": 99},
             ),
+            patch("bot.identity.telegram_id_for", return_value=99),
             patch("bot.storage.get_user_language_code", return_value="en"),
             patch(
                 "bot.storage.get_pending_review_job_for_thread",
@@ -166,6 +169,7 @@ def test_handle_unsupported_in_coach_forum_forwards_voice():
                 "bot.storage.get_player_by_forum_thread",
                 return_value={"user_id": 99},
             ),
+            patch("bot.identity.telegram_id_for", return_value=99),
             patch("bot.storage.get_user_language_code", return_value="ru"),
             patch(
                 "bot.storage.get_pending_review_job_for_thread",
@@ -252,7 +256,7 @@ def test_quota_blocks_when_exhausted(tmp_path):
 
         async def _run():
             with (
-                patch("bot._touch_user", new=AsyncMock()),
+                patch("bot._touch_user", new=AsyncMock(return_value=88)),
                 patch("bot._lang_from_update", return_value="ru"),
                 patch("bot.is_onboarding_active", return_value=False),
                 patch("bot.is_reset_pending", return_value=False),
@@ -419,6 +423,8 @@ def test_begin_analysis_sends_cabinet_video_before_ai():
     update.message.chat_id = 99
     update.message.reply_text = AsyncMock()
     context = _make_coach_context(settings)
+    context.user_data["user_id"] = 99
+    context.user_data["player_id"] = 99
     context.user_data["pending_video"] = {
         "file_id": "vid",
         "mime_type": "video/mp4",
