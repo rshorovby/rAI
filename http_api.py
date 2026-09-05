@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import tempfile
 from pathlib import Path
 from typing import Callable, Optional
@@ -126,7 +127,14 @@ def create_app(
     if verify_apple is None:
         from apple_auth import verify_apple_identity_token
 
-        verify_apple = verify_apple_identity_token
+        audience = os.getenv("APPLE_BUNDLE_ID", "").strip() or None
+
+        def _verify_apple(token: str) -> str:
+            return verify_apple_identity_token(token, audience=audience)
+
+        verify_apple = _verify_apple
+
+    apple_verifier = verify_apple
 
     async def auth_apple(request: Request) -> Response:
         body = await request.json()
@@ -135,7 +143,7 @@ def create_app(
         if not token:
             return JSONResponse({"error": "identity_token required"}, status_code=400)
         try:
-            sub = verify_apple(token)
+            sub = apple_verifier(token)
         except Exception:
             logger.exception("apple token verify failed")
             return JSONResponse({"error": "invalid apple token"}, status_code=401)

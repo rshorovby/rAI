@@ -5,6 +5,10 @@
 База: `/v1`. Авторизация: `Authorization: Bearer <opaque token>` (кроме `POST /v1/auth/apple`).  
 Процесс: тот же, что бот. Снаружи: nginx + TLS на том же Droplet.
 
+Публичный хост (пока нет своего домена): `https://rallymind.64.227.74.21.sslip.io`  
+Включить на VPS: `sudo bash /home/rallyai/rAI/deploy/enable_http.sh`  
+`APPLE_BUNDLE_ID` должен совпадать с bundle приложения (`com.rakets.rallymind`).
+
 ## Эндпоинты
 
 | Метод | Путь | Назначение |
