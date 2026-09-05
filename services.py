@@ -123,6 +123,7 @@ def enqueue_review(
     video_mime: str,
     drill_text: str = "",
     drill_id: Optional[str] = None,
+    source_channel: str = storage.CHANNEL_TELEGRAM,
 ) -> int:
     return storage.create_review_job(
         player_id,
@@ -135,6 +136,7 @@ def enqueue_review(
         drill_id=drill_id,
         scores=prepared.scores,
         stroke=prepared.stroke,
+        source_channel=source_channel,
     )
 
 

@@ -15,6 +15,10 @@ ACTIVE_SESSION_TTL_DAYS = 7
 
 PROVIDER_TELEGRAM = "telegram"
 PROVIDER_APPLE = "apple"
+CHANNEL_TELEGRAM = "telegram"
+CHANNEL_IOS = "ios"
+LINK_TG_TO_IOS = "tg_to_ios"
+LINK_IOS_TO_TG = "ios_to_tg"
 
 _PLAYER_ID_COLUMNS = (
     ("users", "user_id"),
@@ -65,6 +69,30 @@ def _init_db(conn: sqlite3.Connection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_identities_player
             ON identities (player_id);
+
+        CREATE TABLE IF NOT EXISTS api_sessions (
+            token       TEXT PRIMARY KEY,
+            player_id   INTEGER NOT NULL,
+            created_at  TEXT    NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_api_sessions_player
+            ON api_sessions (player_id);
+
+        CREATE TABLE IF NOT EXISTS link_codes (
+            code        TEXT PRIMARY KEY,
+            player_id   INTEGER NOT NULL,
+            direction   TEXT    NOT NULL,
+            expires_at  TEXT    NOT NULL,
+            created_at  TEXT    NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS device_tokens (
+            token       TEXT PRIMARY KEY,
+            player_id   INTEGER NOT NULL,
+            created_at  TEXT    NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_device_tokens_player
+            ON device_tokens (player_id);
 
         CREATE TABLE IF NOT EXISTS player_sessions (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -281,6 +309,7 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         ("player_profiles", "frequency", "TEXT"),
         ("player_profiles", "experience", "TEXT"),
         ("player_profiles", "coaching", "TEXT"),
+        ("review_jobs", "source_channel", "TEXT NOT NULL DEFAULT 'telegram'"),
     )
     for table, column, typedef in migrations:
         tables = {
@@ -405,6 +434,259 @@ def telegram_id_for(player_id: int) -> Optional[int]:
         return int(row["subject"])
     except (TypeError, ValueError):
         return None
+
+
+def _now_sql() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def get_or_create_apple_player(apple_sub: str) -> int:
+    subject = (apple_sub or "").strip()
+    if not subject:
+        raise ValueError("empty apple subject")
+    now = _now_sql()
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            """
+            SELECT player_id FROM identities
+            WHERE provider = ? AND subject = ?
+            """,
+            (PROVIDER_APPLE, subject),
+        ).fetchone()
+        if row:
+            return int(row["player_id"])
+        cur = conn.execute(
+            "INSERT INTO players (created_at) VALUES (?)",
+            (now,),
+        )
+        player_id = int(cur.lastrowid)
+        conn.execute(
+            """
+            INSERT INTO identities (player_id, provider, subject, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (player_id, PROVIDER_APPLE, subject, now),
+        )
+        conn.commit()
+    return player_id
+
+
+def player_has_telegram(player_id: int) -> bool:
+    return telegram_id_for(player_id) is not None
+
+
+def player_language_code(player_id: int) -> str:
+    code = get_user_language_code(player_id)
+    return code or ""
+
+
+def has_player_history(player_id: int) -> bool:
+    with _connect() as conn:
+        _init_db(conn)
+        jobs = conn.execute(
+            "SELECT 1 FROM review_jobs WHERE user_id = ? LIMIT 1",
+            (int(player_id),),
+        ).fetchone()
+        if jobs:
+            return True
+        sessions = conn.execute(
+            "SELECT 1 FROM player_sessions WHERE user_id = ? LIMIT 1",
+            (int(player_id),),
+        ).fetchone()
+    return bool(sessions)
+
+
+def create_api_session(player_id: int) -> str:
+    import secrets
+
+    token = secrets.token_urlsafe(32)
+    now = _now_sql()
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            "INSERT INTO api_sessions (token, player_id, created_at) VALUES (?, ?, ?)",
+            (token, int(player_id), now),
+        )
+        conn.commit()
+    return token
+
+
+def player_id_for_session(token: str) -> Optional[int]:
+    if not token:
+        return None
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            "SELECT player_id FROM api_sessions WHERE token = ?",
+            (token,),
+        ).fetchone()
+    if not row:
+        return None
+    return int(row["player_id"])
+
+
+def delete_api_session(token: str) -> None:
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute("DELETE FROM api_sessions WHERE token = ?", (token,))
+        conn.commit()
+
+
+def delete_player_account(player_id: int) -> None:
+    pid = int(player_id)
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute("DELETE FROM api_sessions WHERE player_id = ?", (pid,))
+        conn.execute("DELETE FROM link_codes WHERE player_id = ?", (pid,))
+        conn.execute("DELETE FROM device_tokens WHERE player_id = ?", (pid,))
+        conn.execute("DELETE FROM identities WHERE player_id = ?", (pid,))
+        conn.execute("DELETE FROM players WHERE id = ?", (pid,))
+        conn.commit()
+
+
+def create_link_code(player_id: int, direction: str, ttl_seconds: int = 600) -> str:
+    import secrets
+    import string
+
+    alphabet = string.ascii_uppercase + string.digits
+    code = "".join(secrets.choice(alphabet) for _ in range(8))
+    now = datetime.now()
+    expires = (now + timedelta(seconds=ttl_seconds)).strftime("%Y-%m-%d %H:%M:%S")
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            """
+            INSERT INTO link_codes (code, player_id, direction, expires_at, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                code,
+                int(player_id),
+                direction,
+                expires,
+                now.strftime("%Y-%m-%d %H:%M:%S"),
+            ),
+        )
+        conn.commit()
+    return code
+
+
+def consume_link_code(code: str, direction: str) -> Optional[int]:
+    raw = (code or "").strip().upper()
+    if not raw:
+        return None
+    now = _now_sql()
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            """
+            SELECT player_id, expires_at FROM link_codes
+            WHERE code = ? AND direction = ?
+            """,
+            (raw, direction),
+        ).fetchone()
+        if not row:
+            return None
+        if str(row["expires_at"]) < now:
+            conn.execute("DELETE FROM link_codes WHERE code = ?", (raw,))
+            conn.commit()
+            return None
+        player_id = int(row["player_id"])
+        conn.execute("DELETE FROM link_codes WHERE code = ?", (raw,))
+        conn.commit()
+    return player_id
+
+
+def save_device_token(player_id: int, token: str) -> None:
+    value = (token or "").strip()
+    if not value:
+        return
+    now = _now_sql()
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            """
+            INSERT INTO device_tokens (token, player_id, created_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(token) DO UPDATE SET player_id = excluded.player_id
+            """,
+            (value, int(player_id), now),
+        )
+        conn.commit()
+
+
+def attach_apple_identity(player_id: int, apple_sub: str) -> None:
+    subject = (apple_sub or "").strip()
+    now = _now_sql()
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            """
+            INSERT INTO identities (player_id, provider, subject, created_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(provider, subject) DO UPDATE SET player_id = excluded.player_id
+            """,
+            (int(player_id), PROVIDER_APPLE, subject, now),
+        )
+        conn.commit()
+
+
+def apple_subject_for(player_id: int) -> Optional[str]:
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            """
+            SELECT subject FROM identities
+            WHERE player_id = ? AND provider = ?
+            """,
+            (int(player_id), PROVIDER_APPLE),
+        ).fetchone()
+    if not row:
+        return None
+    return str(row["subject"])
+
+
+def move_apple_identity(from_player_id: int, to_player_id: int) -> None:
+    """Пустой iOS (Apple) принимает историю Telegram: apple identity едет на telegram player_id."""
+    sub = apple_subject_for(from_player_id)
+    if not sub:
+        raise ValueError("no apple identity")
+    now = _now_sql()
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            "DELETE FROM identities WHERE player_id = ? AND provider = ?",
+            (int(from_player_id), PROVIDER_APPLE),
+        )
+        conn.execute(
+            """
+            INSERT INTO identities (player_id, provider, subject, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (int(to_player_id), PROVIDER_APPLE, sub, now),
+        )
+        conn.execute(
+            "DELETE FROM api_sessions WHERE player_id = ?", (int(from_player_id),)
+        )
+        conn.execute("DELETE FROM players WHERE id = ?", (int(from_player_id),))
+        conn.commit()
+
+
+def attach_telegram_identity(player_id: int, telegram_user_id: int) -> None:
+    subject = str(int(telegram_user_id))
+    now = _now_sql()
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            """
+            INSERT INTO identities (player_id, provider, subject, created_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(provider, subject) DO UPDATE SET player_id = excluded.player_id
+            """,
+            (int(player_id), PROVIDER_TELEGRAM, subject, now),
+        )
+        conn.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -1885,7 +2167,9 @@ def save_player_forum_topic(
         conn.commit()
 
 
-def cancel_open_review_jobs(user_id: int) -> None:
+def cancel_open_review_jobs(
+    user_id: int, source_channel: str = CHANNEL_TELEGRAM
+) -> None:
     with _connect() as conn:
         _init_db(conn)
         placeholders = ",".join("?" * len(_OPEN_REVIEW_STATUSES))
@@ -1893,9 +2177,16 @@ def cancel_open_review_jobs(user_id: int) -> None:
             f"""
             UPDATE review_jobs
             SET status = 'cancelled'
-            WHERE user_id = ? AND status IN ({placeholders})
+            WHERE user_id = ?
+              AND status IN ({placeholders})
+              AND COALESCE(source_channel, ?) = ?
             """,
-            (user_id, *_OPEN_REVIEW_STATUSES),
+            (
+                user_id,
+                *_OPEN_REVIEW_STATUSES,
+                CHANNEL_TELEGRAM,
+                source_channel,
+            ),
         )
         conn.commit()
 
@@ -1913,8 +2204,10 @@ def create_review_job(
     scores: Optional[dict] = None,
     stroke: str = "",
     reviewer_id: Optional[int] = None,
+    source_channel: str = CHANNEL_TELEGRAM,
 ) -> int:
-    cancel_open_review_jobs(user_id)
+    if source_channel == CHANNEL_TELEGRAM:
+        cancel_open_review_jobs(user_id, CHANNEL_TELEGRAM)
     created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     scores_json = json.dumps(scores or {}, ensure_ascii=False)
     with _connect() as conn:
@@ -1924,8 +2217,9 @@ def create_review_job(
             INSERT INTO review_jobs (
                 user_id, reviewer_id, created_at, status,
                 video_file_id, video_mime, language_code, draft_text,
-                focus_text, drill_text, drill_id, scores_json, stroke
-            ) VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                focus_text, drill_text, drill_id, scores_json, stroke,
+                source_channel
+            ) VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
@@ -1940,6 +2234,7 @@ def create_review_job(
                 drill_id,
                 scores_json,
                 stroke or "",
+                source_channel,
             ),
         )
         conn.commit()
@@ -1953,6 +2248,32 @@ def get_review_job(job_id: int) -> Optional[dict]:
             "SELECT * FROM review_jobs WHERE id = ?", (job_id,)
         ).fetchone()
     return dict(row) if row else None
+
+
+def list_player_jobs(player_id: int, *, open_only: bool = False) -> list:
+    pid = int(player_id)
+    with _connect() as conn:
+        _init_db(conn)
+        if open_only:
+            placeholders = ",".join("?" * len(_OPEN_REVIEW_STATUSES))
+            rows = conn.execute(
+                f"""
+                SELECT * FROM review_jobs
+                WHERE user_id = ? AND status IN ({placeholders})
+                ORDER BY id DESC
+                """,
+                (pid, *_OPEN_REVIEW_STATUSES),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT * FROM review_jobs
+                WHERE user_id = ? AND status IN ('sent_coach', 'sent_fallback')
+                ORDER BY id DESC
+                """,
+                (pid,),
+            ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def get_open_review_job(user_id: int) -> Optional[dict]:

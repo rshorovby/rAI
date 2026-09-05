@@ -741,6 +741,35 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
 
 
+async def link_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if not message:
+        return
+    lang = _lang_from_update(update, context)
+    player_id = await _touch_user(update, context)
+    if player_id is None:
+        return
+    args = context.args or []
+    if not args:
+        code = await asyncio.to_thread(
+            storage.create_link_code, player_id, storage.LINK_TG_TO_IOS
+        )
+        await message.reply_text(t(lang, "link_code", code=code))
+        return
+    ios_player = await asyncio.to_thread(
+        storage.consume_link_code, args[0], storage.LINK_IOS_TO_TG
+    )
+    if ios_player is None:
+        await message.reply_text(t(lang, "link_invalid"))
+        return
+    if await asyncio.to_thread(storage.has_player_history, player_id):
+        await message.reply_text(t(lang, "link_telegram_not_empty"))
+        return
+    telegram_id = message.from_user.id
+    await asyncio.to_thread(storage.attach_telegram_identity, ios_player, telegram_id)
+    await message.reply_text(t(lang, "link_ok"))
+
+
 async def new_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     lang = _lang_from_update(update, context)
     _clear_session(context.user_data)
@@ -1696,6 +1725,21 @@ async def _ensure_player_forum_topic(
 async def _send_forum_video(
     bot, forum_chat_id: int, thread_id: int, file_id: str
 ) -> bool:
+    if file_id.startswith("ios:"):
+        path = file_id[4:]
+        try:
+            with open(path, "rb") as handle:
+                await bot.send_video(
+                    chat_id=forum_chat_id,
+                    message_thread_id=thread_id,
+                    video=handle,
+                )
+            return True
+        except OSError:
+            logger.exception("ios video file missing path=%s", path)
+        except BadRequest:
+            logger.exception("send_video ios file to forum failed")
+        return False
     try:
         await bot.send_video(
             chat_id=forum_chat_id,
@@ -3474,6 +3518,7 @@ def build_application(settings: Settings) -> Application:
 
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("link", link_command))
     app.add_handler(CommandHandler("plan", plan_command))
     app.add_handler(CommandHandler("focus", focus_command))
     app.add_handler(CommandHandler("progress", progress_command))

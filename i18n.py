@@ -151,7 +151,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "После видео вы сначала получаете AI-разбор, а опытный тренер может "
             "дополнить его отдельным сообщением. Вопросы пишите обычным текстом — "
             "бот отвечает в контексте последнего видео. Новое видео начинает новый диалог.\n\n"
-            "/new — сбросить текущий диалог без отправки видео"
+            "/new — сбросить текущий диалог без отправки видео\n"
+            "/link — код привязки к приложению iOS"
         ),
         "btn_help": "📋 Справка",
         "btn_new": "🔄 Новый разбор",
@@ -163,6 +164,16 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "cmd_focus": "Фокус недели",
         "cmd_new": "Новый разбор",
         "cmd_history": "Мои прошлые разборы",
+        "link_code": (
+            "Код для приложения RallyMind (10 минут):\n\n`{code}`\n\n"
+            "Введите его в приложении на экране привязки Telegram."
+        ),
+        "link_invalid": "Код не найден или истёк. Сгенерируйте новый в приложении.",
+        "link_telegram_not_empty": (
+            "У этого Telegram уже есть разборы. Привязка кода из приложения "
+            "нужна для пустого Telegram."
+        ),
+        "link_ok": "Telegram привязан к приложению.",
         "btn_upgrade_pro": "⭐ Открыть Pro",
         "paywall_text": (
             "🔒 *Лимит разборов исчерпан*\n\n"
@@ -687,7 +698,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "After you send a video you get an AI review first; an experienced coach "
             "may add a separate comment. Send text questions anytime — the bot replies "
             "in context of the last video. A new video starts a new dialog.\n\n"
-            "/new — reset the current dialog without sending a video"
+            "/new — reset the current dialog without sending a video\n"
+            "/link — code to link the iOS app"
         ),
         "btn_help": "📋 Help",
         "btn_new": "🔄 New analysis",
@@ -699,6 +711,16 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "cmd_focus": "Weekly focus",
         "cmd_new": "New analysis",
         "cmd_history": "My past analyses",
+        "link_code": (
+            "Code for the RallyMind app (10 minutes):\n\n`{code}`\n\n"
+            "Enter it in the app on the Telegram link screen."
+        ),
+        "link_invalid": "Code not found or expired. Generate a new one in the app.",
+        "link_telegram_not_empty": (
+            "This Telegram account already has reviews. An app code can only "
+            "link an empty Telegram account."
+        ),
+        "link_ok": "Telegram is linked to the app.",
         "btn_upgrade_pro": "⭐ Unlock Pro",
         "paywall_text": (
             "🔒 *Analysis limit reached*\n\n"
