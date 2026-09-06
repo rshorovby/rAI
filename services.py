@@ -8,7 +8,33 @@ import billing
 import drills
 import storage
 from analyzer import AnalysisResult, VideoAnalyzer
-from report_parser import parse_report
+from report_parser import SKILL_KEYS, parse_report
+
+COVERAGE_SEGMENTS = (
+    "forehand",
+    "backhand",
+    "serve",
+    "volley",
+    "footwork",
+    "rally",
+)
+COVERAGE_SLOTS = SKILL_KEYS
+COVERAGE_WEIGHTS = {
+    "serve": 0.25,
+    "forehand": 0.25,
+    "backhand": 0.25,
+    "volley": 1.0 / 12,
+    "footwork": 1.0 / 12,
+    "rally": 1.0 / 12,
+}
+COVERAGE_CORE = ("serve", "forehand", "backhand")
+SCORE_CLOSE = 7.0
+LOOK_CLOSE = 5.0
+LOOK_TO_SLOT = {
+    "technique": "preparation",
+    "footwork": "footwork",
+    "contact": "contact",
+}
 
 
 def get_plan(player_id: int):
@@ -124,8 +150,9 @@ def enqueue_review(
     drill_text: str = "",
     drill_id: Optional[str] = None,
     source_channel: str = storage.CHANNEL_TELEGRAM,
+    look: str = "",
 ) -> int:
-    return storage.create_review_job(
+    job_id = storage.create_review_job(
         player_id,
         video_file_id=video_file_id,
         video_mime=video_mime,
@@ -138,6 +165,111 @@ def enqueue_review(
         stroke=prepared.stroke,
         source_channel=source_channel,
     )
+    apply_coverage(player_id, job_id, prepared, look=look)
+    return job_id
+
+
+def apply_coverage(
+    player_id: int,
+    job_id: int,
+    prepared: PreparedReport,
+    look: str = "",
+) -> list:
+    segment = (prepared.stroke or "").strip()
+    if segment not in COVERAGE_SEGMENTS:
+        return []
+    look_slot = LOOK_TO_SLOT.get((look or "").strip().lower())
+    added = []
+    for slot in COVERAGE_SLOTS:
+        score = prepared.scores.get(slot)
+        if score is None:
+            continue
+        need = LOOK_CLOSE if slot == look_slot else SCORE_CLOSE
+        if float(score) < need:
+            continue
+        storage.add_coverage_contribution(player_id, job_id, segment, slot)
+        added.append({"segment": segment, "slot": slot, "status": "pending"})
+    return added
+
+
+def _segment_coverage(filled: set, total: int) -> float:
+    if total <= 0:
+        return 0.0
+    return round(100.0 * len(filled) / total, 1)
+
+
+def dossier_payload(player_id: int) -> dict:
+    rows = storage.list_coverage_contributions(player_id)
+    pending_by: dict = {s: set() for s in COVERAGE_SEGMENTS}
+    committed_by: dict = {s: set() for s in COVERAGE_SEGMENTS}
+    for row in rows:
+        segment = row.get("segment") or ""
+        slot = row.get("slot") or ""
+        if segment not in pending_by or slot not in COVERAGE_SLOTS:
+            continue
+        status = row.get("status") or "pending"
+        if status == "voided":
+            continue
+        pending_by[segment].add(slot)
+        if status == "committed":
+            committed_by[segment].add(slot)
+    slot_total = len(COVERAGE_SLOTS)
+    segments = []
+    player_pending = 0.0
+    player_committed = 0.0
+    core_committed_positive = 0
+    for segment in COVERAGE_SEGMENTS:
+        pending_pct = _segment_coverage(pending_by[segment], slot_total)
+        committed_pct = _segment_coverage(committed_by[segment], slot_total)
+        weight = COVERAGE_WEIGHTS[segment]
+        player_pending += weight * pending_pct
+        player_committed += weight * committed_pct
+        if segment in COVERAGE_CORE and committed_pct > 0:
+            core_committed_positive += 1
+        slots = []
+        for slot in COVERAGE_SLOTS:
+            slots.append(
+                {
+                    "id": slot,
+                    "pending": slot in pending_by[segment],
+                    "committed": slot in committed_by[segment],
+                }
+            )
+        next_to_film = [s["id"] for s in slots if not s["pending"]]
+        segments.append(
+            {
+                "id": segment,
+                "coverage_pending": pending_pct,
+                "coverage_committed": committed_pct,
+                "slots": slots,
+                "next_to_film": next_to_film,
+            }
+        )
+    player_pending = round(player_pending, 1)
+    player_committed = round(player_committed, 1)
+    return {
+        "player": {
+            "coverage_pending": player_pending,
+            "coverage_committed": player_committed,
+            "goals_unlocked": player_committed >= 40 and core_committed_positive >= 2,
+        },
+        "segments": segments,
+    }
+
+
+def job_coverage_payload(job_id: int) -> dict:
+    rows = storage.list_coverage_for_job(job_id)
+    return {
+        "accent_mismatch": False,
+        "contributions": [
+            {
+                "segment": r.get("segment") or "",
+                "slot": r.get("slot") or "",
+                "status": r.get("status") or "pending",
+            }
+            for r in rows
+        ],
+    }
 
 
 def report_payload(text: str) -> dict:

@@ -263,6 +263,19 @@ def _init_db(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_review_status_created
             ON review_jobs (status, created_at);
 
+        CREATE TABLE IF NOT EXISTS coverage_contributions (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            player_id   INTEGER NOT NULL,
+            job_id      INTEGER NOT NULL,
+            segment     TEXT    NOT NULL,
+            slot        TEXT    NOT NULL,
+            status      TEXT    NOT NULL DEFAULT 'pending',
+            created_at  TEXT    NOT NULL,
+            UNIQUE(job_id, segment, slot)
+        );
+        CREATE INDEX IF NOT EXISTS idx_coverage_player
+            ON coverage_contributions (player_id, segment);
+
         CREATE TABLE IF NOT EXISTS survey_responses (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id     INTEGER NOT NULL,
@@ -541,6 +554,7 @@ def delete_player_account(player_id: int) -> None:
         conn.execute("DELETE FROM link_codes WHERE player_id = ?", (pid,))
         conn.execute("DELETE FROM device_tokens WHERE player_id = ?", (pid,))
         conn.execute("DELETE FROM identities WHERE player_id = ?", (pid,))
+        conn.execute("DELETE FROM coverage_contributions WHERE player_id = ?", (pid,))
         conn.execute("DELETE FROM players WHERE id = ?", (pid,))
         conn.commit()
 
@@ -2270,6 +2284,55 @@ def list_player_jobs(player_id: int, *, open_only: bool = False) -> list:
             ORDER BY id DESC
             """,
             (pid, *statuses),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def add_coverage_contribution(
+    player_id: int,
+    job_id: int,
+    segment: str,
+    slot: str,
+    status: str = "pending",
+) -> None:
+    created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO coverage_contributions
+                (player_id, job_id, segment, slot, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (int(player_id), int(job_id), segment, slot, status, created_at),
+        )
+        conn.commit()
+
+
+def list_coverage_contributions(player_id: int) -> list:
+    with _connect() as conn:
+        _init_db(conn)
+        rows = conn.execute(
+            """
+            SELECT * FROM coverage_contributions
+            WHERE player_id = ?
+            ORDER BY id ASC
+            """,
+            (int(player_id),),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def list_coverage_for_job(job_id: int) -> list:
+    with _connect() as conn:
+        _init_db(conn)
+        rows = conn.execute(
+            """
+            SELECT * FROM coverage_contributions
+            WHERE job_id = ?
+            ORDER BY id ASC
+            """,
+            (int(job_id),),
         ).fetchall()
     return [dict(r) for r in rows]
 

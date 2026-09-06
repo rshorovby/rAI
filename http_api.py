@@ -43,6 +43,9 @@ def enqueue_ios_job_live(
         model=settings.gemini_model,
     )
     services.save_analysis_session(player_id, prepared, language_code)
+    look = ""
+    if video_context:
+        look = (video_context.get("look") or "") or ""
     job_id = services.enqueue_review(
         player_id,
         prepared,
@@ -50,6 +53,7 @@ def enqueue_ios_job_live(
         video_file_id="ios:" + path,
         video_mime="video/mp4",
         source_channel=storage.CHANNEL_IOS,
+        look=look,
     )
     storage.mark_review_sent(
         job_id,
@@ -113,6 +117,7 @@ def _job_json(job: dict) -> dict:
         "markdown": parsed.get("markdown") or text,
         "scores": parsed.get("scores") or {},
         "drills": parsed.get("drills") or [],
+        "coverage": services.job_coverage_payload(job["id"]),
     }
 
 
@@ -278,6 +283,13 @@ def create_app(
             return JSONResponse({"error": "not found"}, status_code=404)
         return JSONResponse(_job_json(job))
 
+    async def dossier(request: Request) -> Response:
+        try:
+            player_id = _bearer_player(request)
+        except AuthError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=401)
+        return JSONResponse(services.dossier_payload(player_id))
+
     async def progress(request: Request) -> Response:
         try:
             player_id = _bearer_player(request)
@@ -308,6 +320,7 @@ def create_app(
         Route("/v1/jobs", create_job, methods=["POST"]),
         Route("/v1/jobs", list_jobs, methods=["GET"]),
         Route("/v1/jobs/{job_id:int}", get_job, methods=["GET"]),
+        Route("/v1/dossier", dossier, methods=["GET"]),
         Route("/v1/progress", progress, methods=["GET"]),
         Route("/v1/device-tokens", device_tokens, methods=["POST"]),
     ]

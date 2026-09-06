@@ -4,7 +4,10 @@ from unittest.mock import patch
 from starlette.testclient import TestClient
 
 import http_api
+import services
 import storage
+from analyzer import AnalysisResult
+from pricing import Usage
 
 
 def _tmp_db(tmp_path: Path):
@@ -136,6 +139,35 @@ def test_app_code_and_device_token_and_delete(tmp_path):
         assert gone.status_code == 204
         me = client.get("/v1/me", headers=headers)
         assert me.status_code == 401
+
+
+def test_dossier_endpoint(tmp_path):
+    with _tmp_db(tmp_path):
+        client = _client()
+        res = client.post("/v1/auth/apple", json={"identity_token": "sub-dossier"})
+        token = res.json()["token"]
+        pid = res.json()["player_id"]
+        prepared = services.prepare_report(
+            AnalysisResult(text="## Краткое резюме\nok\n", usage=Usage(), model="m"),
+            {"stroke": "serve"},
+        )
+        prepared.scores = {"contact": 9, "footwork": 8}
+        services.enqueue_review(
+            pid,
+            prepared,
+            language_code="ru",
+            video_file_id="ios:d",
+            video_mime="video/mp4",
+        )
+        dossier = client.get(
+            "/v1/dossier", headers={"Authorization": "Bearer " + token}
+        )
+        assert dossier.status_code == 200
+        body = dossier.json()
+        assert "player" in body and "segments" in body
+        assert len(body["segments"]) == 6
+        serve = next(s for s in body["segments"] if s["id"] == "serve")
+        assert serve["coverage_pending"] > 0
 
 
 def test_ai_sent_job_listed_in_open_and_history(tmp_path):

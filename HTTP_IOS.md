@@ -22,6 +22,7 @@
 | POST | `/v1/jobs` | multipart: `video` + `stroke` + `look` + `comment` + `language_code`. `source_channel=ios`. Не cancel других iOS-заявок. |
 | GET | `/v1/jobs` | `?open=1` — `queued` / `in_review` / `ai_sent`. Иначе `ai_sent` / `sent_coach` / `sent_fallback`. |
 | GET | `/v1/jobs/{id}` | Заявка + `markdown` / `scores` / `focus` / `drills` / `stroke`. |
+| GET | `/v1/dossier` | Покрытие игрока и 6 сегментов: pending / committed, слоты, `next_to_film`, `goals_unlocked`. |
 | GET | `/v1/progress` | Ряды scores, как `/progress`. |
 | POST | `/v1/device-tokens` | Тело: `token`. APNs. |
 
@@ -31,3 +32,4 @@
 - Cancel открытых заявок при новом видео из бота — только `source_channel=telegram`.
 - Отчёт в JSON: markdown + разобранные поля, не HTML. `markdown` = `final_text` или `draft_text` (AI игроку сразу, lock rallyiOS #40/#53).
 - `ai_sent` — разбор уже у игрока, супервизия в Forum ещё не канон. В обоих списках, пока нет `sent_coach` / `sent_fallback`.
+- Заявка содержит `coverage.contributions` (слоты этого job). Покрытие пишется в `enqueue_review` с любого канала; `bot.py` не меняется.
