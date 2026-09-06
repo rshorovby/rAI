@@ -43,7 +43,7 @@ def enqueue_ios_job_live(
         model=settings.gemini_model,
     )
     services.save_analysis_session(player_id, prepared, language_code)
-    return services.enqueue_review(
+    job_id = services.enqueue_review(
         player_id,
         prepared,
         language_code=language_code,
@@ -51,6 +51,12 @@ def enqueue_ios_job_live(
         video_mime="video/mp4",
         source_channel=storage.CHANNEL_IOS,
     )
+    storage.mark_review_sent(
+        job_id,
+        status="ai_sent",
+        final_text=prepared.text,
+    )
+    return job_id
 
 
 VerifyApple = Callable[[str], str]

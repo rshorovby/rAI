@@ -138,6 +138,29 @@ def test_app_code_and_device_token_and_delete(tmp_path):
         assert me.status_code == 401
 
 
+def test_ai_sent_job_listed_in_open_and_history(tmp_path):
+    with _tmp_db(tmp_path):
+        client = _client()
+        res = client.post("/v1/auth/apple", json={"identity_token": "sub-ai-sent"})
+        token = res.json()["token"]
+        pid = res.json()["player_id"]
+        job_id = storage.create_review_job(
+            pid,
+            video_file_id="ios:clip",
+            draft_text="AI draft",
+            source_channel=storage.CHANNEL_IOS,
+        )
+        storage.mark_review_sent(job_id, status="ai_sent", final_text="AI draft")
+        headers = {"Authorization": "Bearer " + token}
+        opened = client.get("/v1/jobs?open=1", headers=headers)
+        history = client.get("/v1/jobs", headers=headers)
+        assert opened.status_code == 200
+        assert history.status_code == 200
+        assert any(j["id"] == job_id and j["markdown"] for j in opened.json()["jobs"])
+        assert any(j["id"] == job_id and j["markdown"] for j in history.json()["jobs"])
+        assert any(j["id"] == job_id and j["status"] == "ai_sent" for j in opened.json()["jobs"])
+
+
 def test_telegram_new_job_still_cancels_previous_telegram(tmp_path):
     with _tmp_db(tmp_path):
         a = storage.create_review_job(1, video_file_id="a", draft_text="1")

@@ -2103,6 +2103,10 @@ def list_due_practice_post(practice_on: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 _OPEN_REVIEW_STATUSES = ("queued", "in_review")
+# Списки канала игрока. Не для cancel: новый клип в боте не должен
+# снимать уже отданный игроку AI-разбор.
+_PLAYER_OPEN_STATUSES = ("queued", "in_review", "ai_sent")
+_PLAYER_HISTORY_STATUSES = ("ai_sent", "sent_coach", "sent_fallback")
 
 
 def get_player_forum_topic(user_id: int, forum_chat_id: int) -> Optional[dict]:
@@ -2255,24 +2259,18 @@ def list_player_jobs(player_id: int, *, open_only: bool = False) -> list:
     with _connect() as conn:
         _init_db(conn)
         if open_only:
-            placeholders = ",".join("?" * len(_OPEN_REVIEW_STATUSES))
-            rows = conn.execute(
-                f"""
-                SELECT * FROM review_jobs
-                WHERE user_id = ? AND status IN ({placeholders})
-                ORDER BY id DESC
-                """,
-                (pid, *_OPEN_REVIEW_STATUSES),
-            ).fetchall()
+            statuses = _PLAYER_OPEN_STATUSES
         else:
-            rows = conn.execute(
-                """
-                SELECT * FROM review_jobs
-                WHERE user_id = ? AND status IN ('sent_coach', 'sent_fallback')
-                ORDER BY id DESC
-                """,
-                (pid,),
-            ).fetchall()
+            statuses = _PLAYER_HISTORY_STATUSES
+        placeholders = ",".join("?" * len(statuses))
+        rows = conn.execute(
+            f"""
+            SELECT * FROM review_jobs
+            WHERE user_id = ? AND status IN ({placeholders})
+            ORDER BY id DESC
+            """,
+            (pid, *statuses),
+        ).fetchall()
     return [dict(r) for r in rows]
 
 
