@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -46,7 +47,7 @@ def enqueue_ios_job_live(
     look = ""
     if video_context:
         look = (video_context.get("look") or "") or ""
-    job_id = services.enqueue_review(
+    return services.enqueue_review(
         player_id,
         prepared,
         language_code=language_code,
@@ -55,12 +56,6 @@ def enqueue_ios_job_live(
         source_channel=storage.CHANNEL_IOS,
         look=look,
     )
-    storage.mark_review_sent(
-        job_id,
-        status="ai_sent",
-        final_text=prepared.text,
-    )
-    return job_id
 
 
 VerifyApple = Callable[[str], str]
@@ -140,6 +135,7 @@ def create_app(
     *,
     verify_apple: Optional[VerifyApple] = None,
     enqueue_ios_job: Optional[Callable] = None,
+    after_ios_job: Optional[Callable] = None,
 ) -> Starlette:
     if verify_apple is None:
         from apple_auth import verify_apple_identity_token
@@ -244,30 +240,39 @@ def create_app(
         tmp.write(data)
         tmp.close()
         path = tmp.name
-        video_context = {}
-        if stroke:
-            video_context["stroke"] = stroke
-        if look:
-            video_context["look"] = look
-        if enqueue_ios_job is not None:
-            job_id = enqueue_ios_job(
-                player_id,
-                path,
-                video_context=video_context or None,
-                comment=comment or None,
-                language_code=language_code,
-            )
-        else:
-            job_id = storage.create_review_job(
-                player_id,
-                video_file_id="ios:" + path,
-                language_code=language_code,
-                draft_text="",
-                stroke=stroke,
-                source_channel=storage.CHANNEL_IOS,
-            )
-        job = storage.get_review_job(job_id)
-        return JSONResponse(_job_json(job), status_code=201)
+        cleaned = False
+        try:
+            video_context = {}
+            if stroke:
+                video_context["stroke"] = stroke
+            if look:
+                video_context["look"] = look
+            if enqueue_ios_job is not None:
+                job_id = await asyncio.to_thread(
+                    enqueue_ios_job,
+                    player_id,
+                    path,
+                    video_context=video_context or None,
+                    comment=comment or None,
+                    language_code=language_code,
+                )
+            else:
+                job_id = storage.create_review_job(
+                    player_id,
+                    video_file_id="ios:" + path,
+                    language_code=language_code,
+                    draft_text="",
+                    stroke=stroke,
+                    source_channel=storage.CHANNEL_IOS,
+                )
+            if after_ios_job is not None:
+                await after_ios_job(job_id, player_id, path)
+                cleaned = True
+            job = storage.get_review_job(job_id)
+            return JSONResponse(_job_json(job), status_code=201)
+        finally:
+            if not cleaned:
+                Path(path).unlink(missing_ok=True)
 
     async def list_jobs(request: Request) -> Response:
         try:

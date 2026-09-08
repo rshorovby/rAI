@@ -456,3 +456,76 @@ def test_begin_analysis_sends_cabinet_video_before_ai():
     pending = context.user_data["pending_video"]
     assert pending["video_context"] == {"stroke": "serve", "look": "contact"}
     assert pending["cabinet_video_sent"] is True
+
+
+def test_post_ios_review_to_forum_sends_channel_and_deletes(tmp_path):
+    from pathlib import Path
+
+    from bot import post_ios_review_to_forum
+
+    with patch.object(storage, "DB_PATH", tmp_path / "t.db"):
+        video = tmp_path / "clip.mp4"
+        video.write_bytes(b"mp4")
+        pid = storage.get_or_create_apple_player("sub-ios-forum")
+        job_id = storage.create_review_job(
+            pid,
+            video_file_id="ios:" + str(video),
+            draft_text="## Краткое резюме\nok",
+            focus_text="Кисть",
+            source_channel=storage.CHANNEL_IOS,
+        )
+        settings = _coach_forum_settings()
+        application = MagicMock()
+        application.bot_data = {"settings": settings}
+        application.bot.send_message = AsyncMock()
+        application.bot.send_video = AsyncMock()
+
+        async def _run():
+            with patch(
+                "bot.cabinet.ensure_player_topic", new=AsyncMock(return_value=77)
+            ):
+                await post_ios_review_to_forum(application, job_id, pid, str(video))
+
+        asyncio.run(_run())
+        job = storage.get_review_job(job_id)
+        assert job["status"] == review.STATUS_AI_SENT
+        assert job["message_thread_id"] == 77
+        texts = [
+            call.kwargs["text"] for call in application.bot.send_message.await_args_list
+        ]
+        assert any("Канал: iOS" in text for text in texts)
+        application.bot.send_video.assert_awaited()
+        assert not Path(video).exists()
+
+
+def test_post_ios_review_forum_fail_still_ai_sent(tmp_path):
+    from pathlib import Path
+
+    from bot import post_ios_review_to_forum
+
+    with patch.object(storage, "DB_PATH", tmp_path / "t.db"):
+        video = tmp_path / "clip.mp4"
+        video.write_bytes(b"mp4")
+        pid = storage.get_or_create_apple_player("sub-ios-forum-fail")
+        job_id = storage.create_review_job(
+            pid,
+            video_file_id="ios:" + str(video),
+            draft_text="draft",
+            source_channel=storage.CHANNEL_IOS,
+        )
+        settings = _coach_forum_settings()
+        application = MagicMock()
+        application.bot_data = {"settings": settings}
+        application.bot.send_message = AsyncMock()
+
+        async def _run():
+            with patch(
+                "bot.cabinet.ensure_player_topic", new=AsyncMock(return_value=None)
+            ):
+                await post_ios_review_to_forum(application, job_id, pid, str(video))
+
+        asyncio.run(_run())
+        job = storage.get_review_job(job_id)
+        assert job["status"] == review.STATUS_AI_SENT
+        application.bot.send_message.assert_not_awaited()
+        assert not Path(video).exists()

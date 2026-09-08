@@ -122,6 +122,39 @@ def test_create_job_and_open_list(tmp_path):
         assert one.json()["stroke"] == "forehand"
 
 
+def test_create_job_invokes_after_ios_job_and_deletes_temp(tmp_path):
+    from pathlib import Path
+
+    calls = {}
+
+    async def after(job_id, player_id, path):
+        calls["job_id"] = job_id
+        calls["player_id"] = player_id
+        calls["existed"] = Path(path).exists()
+        Path(path).unlink(missing_ok=True)
+
+    with _tmp_db(tmp_path):
+        client = TestClient(
+            http_api.create_app(
+                verify_apple=lambda token: token,
+                after_ios_job=after,
+            )
+        )
+        res = client.post("/v1/auth/apple", json={"identity_token": "sub-after"})
+        token = res.json()["token"]
+        headers = {"Authorization": "Bearer " + token}
+        created = client.post(
+            "/v1/jobs",
+            files={"video": ("clip.mp4", b"fake-bytes", "video/mp4")},
+            data={"stroke": "forehand"},
+            headers=headers,
+        )
+        assert created.status_code == 201
+        assert calls["job_id"] == created.json()["id"]
+        assert calls["player_id"] == res.json()["player_id"]
+        assert calls["existed"] is True
+
+
 def test_app_code_and_device_token_and_delete(tmp_path):
     with _tmp_db(tmp_path):
         client = _client()
@@ -190,7 +223,10 @@ def test_ai_sent_job_listed_in_open_and_history(tmp_path):
         assert history.status_code == 200
         assert any(j["id"] == job_id and j["markdown"] for j in opened.json()["jobs"])
         assert any(j["id"] == job_id and j["markdown"] for j in history.json()["jobs"])
-        assert any(j["id"] == job_id and j["status"] == "ai_sent" for j in opened.json()["jobs"])
+        assert any(
+            j["id"] == job_id and j["status"] == "ai_sent"
+            for j in opened.json()["jobs"]
+        )
 
 
 def test_job_json_includes_findings(tmp_path):

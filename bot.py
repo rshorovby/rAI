@@ -1864,6 +1864,11 @@ async def _post_review_job_to_forum(
         status=review.STATUS_QUEUED,
     )
 
+    channel = (
+        "Канал: iOS\n"
+        if (job.get("source_channel") or "") == storage.CHANNEL_IOS
+        else ""
+    )
     if manual:
         video_hint = (
             "Видео уже в теме — напишите игроку комментарий."
@@ -1873,6 +1878,7 @@ async def _post_review_job_to_forum(
         header = (
             f"⚠️ Нужен ручной разбор #{job_id}\n"
             f"user_id: {user_id}\n"
+            f"{channel}"
             f"Фокус intake: {(job.get('stroke') or '—')}\n"
             f"Статус: AI не смог разобрать\n\n"
             f"{video_hint}"
@@ -1882,6 +1888,7 @@ async def _post_review_job_to_forum(
         header = (
             f"🆕 Разбор #{job_id}\n"
             f"user_id: {user_id}\n"
+            f"{channel}"
             f"Фокус: {job.get('focus_text') or '—'}\n"
             f"Упражнение: {job.get('drill_text') or '—'}\n"
             f"Статус: черновик AI уже у игрока. Тренер — главный.\n\n"
@@ -1946,6 +1953,41 @@ async def _post_review_job_to_forum(
         )
         return False
     return True
+
+
+class _ApplicationContext:
+    def __init__(self, application):
+        self.application = application
+        self.bot = application.bot
+
+
+async def post_ios_review_to_forum(application, job_id, player_id, path) -> None:
+    """После HTTP enqueue: Forum, затем ai_sent, затем удалить temp. Как у бота."""
+    try:
+        try:
+            posted = await _post_review_job_to_forum(
+                _ApplicationContext(application), job_id, player_id
+            )
+            if not posted:
+                logger.error(
+                    "Не удалось запостить iOS review job_id=%s в Forum", job_id
+                )
+        except Exception:
+            logger.exception("iOS forum post failed job_id=%s", job_id)
+        job = await asyncio.to_thread(storage.get_review_job, job_id)
+        text = ""
+        if job:
+            text = (job.get("final_text") or "").strip() or (
+                job.get("draft_text") or ""
+            )
+        await asyncio.to_thread(
+            storage.mark_review_sent,
+            job_id,
+            status=review.STATUS_AI_SENT,
+            final_text=text,
+        )
+    finally:
+        Path(path).unlink(missing_ok=True)
 
 
 async def _post_failed_analysis_to_cabinet(

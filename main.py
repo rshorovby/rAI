@@ -2,7 +2,7 @@ import asyncio
 import logging
 import os
 
-from bot import build_application
+from bot import build_application, post_ios_review_to_forum
 from config import load_settings
 from error_reporting import init_sentry
 
@@ -33,11 +33,18 @@ def main() -> None:
 
 async def _run_bot_and_http(application, port_raw: str) -> None:
     import uvicorn
+
     from http_api import create_app, enqueue_ios_job_live
+
+    async def after_ios_job(job_id, player_id, path):
+        await post_ios_review_to_forum(application, job_id, player_id, path)
 
     host = os.getenv("HTTP_HOST", "127.0.0.1").strip() or "127.0.0.1"
     port = int(port_raw)
-    http_app = create_app(enqueue_ios_job=enqueue_ios_job_live)
+    http_app = create_app(
+        enqueue_ios_job=enqueue_ios_job_live,
+        after_ios_job=after_ios_job,
+    )
     await application.initialize()
     await application.start()
     await application.updater.start_polling(
