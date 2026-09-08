@@ -28,11 +28,15 @@ def test_progress_scores_via_services(tmp_path):
 def test_report_payload_parses_scores():
     text = (
         "## Краткое резюме\nok\n\n"
-        '```json\n{"scores": {"footwork": 6, "contact": 7}}\n```\n'
+        "## Следующее видео\nfilm\n\n"
+        '```json\n{"scores": {"footwork": 6, "contact": 7}, "findings": [{"problem": "P", "recommendation": "R"}]}\n```\n'
     )
     payload = services.report_payload(text)
     assert payload["scores"]["footwork"] == 6
     assert payload["markdown"]
+    assert payload["summary"] == "ok"
+    assert payload["next_video"] == "film"
+    assert payload["findings"][0]["recommendation"] == "R"
 
 
 def test_prepare_and_enqueue_review(tmp_path):

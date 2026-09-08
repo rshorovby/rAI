@@ -193,6 +193,39 @@ def test_ai_sent_job_listed_in_open_and_history(tmp_path):
         assert any(j["id"] == job_id and j["status"] == "ai_sent" for j in opened.json()["jobs"])
 
 
+def test_job_json_includes_findings(tmp_path):
+    with _tmp_db(tmp_path):
+        client = _client()
+        res = client.post("/v1/auth/apple", json={"identity_token": "sub-findings"})
+        token = res.json()["token"]
+        pid = res.json()["player_id"]
+        draft = (
+            "## Краткое резюме\nСильный ритм.\n\n"
+            "## Следующее видео\nФорхенд сбоку.\n\n"
+            "```json\n"
+            '{"scores":{"preparation":7},"focus":"Повернуться",'
+            '"findings":[{"problem":"Ракетка опаздывает.","recommendation":"Отведите раньше."}]}'
+            "\n```\n"
+        )
+        job_id = storage.create_review_job(
+            pid,
+            video_file_id="ios:findings",
+            draft_text=draft,
+            source_channel=storage.CHANNEL_IOS,
+        )
+        storage.mark_review_sent(job_id, status="ai_sent", final_text=draft)
+        body = client.get(
+            f"/v1/jobs/{job_id}",
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert body.status_code == 200
+        job = body.json()
+        assert job["summary"] == "Сильный ритм."
+        assert job["next_video"] == "Форхенд сбоку."
+        assert job["findings"][0]["problem"].startswith("Ракетка")
+        assert job["findings"][0]["recommendation"].startswith("Отведите")
+
+
 def test_telegram_new_job_still_cancels_previous_telegram(tmp_path):
     with _tmp_db(tmp_path):
         a = storage.create_review_job(1, video_file_id="a", draft_text="1")

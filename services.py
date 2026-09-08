@@ -279,5 +279,8 @@ def report_payload(text: str) -> dict:
         "scores": parsed.scores,
         "focus": parsed.focus,
         "drills": parsed.drill_ids,
+        "findings": parsed.findings,
+        "summary": parsed.summary,
+        "next_video": parsed.next_video,
         "stroke": "",
     }

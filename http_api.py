@@ -100,6 +100,9 @@ def _job_json(job: dict) -> dict:
             "scores": scores,
             "focus": job.get("focus_text") or "",
             "drills": [],
+            "findings": [],
+            "summary": "",
+            "next_video": "",
             "stroke": job.get("stroke") or "",
         }
     )
@@ -113,10 +116,13 @@ def _job_json(job: dict) -> dict:
         "created_at": job["created_at"],
         "source_channel": job.get("source_channel") or storage.CHANNEL_TELEGRAM,
         "stroke": job.get("stroke") or "",
-        "focus": job.get("focus_text") or "",
+        "focus": job.get("focus_text") or parsed.get("focus") or "",
         "markdown": parsed.get("markdown") or text,
         "scores": parsed.get("scores") or {},
         "drills": parsed.get("drills") or [],
+        "findings": parsed.get("findings") or [],
+        "summary": parsed.get("summary") or "",
+        "next_video": parsed.get("next_video") or "",
         "coverage": services.job_coverage_payload(job["id"]),
     }
 

@@ -21,7 +21,7 @@
 | POST | `/v1/link/app-code` | Код из приложения для пустого Telegram. Ответ: `code`, `expires_in`. |
 | POST | `/v1/jobs` | multipart: `video` + `stroke` + `look` + `comment` + `language_code`. `source_channel=ios`. Не cancel других iOS-заявок. |
 | GET | `/v1/jobs` | `?open=1` — `queued` / `in_review` / `ai_sent`. Иначе `ai_sent` / `sent_coach` / `sent_fallback`. |
-| GET | `/v1/jobs/{id}` | Заявка + `markdown` / `scores` / `focus` / `drills` / `stroke`. |
+| GET | `/v1/jobs/{id}` | Заявка + `markdown` / `scores` / `focus` / `drills` / `stroke` / `summary` / `next_video` / `findings` (≤3: `problem`, `recommendation`, `drill_ids`). |
 | GET | `/v1/dossier` | Покрытие игрока и 6 сегментов: pending / committed, слоты, `next_to_film`, `goals_unlocked`. |
 | GET | `/v1/progress` | Ряды scores, как `/progress`. |
 | POST | `/v1/device-tokens` | Тело: `token`. APNs. |
@@ -30,6 +30,6 @@
 
 - Пустой iOS = нет `review_jobs` и нет `player_sessions`. Иначе Telegram→iOS — 409.
 - Cancel открытых заявок при новом видео из бота — только `source_channel=telegram`.
-- Отчёт в JSON: markdown + разобранные поля, не HTML. `markdown` = `final_text` или `draft_text` (AI игроку сразу, lock rallyiOS #40/#53).
+- Отчёт в JSON: markdown + разобранные поля, не HTML. `markdown` = `final_text` или `draft_text` (AI игроку сразу, lock rallyiOS #40/#53). `findings` — массив ≤3 (`problem`, `recommendation`, `drill_ids`); пустой массив, если модели нет или заявка старая. `summary` / `next_video` — секции отчёта, не простыня категорий.
 - `ai_sent` — разбор уже у игрока, супервизия в Forum ещё не канон. В обоих списках, пока нет `sent_coach` / `sent_fallback`.
 - Заявка содержит `coverage.contributions` (слоты этого job). Покрытие пишется в `enqueue_review` с любого канала; `bot.py` не меняется.

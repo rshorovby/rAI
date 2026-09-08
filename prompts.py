@@ -70,9 +70,10 @@ USER_PROMPT_RU = """\
 - follow_through — проводка
 Поле focus — один короткий фокус недели (одно действие).
 Поле drills — массив id упражнений из списка в системном промпте (0–2 штуки).
+Поле findings — массив из 1–3 пунктов для игрока. Каждый пункт: problem (что не так, одно-два предложения), recommendation (как закрыть на корзине), drill_ids (0–2 id из каталога). Не пиши категории техника/ноги/баланс в findings. Markdown секций выше не убирай — это черновик для Forum.
 Пример:
 ```json
-{"scores":{"footwork":6,"contact":5,"preparation":7,"follow_through":6},"focus":"Повернуться до отскока","drills":["count-for-more-time"]}
+{"scores":{"footwork":6,"contact":5,"preparation":7,"follow_through":6},"focus":"Повернуться до отскока","drills":["count-for-more-time"],"findings":[{"problem":"Подготовка начинается после отскока — ракетка опаздывает.","recommendation":"До отскока разверните плечи и отведите ракетку назад. На корзине: три медленных форхенда с паузой на подготовке, потом обычный темп.","drill_ids":["count-for-more-time"]}]}
 ```
 
 Важно: если на видео нет теннисных действий или контент не подходит для разбора — вежливо сообщи об этом вместо выдуманного анализа.
@@ -124,9 +125,10 @@ Score skills 0–10 based only on what is visible:
 - follow_through
 Field focus — one short weekly focus (one action).
 Field drills — array of drill ids from the system prompt catalog (0–2 items).
+Field findings — array of 1–3 player-facing items. Each item: problem (what is wrong, one or two sentences), recommendation (how to close it in the basket), drill_ids (0–2 catalog ids). Do not put technique/footwork/balance categories in findings. Keep the markdown sections above — they are the Forum draft.
 Example:
 ```json
-{"scores":{"footwork":6,"contact":5,"preparation":7,"follow_through":6},"focus":"Turn before the bounce","drills":["count-for-more-time"]}
+{"scores":{"footwork":6,"contact":5,"preparation":7,"follow_through":6},"focus":"Turn before the bounce","drills":["count-for-more-time"],"findings":[{"problem":"Preparation starts after the bounce — the racket is late.","recommendation":"Turn the shoulders and take the racket back before the bounce. At the basket: three slow forehands with a pause on the unit, then normal pace.","drill_ids":["count-for-more-time"]}]}
 ```
 
 Important: if the video shows no tennis actions or content is unsuitable — say so politely instead of inventing an analysis.
