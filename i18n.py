@@ -200,15 +200,14 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "Сейчас бот в открытой бете — оплата не нужна. Просто отправьте видео."
         ),
         "focus_empty": (
-            "Фокус недели ещё не задан. Сделайте разбор — бот выберет главный фокус."
+            "Фокус недели ещё не задан. Сделайте разбор — бот выберет фокус для этого удара."
         ),
         "focus_status": (
             "🎯 *Фокус недели*\n\n"
-            "{focus}\n\n"
-            "Удар: {stroke}\n"
-            "До: {expires}\n\n"
-            "Снимите следующее видео с этим фокусом — проверим, стало ли лучше."
+            "{items}\n\n"
+            "Снимите следующее видео того же удара — проверим, стало ли лучше."
         ),
+        "focus_status_item": "• *{stroke}*: {focus}\n  до {expires}",
         "progress_empty": (
             "Пока мало данных для прогресса. Сделайте 2–3 разбора одного удара."
         ),
@@ -744,14 +743,15 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "monetization_off": (
             "The bot is in open beta — no payment needed. Just send a video."
         ),
-        "focus_empty": ("No weekly focus yet. Send a video — the coach will set one."),
+        "focus_empty": (
+            "No weekly focus yet. Send a video — the coach will set one for that stroke."
+        ),
         "focus_status": (
             "🎯 *Weekly focus*\n\n"
-            "{focus}\n\n"
-            "Stroke: {stroke}\n"
-            "Until: {expires}\n\n"
-            "Film your next clip with this focus — we'll check if it improved."
+            "{items}\n\n"
+            "Film your next clip of the same stroke — we'll check if it improved."
         ),
+        "focus_status_item": "• *{stroke}*: {focus}\n  until {expires}",
         "progress_empty": (
             "Not enough data yet. Send 2–3 analyses of the same stroke."
         ),

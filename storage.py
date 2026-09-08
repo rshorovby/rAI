@@ -201,11 +201,12 @@ def _init_db(conn: sqlite3.Connection) -> None:
         );
 
         CREATE TABLE IF NOT EXISTS player_focus (
-            user_id     INTEGER PRIMARY KEY,
+            user_id     INTEGER NOT NULL,
+            stroke      TEXT    NOT NULL,
             focus       TEXT    NOT NULL,
-            stroke      TEXT,
             set_at      TEXT    NOT NULL,
-            expires_at  TEXT
+            expires_at  TEXT,
+            PRIMARY KEY (user_id, stroke)
         );
 
         CREATE TABLE IF NOT EXISTS practice_plans (
@@ -334,6 +335,7 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
         if column not in cols:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {typedef}")
+    _migrate_player_focus_per_segment(conn)
     _backfill_telegram_identities(conn)
 
 
@@ -342,6 +344,38 @@ def _table_names(conn: sqlite3.Connection) -> set:
         row[0]
         for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
     }
+
+
+def _migrate_player_focus_per_segment(conn: sqlite3.Connection) -> None:
+    if "player_focus" not in _table_names(conn):
+        return
+    info = list(conn.execute("PRAGMA table_info(player_focus)"))
+    pk_cols = [row[1] for row in info if row[5] > 0]
+    if set(pk_cols) == {"user_id", "stroke"}:
+        return
+    conn.execute(
+        """
+        CREATE TABLE player_focus_segment (
+            user_id     INTEGER NOT NULL,
+            stroke      TEXT    NOT NULL,
+            focus       TEXT    NOT NULL,
+            set_at      TEXT    NOT NULL,
+            expires_at  TEXT,
+            PRIMARY KEY (user_id, stroke)
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO player_focus_segment
+            (user_id, stroke, focus, set_at, expires_at)
+        SELECT user_id, stroke, focus, set_at, expires_at
+        FROM player_focus
+        WHERE stroke IS NOT NULL AND trim(stroke) != ''
+        """
+    )
+    conn.execute("DROP TABLE player_focus")
+    conn.execute("ALTER TABLE player_focus_segment RENAME TO player_focus")
 
 
 def _backfill_telegram_identities(conn: sqlite3.Connection) -> None:
@@ -1604,57 +1638,103 @@ def clear_active_session(user_id: int) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _normalize_focus_stroke(stroke: Optional[str]) -> str:
+    return (stroke or "").strip()
+
+
+def _focus_expired(expires_at: Optional[str]) -> bool:
+    if not expires_at:
+        return False
+    try:
+        return datetime.strptime(expires_at, "%Y-%m-%d %H:%M:%S") < datetime.now()
+    except ValueError:
+        return False
+
+
 def set_player_focus(
     user_id: int,
     focus: str,
     stroke: Optional[str] = None,
     days: int = 7,
 ) -> None:
+    stroke_key = _normalize_focus_stroke(stroke)
+    if not stroke_key:
+        return
     set_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     expires_at = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
     with _connect() as conn:
         _init_db(conn)
         conn.execute(
             """
-            INSERT INTO player_focus (user_id, focus, stroke, set_at, expires_at)
+            INSERT INTO player_focus (user_id, stroke, focus, set_at, expires_at)
             VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(user_id) DO UPDATE SET
+            ON CONFLICT(user_id, stroke) DO UPDATE SET
                 focus = excluded.focus,
-                stroke = excluded.stroke,
                 set_at = excluded.set_at,
                 expires_at = excluded.expires_at
             """,
-            (user_id, focus, stroke, set_at, expires_at),
+            (user_id, stroke_key, focus, set_at, expires_at),
         )
         conn.commit()
 
 
-def get_player_focus(user_id: int) -> Optional[dict]:
+def get_player_focus(user_id: int, stroke: Optional[str] = None) -> Optional[dict]:
+    stroke_key = _normalize_focus_stroke(stroke)
+    if not stroke_key:
+        return None
     with _connect() as conn:
         _init_db(conn)
         row = conn.execute(
-            "SELECT focus, stroke, set_at, expires_at FROM player_focus WHERE user_id = ?",
-            (user_id,),
+            """
+            SELECT focus, stroke, set_at, expires_at
+            FROM player_focus
+            WHERE user_id = ? AND stroke = ?
+            """,
+            (user_id, stroke_key),
         ).fetchone()
     if not row:
         return None
-    if row["expires_at"]:
-        try:
-            if (
-                datetime.strptime(row["expires_at"], "%Y-%m-%d %H:%M:%S")
-                < datetime.now()
-            ):
-                clear_player_focus(user_id)
-                return None
-        except ValueError:
-            pass
+    if _focus_expired(row["expires_at"]):
+        clear_player_focus(user_id, stroke_key)
+        return None
     return dict(row)
 
 
-def clear_player_focus(user_id: int) -> None:
+def list_player_foci(user_id: int) -> list:
     with _connect() as conn:
         _init_db(conn)
-        conn.execute("DELETE FROM player_focus WHERE user_id = ?", (user_id,))
+        rows = conn.execute(
+            """
+            SELECT focus, stroke, set_at, expires_at
+            FROM player_focus
+            WHERE user_id = ?
+            ORDER BY set_at DESC
+            """,
+            (user_id,),
+        ).fetchall()
+    result = []
+    expired = []
+    for row in rows:
+        if _focus_expired(row["expires_at"]):
+            expired.append(row["stroke"])
+            continue
+        result.append(dict(row))
+    for stroke_key in expired:
+        clear_player_focus(user_id, stroke_key)
+    return result
+
+
+def clear_player_focus(user_id: int, stroke: Optional[str] = None) -> None:
+    stroke_key = _normalize_focus_stroke(stroke)
+    with _connect() as conn:
+        _init_db(conn)
+        if stroke_key:
+            conn.execute(
+                "DELETE FROM player_focus WHERE user_id = ? AND stroke = ?",
+                (user_id, stroke_key),
+            )
+        else:
+            conn.execute("DELETE FROM player_focus WHERE user_id = ?", (user_id,))
         conn.commit()
 
 

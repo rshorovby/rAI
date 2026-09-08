@@ -58,8 +58,8 @@ def progress_scores(player_id: int, days: int = 90) -> list:
     return storage.get_progress_scores(player_id, days)
 
 
-def load_analysis_context(player_id: int) -> dict:
-    focus_row = storage.get_player_focus(player_id)
+def load_analysis_context(player_id: int, stroke: Optional[str] = None) -> dict:
+    focus_row = storage.get_player_focus(player_id, stroke)
     return {
         "history": storage.get_player_history(player_id),
         "profile": storage.get_player_profile(player_id),
@@ -107,7 +107,10 @@ def analyze_video(
     language_code: str,
     model: str,
 ) -> PreparedReport:
-    ctx = load_analysis_context(player_id)
+    stroke = ""
+    if video_context:
+        stroke = (video_context.get("stroke") or "") or ""
+    ctx = load_analysis_context(player_id, stroke)
     result = analyzer.analyze(
         video_path,
         user_comment,
@@ -136,8 +139,8 @@ def save_analysis_session(
         prepared.focus,
         prepared.stroke,
     )
-    if prepared.focus:
-        storage.set_player_focus(player_id, prepared.focus, prepared.stroke or None, 7)
+    if prepared.focus and prepared.stroke in COVERAGE_SEGMENTS:
+        storage.set_player_focus(player_id, prepared.focus, prepared.stroke, 7)
 
 
 def enqueue_review(

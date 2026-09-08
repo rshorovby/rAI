@@ -68,7 +68,7 @@ USER_PROMPT_RU = """\
 - contact — точка контакта
 - preparation — подготовка
 - follow_through — проводка
-Поле focus — один короткий фокус недели (одно действие).
+Поле focus — один короткий фокус недели для удара с этого видео (одно действие). Не переноси фокус с другого удара.
 Поле drills — массив id упражнений из списка в системном промпте (0–2 штуки).
 Поле findings — массив из 1–3 пунктов для игрока. Каждый пункт: problem (что не так, одно-два предложения), recommendation (как закрыть на корзине), drill_ids (0–2 id из каталога). Не пиши категории техника/ноги/баланс в findings. Markdown секций выше не убирай — это черновик для Forum.
 Пример:
@@ -123,7 +123,7 @@ Score skills 0–10 based only on what is visible:
 - contact
 - preparation
 - follow_through
-Field focus — one short weekly focus (one action).
+Field focus — one short weekly focus for the stroke on this video (one action). Do not carry a focus from another stroke.
 Field drills — array of drill ids from the system prompt catalog (0–2 items).
 Field findings — array of 1–3 player-facing items. Each item: problem (what is wrong, one or two sentences), recommendation (how to close it in the basket), drill_ids (0–2 catalog ids). Do not put technique/footwork/balance categories in findings. Keep the markdown sections above — they are the Forum draft.
 Example:
@@ -244,11 +244,17 @@ def build_system_prompt(
         parts.append(coach_ctx)
     if correction_ctx:
         parts.append(correction_ctx)
+    parts.append(
+        "Weekly focus is per stroke. If an active focus is provided, verify only that "
+        "on this video. If none is provided, set a new focus for the stroke on this "
+        "video; do not reuse a focus from another stroke."
+    )
     if active_focus:
         parts.append(
-            "Active weekly focus to verify on this video:\n"
+            "Active weekly focus for this stroke to verify on this video:\n"
             f'"{active_focus}"\n'
-            "In the summary, explicitly say whether it improved, stayed the same, or got worse."
+            "In the summary, explicitly say whether it improved, stayed the same, or got worse. "
+            "Do not judge a different stroke against this focus."
         )
     if drills_catalog:
         parts.append(

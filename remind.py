@@ -20,8 +20,21 @@ from analytics import (
 from config import load_settings
 from i18n import normalize_language_code, t
 from practice import keyboard_post_checkin, keyboard_pre_nudge
+from video_intake import intake_value_label
 
 logger = logging.getLogger(__name__)
+
+
+def _digest_focus_text(user_id: int, lang: str) -> str:
+    rows = storage.list_player_foci(user_id)
+    if not rows:
+        return "—"
+    parts = []
+    for row in rows:
+        label = intake_value_label(lang, "stroke", row.get("stroke"))
+        text = (row.get("focus") or "").strip() or "—"
+        parts.append(f"{label} — {text}")
+    return "\n".join(parts)
 
 
 def _ui_lang(language_code: str) -> str:
@@ -88,8 +101,7 @@ async def run_digests() -> int:
             logger.warning("digest: нет telegram identity player_id=%s", user_id)
             continue
         lang = _ui_lang(row.get("language_code") or "")
-        focus_row = storage.get_player_focus(user_id)
-        focus = (focus_row or {}).get("focus") or "—"
+        focus = _digest_focus_text(user_id, lang)
         analyses = int(row.get("analyses_week") or 0)
         streak = int(row.get("streak_weeks") or 0)
         text = t(

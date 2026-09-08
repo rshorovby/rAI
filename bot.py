@@ -119,6 +119,7 @@ from onboarding import (
 from pricing import cost_for_usage
 from report_parser import format_scores_line, sparkline
 from video_intake import (
+    STROKE_KEYS,
     advance_intake_step,
     build_video_context,
     clear_intake_state,
@@ -2264,7 +2265,12 @@ async def _run_video_analysis(
             )
             return
 
-        analysis_ctx = await asyncio.to_thread(services.load_analysis_context, user_id)
+        stroke = ""
+        if video_context:
+            stroke = (video_context.get("stroke") or "") or ""
+        analysis_ctx = await asyncio.to_thread(
+            services.load_analysis_context, user_id, stroke
+        )
         player_history = analysis_ctx["history"]
         player_profile = analysis_ctx["profile"]
         coach_corrections = analysis_ctx["corrections"]
@@ -3394,18 +3400,25 @@ async def focus_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     user_id = message.from_user.id
     context.user_data["user_id"] = user_id
     await _touch_user(update, context)
-    focus = await asyncio.to_thread(storage.get_player_focus, user_id)
-    if not focus:
+    rows = await asyncio.to_thread(storage.list_player_foci, user_id)
+    if not rows:
         await message.reply_text(t(lang, "focus_empty"))
         return
+    order = {key: idx for idx, key in enumerate(STROKE_KEYS)}
+    rows = sorted(rows, key=lambda row: order.get(row.get("stroke") or "", 99))
+    items = []
+    for row in rows:
+        items.append(
+            t(
+                lang,
+                "focus_status_item",
+                focus=row["focus"],
+                stroke=intake_value_label(lang, "stroke", row.get("stroke")),
+                expires=row.get("expires_at") or "—",
+            )
+        )
     await message.reply_text(
-        t(
-            lang,
-            "focus_status",
-            focus=focus["focus"],
-            stroke=focus.get("stroke") or "—",
-            expires=focus.get("expires_at") or "—",
-        ),
+        t(lang, "focus_status", items="\n".join(items)),
         parse_mode=ParseMode.MARKDOWN,
     )
 
