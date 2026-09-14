@@ -982,6 +982,38 @@ def mark_profile_skipped(user_id: int) -> None:
     )
 
 
+def delete_player_profile(user_id: int) -> None:
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute("DELETE FROM player_profiles WHERE user_id = ?", (int(user_id),))
+        conn.commit()
+
+
+def carry_profile_on_telegram_link(from_player_id: int, to_player_id: int) -> None:
+    """iOS filled побеждает; анкета Telegram — только если iOS skip или пусто."""
+    if int(from_player_id) == int(to_player_id):
+        return
+    source = get_player_profile(from_player_id)
+    dest = get_player_profile(to_player_id)
+    if source and not source.get("skipped") and source.get("level"):
+        save_player_profile(
+            to_player_id,
+            {
+                "level": source.get("level"),
+                "hand": source.get("hand"),
+                "frequency": source.get("frequency"),
+                "experience": source.get("experience"),
+                "coaching": source.get("coaching"),
+                "focus": source.get("focus"),
+                "injuries": source.get("injuries") or "",
+                "skipped": False,
+            },
+        )
+    elif source and source.get("skipped") and not dest:
+        mark_profile_skipped(to_player_id)
+    delete_player_profile(from_player_id)
+
+
 def reset_player_data(user_id: int) -> None:
     """Удаляет профиль и историю разборов — как для нового пользователя."""
     cancel_active_practice_plans(user_id)

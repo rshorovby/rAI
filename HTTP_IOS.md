@@ -14,7 +14,9 @@
 | Метод | Путь | Назначение |
 |-------|------|------------|
 | POST | `/v1/auth/apple` | Sign in with Apple. Тело: `identity_token`, опционально `language_code`. Ответ: `token`, `player_id`, `telegram_linked`. |
-| GET | `/v1/me` | Профиль канала: `player_id`, `telegram_linked`, `language_code`. |
+| GET | `/v1/me` | Канал: `player_id`, `telegram_linked`, `language_code`. Анкета: `profile` = `null` (нет строки → квиз) или `{level,hand,frequency,experience,coaching,focus,injuries,skipped}`. |
+| PUT | `/v1/me/profile` | Записать анкету. Тело: те же 7 полей, ключи как бот. `skipped` сбрасывается. `injuries` пустая = нет травм (не `"none"`). |
+| POST | `/v1/me/profile/skip` | Строка `skipped: true`, поля пустые. |
 | POST | `/v1/me/logout` | Удалить текущий токен. |
 | DELETE | `/v1/me` | Удалить аккаунт (`player_id` и привязки). |
 | POST | `/v1/link/telegram` | Код из бота (`/link`) → привязка к пустому iOS. Тело: `code`. |
@@ -29,6 +31,7 @@
 ## Правила
 
 - Пустой iOS = нет `review_jobs` и нет `player_sessions`. Иначе Telegram→iOS — 409.
+- `/link/telegram`: заполненный iOS-профиль копируется на surviving `player_id` и побеждает Telegram. Анкета Telegram подставляется, только если iOS `skipped` или строки нет.
 - Cancel открытых заявок при новом видео из бота — только `source_channel=telegram`.
 - Отчёт в JSON: markdown + разобранные поля, не HTML. `markdown` = `final_text` или `draft_text` (AI игроку сразу, lock rallyiOS #40/#53). `findings` — массив ≤3 (`problem`, `recommendation`, `drill_ids`); пустой массив, если модели нет или заявка старая. `summary` / `next_video` — секции отчёта, не простыня категорий.
 - `ai_sent` — разбор уже у игрока, супервизия в Forum ещё не канон. В обоих списках, пока нет `sent_coach` / `sent_fallback`. На клиенте «На супервизии».

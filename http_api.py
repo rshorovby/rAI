@@ -18,6 +18,15 @@ from starlette.routing import Route
 import services
 import storage
 from i18n import resolve_ui_lang
+from onboarding import (
+    COACHING_KEYS,
+    EXPERIENCE_KEYS,
+    FOCUS_KEYS,
+    FREQUENCY_KEYS,
+    HAND_KEYS,
+    LEVEL_KEYS,
+    build_profile_dict,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -122,13 +131,58 @@ def _job_json(job: dict) -> dict:
     }
 
 
+_PROFILE_ENUMS = {
+    "level": LEVEL_KEYS,
+    "hand": HAND_KEYS,
+    "frequency": FREQUENCY_KEYS,
+    "experience": EXPERIENCE_KEYS,
+    "coaching": COACHING_KEYS,
+    "focus": FOCUS_KEYS,
+}
+
+
+def _profile_public(profile: Optional[dict]) -> Optional[dict]:
+    if not profile:
+        return None
+    return {
+        "level": profile.get("level"),
+        "hand": profile.get("hand"),
+        "frequency": profile.get("frequency"),
+        "experience": profile.get("experience"),
+        "coaching": profile.get("coaching"),
+        "focus": profile.get("focus"),
+        "injuries": profile.get("injuries") or "",
+        "skipped": bool(profile.get("skipped")),
+    }
+
+
 def _me_json(player_id: int, language_code: str = "") -> dict:
     lang = language_code or storage.player_language_code(player_id)
     return {
         "player_id": player_id,
         "telegram_linked": storage.player_has_telegram(player_id),
         "language_code": resolve_ui_lang(lang or None),
+        "profile": _profile_public(storage.get_player_profile(player_id)),
     }
+
+
+def _parse_profile_body(body: dict) -> Optional[dict]:
+    answers: dict = {}
+    for field, keys in _PROFILE_ENUMS.items():
+        value = body.get(field)
+        if value not in keys:
+            return None
+        answers[field] = value
+    injuries = body.get("injuries", "")
+    if injuries is None:
+        injuries = ""
+    if not isinstance(injuries, str):
+        return None
+    injuries = injuries.strip()
+    if injuries.lower() == "none":
+        injuries = ""
+    answers["injuries"] = injuries
+    return build_profile_dict(answers)
 
 
 def create_app(
@@ -202,11 +256,37 @@ def create_app(
         if storage.has_player_history(ios_player):
             return JSONResponse({"error": "ios account not empty"}, status_code=409)
         if ios_player != telegram_player:
+            storage.carry_profile_on_telegram_link(ios_player, telegram_player)
             storage.move_apple_identity(ios_player, telegram_player)
         session = storage.create_api_session(telegram_player)
         payload = _me_json(telegram_player)
         payload["token"] = session
         return JSONResponse(payload)
+
+    async def put_profile(request: Request) -> Response:
+        try:
+            player_id = _bearer_player(request)
+        except AuthError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=401)
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"error": "invalid json"}, status_code=400)
+        if not isinstance(body, dict):
+            return JSONResponse({"error": "invalid json"}, status_code=400)
+        profile = _parse_profile_body(body)
+        if profile is None:
+            return JSONResponse({"error": "invalid profile"}, status_code=400)
+        storage.save_player_profile(player_id, profile)
+        return JSONResponse(_me_json(player_id))
+
+    async def skip_profile(request: Request) -> Response:
+        try:
+            player_id = _bearer_player(request)
+        except AuthError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=401)
+        storage.mark_profile_skipped(player_id)
+        return JSONResponse(_me_json(player_id))
 
     async def app_code(request: Request) -> Response:
         try:
@@ -326,6 +406,8 @@ def create_app(
         Route("/v1/me", me, methods=["GET"]),
         Route("/v1/me/logout", logout, methods=["POST"]),
         Route("/v1/me", delete_me, methods=["DELETE"]),
+        Route("/v1/me/profile", put_profile, methods=["PUT"]),
+        Route("/v1/me/profile/skip", skip_profile, methods=["POST"]),
         Route("/v1/link/telegram", link_telegram, methods=["POST"]),
         Route("/v1/link/app-code", app_code, methods=["POST"]),
         Route("/v1/jobs", create_job, methods=["POST"]),

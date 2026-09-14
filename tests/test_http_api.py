@@ -27,9 +27,11 @@ def test_apple_auth_me_logout(tmp_path):
         player_id = res.json()["player_id"]
         assert player_id > 0
         assert res.json()["telegram_linked"] is False
+        assert res.json()["profile"] is None
         me = client.get("/v1/me", headers={"Authorization": "Bearer " + token})
         assert me.status_code == 200
         assert me.json()["player_id"] == player_id
+        assert me.json()["profile"] is None
         out = client.post("/v1/me/logout", headers={"Authorization": "Bearer " + token})
         assert out.status_code == 204
         me2 = client.get("/v1/me", headers={"Authorization": "Bearer " + token})
@@ -293,3 +295,109 @@ def test_telegram_new_job_still_cancels_previous_telegram(tmp_path):
         b = storage.create_review_job(1, video_file_id="b", draft_text="2")
         assert storage.get_review_job(a)["status"] == "cancelled"
         assert storage.get_open_review_job(1)["id"] == b
+
+
+_VALID_PROFILE = {
+    "level": "recreational",
+    "hand": "right",
+    "frequency": "2",
+    "experience": "y1_3",
+    "coaching": "none",
+    "focus": "technique",
+    "injuries": "",
+}
+
+
+def test_put_and_skip_profile(tmp_path):
+    with _tmp_db(tmp_path):
+        client = _client()
+        token = client.post("/v1/auth/apple", json={"identity_token": "sub-profile"}).json()[
+            "token"
+        ]
+        headers = {"Authorization": "Bearer " + token}
+        bad = client.put("/v1/me/profile", json={"level": "god"}, headers=headers)
+        assert bad.status_code == 400
+        saved = client.put("/v1/me/profile", json=_VALID_PROFILE, headers=headers)
+        assert saved.status_code == 200
+        profile = saved.json()["profile"]
+        assert profile["level"] == "recreational"
+        assert profile["skipped"] is False
+        assert profile["injuries"] == ""
+        none_body = dict(_VALID_PROFILE)
+        none_body["injuries"] = "none"
+        none_saved = client.put("/v1/me/profile", json=none_body, headers=headers)
+        assert none_saved.json()["profile"]["injuries"] == ""
+        skipped = client.post("/v1/me/profile/skip", headers=headers)
+        assert skipped.status_code == 200
+        assert skipped.json()["profile"]["skipped"] is True
+        me = client.get("/v1/me", headers=headers)
+        assert me.json()["profile"]["skipped"] is True
+
+
+def test_link_telegram_ios_filled_wins(tmp_path):
+    with _tmp_db(tmp_path):
+        tg = storage.get_or_create_telegram_player(2001)
+        storage.save_player_profile(
+            tg,
+            {
+                "level": "beginner",
+                "hand": "left",
+                "frequency": "1",
+                "experience": "under_1",
+                "coaching": "group",
+                "focus": "power",
+                "injuries": "",
+                "skipped": False,
+            },
+        )
+        code = storage.create_link_code(tg, storage.LINK_TG_TO_IOS)
+        client = _client()
+        auth = client.post("/v1/auth/apple", json={"identity_token": "sub-filled"})
+        token = auth.json()["token"]
+        headers = {"Authorization": "Bearer " + token}
+        client.put("/v1/me/profile", json=_VALID_PROFILE, headers=headers)
+        linked = client.post(
+            "/v1/link/telegram",
+            json={"code": code},
+            headers=headers,
+        )
+        assert linked.status_code == 200
+        profile = linked.json()["profile"]
+        assert profile["level"] == "recreational"
+        assert profile["hand"] == "right"
+        assert profile["skipped"] is False
+
+
+def test_link_telegram_imports_when_ios_skipped(tmp_path):
+    with _tmp_db(tmp_path):
+        tg = storage.get_or_create_telegram_player(2002)
+        storage.save_player_profile(
+            tg,
+            {
+                "level": "advanced",
+                "hand": "left",
+                "frequency": "3_4",
+                "experience": "y3_7",
+                "coaching": "individual",
+                "focus": "serve",
+                "injuries": "плечо",
+                "skipped": False,
+            },
+        )
+        code = storage.create_link_code(tg, storage.LINK_TG_TO_IOS)
+        client = _client()
+        auth = client.post("/v1/auth/apple", json={"identity_token": "sub-skip-link"})
+        token = auth.json()["token"]
+        headers = {"Authorization": "Bearer " + token}
+        client.post("/v1/me/profile/skip", headers=headers)
+        linked = client.post(
+            "/v1/link/telegram",
+            json={"code": code},
+            headers=headers,
+        )
+        assert linked.status_code == 200
+        profile = linked.json()["profile"]
+        assert profile["level"] == "advanced"
+        assert profile["hand"] == "left"
+        assert profile["injuries"] == "плечо"
+        assert profile["skipped"] is False
