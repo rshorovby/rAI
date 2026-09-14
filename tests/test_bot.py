@@ -305,6 +305,7 @@ def test_coach_action_callback_ok_pins_draft(tmp_path):
     with patch.object(storage, "DB_PATH", tmp_path / "t.db"):
         job_id = storage.create_review_job(99, video_file_id="v", draft_text="draft")
         storage.update_review_job(job_id, forum_chat_id=-100123, message_thread_id=77)
+        storage.mark_review_sent(job_id, status=review.STATUS_AI_SENT, final_text="draft")
         storage.set_pending_coach_action(job_id, review.ACTION_FIX_AI)
         settings = _coach_forum_settings()
         query = MagicMock()
@@ -320,14 +321,48 @@ def test_coach_action_callback_ok_pins_draft(tmp_path):
         async def _run():
             await handle_coach_eval_callback(update, context)
 
-        asyncio.run(_run())
+        with patch("bot._deliver_review_to_player", new_callable=AsyncMock) as deliver:
+            asyncio.run(_run())
+            deliver.assert_not_awaited()
         query.answer.assert_awaited()
         job = storage.get_review_job(job_id)
         assert not job["pending_coach_action"]
+        assert job["status"] == review.STATUS_SENT_COACH
+        assert job["final_text"] == "draft"
         row = storage.get_coach_evaluation(job_id)
         assert row["rating"] == review.RATING_OK
         hint = query.message.reply_text.await_args.args[0]
         assert "закрепл" in hint.lower()
+        context.bot.send_message.assert_not_awaited()
+
+
+def test_coach_ok_does_not_overwrite_fallback(tmp_path):
+    from bot import handle_coach_eval_callback
+
+    with patch.object(storage, "DB_PATH", tmp_path / "t.db"):
+        job_id = storage.create_review_job(99, video_file_id="v", draft_text="draft")
+        storage.update_review_job(job_id, forum_chat_id=-100123, message_thread_id=77)
+        storage.mark_review_sent(
+            job_id, status=review.STATUS_SENT_FALLBACK, final_text="fallback"
+        )
+        settings = _coach_forum_settings()
+        query = MagicMock()
+        query.data = f"ce:a:{job_id}:ok"
+        query.from_user.id = 42
+        query.answer = AsyncMock()
+        query.edit_message_reply_markup = AsyncMock()
+        query.message.reply_text = AsyncMock()
+        update = MagicMock()
+        update.callback_query = query
+        context = _make_coach_context(settings)
+
+        async def _run():
+            await handle_coach_eval_callback(update, context)
+
+        asyncio.run(_run())
+        job = storage.get_review_job(job_id)
+        assert job["status"] == review.STATUS_SENT_FALLBACK
+        assert job["final_text"] == "fallback"
 
 
 def test_coach_forum_fix_saves_correction_not_player(tmp_path):

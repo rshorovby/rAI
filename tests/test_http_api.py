@@ -229,6 +229,31 @@ def test_ai_sent_job_listed_in_open_and_history(tmp_path):
         )
 
 
+def test_sent_coach_job_in_history_not_open(tmp_path):
+    with _tmp_db(tmp_path):
+        client = _client()
+        res = client.post("/v1/auth/apple", json={"identity_token": "sub-ok-status"})
+        token = res.json()["token"]
+        pid = res.json()["player_id"]
+        job_id = storage.create_review_job(
+            pid,
+            video_file_id="ios:ok",
+            draft_text="AI draft",
+            source_channel=storage.CHANNEL_IOS,
+        )
+        storage.mark_review_sent(job_id, status="sent_coach", final_text="AI draft")
+        headers = {"Authorization": "Bearer " + token}
+        opened = client.get("/v1/jobs?open=1", headers=headers)
+        history = client.get("/v1/jobs", headers=headers)
+        assert opened.status_code == 200
+        assert history.status_code == 200
+        assert all(j["id"] != job_id for j in opened.json()["jobs"])
+        assert any(
+            j["id"] == job_id and j["status"] == "sent_coach"
+            for j in history.json()["jobs"]
+        )
+
+
 def test_job_json_includes_findings(tmp_path):
     with _tmp_db(tmp_path):
         client = _client()

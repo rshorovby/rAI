@@ -2984,6 +2984,17 @@ async def handle_coach_eval_callback(
             rating=review.RATING_OK,
         )
         await asyncio.to_thread(storage.set_pending_coach_action, job_id, None)
+        if job.get("status") != review.STATUS_SENT_FALLBACK:
+            text = (job.get("final_text") or "").strip() or (
+                job.get("draft_text") or ""
+            )
+            await asyncio.to_thread(
+                storage.mark_review_sent,
+                job_id,
+                status=review.STATUS_SENT_COACH,
+                final_text=text,
+                coach_notes=job.get("coach_notes") or "",
+            )
         await query.answer("Закреплено")
         try:
             await query.edit_message_reply_markup(

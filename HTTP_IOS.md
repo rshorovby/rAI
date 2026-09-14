@@ -31,6 +31,7 @@
 - Пустой iOS = нет `review_jobs` и нет `player_sessions`. Иначе Telegram→iOS — 409.
 - Cancel открытых заявок при новом видео из бота — только `source_channel=telegram`.
 - Отчёт в JSON: markdown + разобранные поля, не HTML. `markdown` = `final_text` или `draft_text` (AI игроку сразу, lock rallyiOS #40/#53). `findings` — массив ≤3 (`problem`, `recommendation`, `drill_ids`); пустой массив, если модели нет или заявка старая. `summary` / `next_video` — секции отчёта, не простыня категорий.
-- `ai_sent` — разбор уже у игрока, супервизия в Forum ещё не канон. В обоих списках, пока нет `sent_coach` / `sent_fallback`.
+- `ai_sent` — разбор уже у игрока, супервизия в Forum ещё не канон. В обоих списках, пока нет `sent_coach` / `sent_fallback`. На клиенте «На супервизии».
+- `sent_coach` — тренер нажал «✅ ОК» в Forum. Игроку повторно не шлём. На клиенте «Согласован». История да, `?open=1` — нет.
 - Заявка содержит `coverage.contributions` (слоты этого job). Покрытие пишется в `enqueue_review` с любого канала.
 - iOS-заявка после анализа постится в Forum тем же `_post_review_job_to_forum`, что Telegram. В шапке «Канал: iOS». Temp-файл удаляется после отправки. Сбой Forum не откатывает `ai_sent` игроку. Ответ тренера iOS-only без Telegram — не этот контракт.
