@@ -8,6 +8,7 @@ from wiki_context import (
     build_knowledge_block,
     knowledge_slugs_for_tests,
     pages_for_stroke,
+    pages_for_strokes,
 )
 
 
@@ -28,6 +29,18 @@ def test_unknown_stroke_falls_back_to_footwork():
     pages = pages_for_stroke("unknown")
     assert "wiki/concepts/footwork.md" in pages
     assert pages[0] == "policy-modern-defaults.md"
+
+
+def test_general_and_multi_pages():
+    general = pages_for_stroke("general")
+    assert general[0] == "policy-modern-defaults.md"
+    assert "wiki/concepts/contact-point.md" in general
+    assert "wiki/strokes/forehand.md" not in general
+    empty = pages_for_strokes([])
+    assert empty == general
+    both = pages_for_strokes(["forehand", "serve"])
+    assert "wiki/strokes/forehand.md" in both
+    assert "wiki/strokes/serve.md" in both
 
 
 def test_knowledge_block_ru_contains_marker():

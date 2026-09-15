@@ -14,18 +14,18 @@
 | Метод | Путь | Назначение |
 |-------|------|------------|
 | POST | `/v1/auth/apple` | Sign in with Apple. Тело: `identity_token`, опционально `language_code`, `given_name`, `family_name`. Имя сидится только если `display_name` ещё не задан. Ответ: `token`, `player_id`, `telegram_linked`, `display_name`, `profile`. |
-| GET | `/v1/me` | Канал: `player_id`, `telegram_linked`, `language_code`, `display_name` (`null` → клиент «Игрок»). Анкета: `profile` = `null` (нет строки → квиз) или `{level,hand,frequency,experience,coaching,focus,injuries,skipped}`. |
-| PUT | `/v1/me/profile` | Записать анкету. Тело: те же 7 полей, ключи как бот. `skipped` сбрасывается. `injuries` пустая = нет травм (не `"none"`). |
+| GET | `/v1/me` | Канал: `player_id`, `telegram_linked`, `language_code`, `display_name` (`null` → клиент «Игрок»), `ntrp` (`null` до сида квиза). Анкета: `profile` = `null` (нет строки → квиз) или `{level,hand,frequency,experience,coaching,focus,injuries,skipped}`. |
+| PUT | `/v1/me/profile` | Записать анкету. Тело: те же 7 полей, ключи как бот. `skipped` сбрасывается. `injuries` пустая = нет травм (не `"none"`). Сид `ntrp` с `level`: beginner 2.0 / recreational 3.0 / advanced 4.0 / competitive 5.0. |
 | POST | `/v1/me/profile/skip` | Строка `skipped: true`, поля пустые. |
 | PATCH | `/v1/me/display-name` | Тело: `display_name` (строка, ≤80). Пустая — стереть (клиент плейсхолдер). Не затирает 7 полей квиза. |
 | POST | `/v1/me/logout` | Удалить текущий токен. |
 | DELETE | `/v1/me` | Удалить аккаунт (`player_id` и привязки). |
 | POST | `/v1/link/telegram` | Код из бота (`/link`) → привязка к пустому iOS. Тело: `code`. |
 | POST | `/v1/link/app-code` | Код из приложения для пустого Telegram. Ответ: `code`, `expires_in`. |
-| POST | `/v1/jobs` | multipart: `video` + `stroke` + `look` + `comment` + `language_code`. `source_channel=ios`. Не cancel других iOS-заявок. После анализа — тот же пост в Forum, что у бота (тема `player_id`, видео, черновик, кнопки). Ответ — `ai_sent`. |
+| POST | `/v1/jobs` | multipart: `video` + `stroke` + опционально `strokes` (JSON-массив сегментов) + `look` + `comment` + `language_code`. `stroke` = единственный выбранный, иначе `general`. iOS не шлёт `look`. `source_channel=ios`. Не cancel других iOS-заявок. После анализа — тот же пост в Forum, что у бота (тема `player_id`, видео, черновик, кнопки). Ответ — `ai_sent`. JSON разбора: `primary_segment` + `detected_segments`. |
 | GET | `/v1/jobs` | `?open=1` — `queued` / `in_review` / `ai_sent`. Иначе `ai_sent` / `sent_coach` / `sent_fallback`. |
 | GET | `/v1/jobs/{id}` | Заявка + `markdown` / `scores` / `focus` / `drills` / `stroke` / `summary` / `next_video` / `findings` (≤3: `problem`, `recommendation`, `drill_ids`). |
-| GET | `/v1/dossier` | Покрытие игрока и 6 сегментов: pending / committed, слоты, `next_to_film`, `goals_unlocked`. |
+| GET | `/v1/dossier` | Прогресс и изученность игрока и 6 сегментов: pending / committed (`progress_*`, `familiarity_*`, `coverage_*` = алиас изученности), `ntrp`, `job_count_*`, `progress_mean_*`, `focus`, `focus_status` (`supervision` / `agreed`), слоты (внутренние), `next_to_film`, `goals_unlocked`. Канон формул на сервере. |
 | GET | `/v1/progress` | Ряды scores, как `/progress`. |
 | POST | `/v1/device-tokens` | Тело: `token`. APNs. |
 
@@ -37,5 +37,5 @@
 - Отчёт в JSON: markdown + разобранные поля, не HTML. `markdown` = `final_text` или `draft_text` (AI игроку сразу, lock rallyiOS #40/#53). `findings` — массив ≤3 (`problem`, `recommendation`, `drill_ids`); пустой массив, если модели нет или заявка старая. `summary` / `next_video` — секции отчёта, не простыня категорий.
 - `ai_sent` — разбор уже у игрока, супервизия в Forum ещё не канон. В обоих списках, пока нет `sent_coach` / `sent_fallback`. На клиенте «На супервизии».
 - `sent_coach` — тренер нажал «✅ ОК» в Forum. Игроку повторно не шлём. На клиенте «Согласован». История да, `?open=1` — нет.
-- Заявка содержит `coverage.contributions` (слоты этого job). Покрытие пишется в `enqueue_review` с любого канала.
+- Заявка содержит `coverage.contributions` (слоты этого job), `accent_mismatch`, `detected_segments`. Покрытие пишется в `enqueue_review`. iOS: 0 выбранных → полный write в `primary_segment`, остальные detected ≤1 слота; 1 выбранный → как акцент, при расхождении с ИИ писать в primary (#51); 2+ → полный write в первый выбранный, если primary в выборе, иначе в ИИ. Telegram intake без `strokes` — по-прежнему только акцент.
 - iOS-заявка после анализа постится в Forum тем же `_post_review_job_to_forum`, что Telegram. В шапке «Канал: iOS». Temp-файл удаляется после отправки. Сбой Forum не откатывает `ai_sent` игроку. Ответ тренера iOS-only без Telegram — не этот контракт.

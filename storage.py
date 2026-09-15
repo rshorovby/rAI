@@ -58,7 +58,10 @@ def _init_db(conn: sqlite3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS players (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
             created_at    TEXT    NOT NULL,
-            display_name  TEXT
+            display_name  TEXT,
+            ntrp          REAL,
+            ntrp_seed     REAL,
+            ntrp_locked   INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS identities (
             player_id   INTEGER NOT NULL,
@@ -207,6 +210,8 @@ def _init_db(conn: sqlite3.Connection) -> None:
             focus       TEXT    NOT NULL,
             set_at      TEXT    NOT NULL,
             expires_at  TEXT,
+            previous_focus TEXT,
+            previous_set_at TEXT,
             PRIMARY KEY (user_id, stroke)
         );
 
@@ -326,6 +331,12 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         ("player_profiles", "coaching", "TEXT"),
         ("review_jobs", "source_channel", "TEXT NOT NULL DEFAULT 'telegram'"),
         ("players", "display_name", "TEXT"),
+        ("review_jobs", "accent_mismatch", "INTEGER NOT NULL DEFAULT 0"),
+        ("review_jobs", "detected_json", "TEXT NOT NULL DEFAULT '[]'"),
+        ("review_jobs", "intake_strokes_json", "TEXT NOT NULL DEFAULT '[]'"),
+        ("players", "ntrp", "REAL"),
+        ("players", "ntrp_seed", "REAL"),
+        ("players", "ntrp_locked", "INTEGER NOT NULL DEFAULT 0"),
     )
     for table, column, typedef in migrations:
         tables = {
@@ -338,6 +349,15 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         if column not in cols:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {typedef}")
     _migrate_player_focus_per_segment(conn)
+    for table, column, typedef in (
+        ("player_focus", "previous_focus", "TEXT"),
+        ("player_focus", "previous_set_at", "TEXT"),
+    ):
+        if table not in _table_names(conn):
+            continue
+        cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {typedef}")
     _backfill_telegram_identities(conn)
 
 
@@ -363,6 +383,8 @@ def _migrate_player_focus_per_segment(conn: sqlite3.Connection) -> None:
             focus       TEXT    NOT NULL,
             set_at      TEXT    NOT NULL,
             expires_at  TEXT,
+            previous_focus TEXT,
+            previous_set_at TEXT,
             PRIMARY KEY (user_id, stroke)
         )
         """
@@ -579,6 +601,100 @@ def carry_display_name_on_telegram_link(from_player_id: int, to_player_id: int) 
     source = get_stored_display_name(from_player_id)
     if source is not None and source.strip():
         set_player_display_name(to_player_id, source.strip())
+
+
+def list_scale_jobs(player_id: int) -> list:
+    """Заявки, которые входят в шкалы: уже опубликованный разбор."""
+    pid = int(player_id)
+    statuses = ("ai_sent", "sent_coach", "sent_fallback")
+    placeholders = ",".join("?" * len(statuses))
+    with _connect() as conn:
+        _init_db(conn)
+        rows = conn.execute(
+            f"""
+            SELECT id, stroke, status, scores_json, focus_text
+            FROM review_jobs
+            WHERE user_id = ? AND status IN ({placeholders})
+            ORDER BY id DESC
+            """,
+            (pid, *statuses),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def voided_job_ids(player_id: int) -> set:
+    pid = int(player_id)
+    with _connect() as conn:
+        _init_db(conn)
+        tables = _table_names(conn)
+        if "coverage_contributions" not in tables:
+            return set()
+        rows = conn.execute(
+            """
+            SELECT job_id
+            FROM coverage_contributions
+            WHERE player_id = ?
+            GROUP BY job_id
+            HAVING SUM(CASE WHEN status != 'voided' THEN 1 ELSE 0 END) = 0
+            """,
+            (pid,),
+        ).fetchall()
+    return {int(r["job_id"]) for r in rows}
+
+
+def get_player_ntrp_row(player_id: int) -> dict:
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            """
+            SELECT ntrp, ntrp_seed, ntrp_locked
+            FROM players
+            WHERE id = ?
+            """,
+            (int(player_id),),
+        ).fetchone()
+    if not row:
+        return {"ntrp": None, "ntrp_seed": None, "ntrp_locked": 0}
+    return {
+        "ntrp": row["ntrp"],
+        "ntrp_seed": row["ntrp_seed"],
+        "ntrp_locked": int(row["ntrp_locked"] or 0),
+    }
+
+
+def set_player_ntrp(
+    player_id: int,
+    ntrp: Optional[float],
+    *,
+    seed: Optional[float] = None,
+    locked: Optional[bool] = None,
+) -> None:
+    now = _now_sql()
+    with _connect() as conn:
+        _init_db(conn)
+        exists = conn.execute(
+            "SELECT 1 FROM players WHERE id = ?",
+            (int(player_id),),
+        ).fetchone()
+        if not exists:
+            conn.execute(
+                "INSERT INTO players (id, created_at) VALUES (?, ?)",
+                (int(player_id), now),
+            )
+        assignments = ["ntrp = ?"]
+        values: list = [ntrp]
+        if seed is not None:
+            assignments.append("ntrp_seed = ?")
+            values.append(seed)
+        if locked is not None:
+            assignments.append("ntrp_locked = ?")
+            values.append(1 if locked else 0)
+        values.append(int(player_id))
+        conn.execute(
+            f"UPDATE players SET {', '.join(assignments)} WHERE id = ?",
+            values,
+        )
+        conn.commit()
 
 
 def get_or_create_apple_player(apple_sub: str) -> int:
@@ -1793,9 +1909,17 @@ def set_player_focus(
         _init_db(conn)
         conn.execute(
             """
-            INSERT INTO player_focus (user_id, stroke, focus, set_at, expires_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO player_focus (user_id, stroke, focus, set_at, expires_at, previous_focus, previous_set_at)
+            VALUES (?, ?, ?, ?, ?, NULL, NULL)
             ON CONFLICT(user_id, stroke) DO UPDATE SET
+                previous_focus = CASE
+                    WHEN player_focus.focus != excluded.focus THEN player_focus.focus
+                    ELSE player_focus.previous_focus
+                END,
+                previous_set_at = CASE
+                    WHEN player_focus.focus != excluded.focus THEN player_focus.set_at
+                    ELSE player_focus.previous_set_at
+                END,
                 focus = excluded.focus,
                 set_at = excluded.set_at,
                 expires_at = excluded.expires_at
@@ -1849,6 +1973,46 @@ def list_player_foci(user_id: int) -> list:
     for stroke_key in expired:
         clear_player_focus(user_id, stroke_key)
     return result
+
+
+def restore_player_focus(user_id: int, stroke: Optional[str] = None) -> None:
+    """Void: откат к предыдущему фокусу сегмента (lock #81)."""
+    stroke_key = _normalize_focus_stroke(stroke)
+    if not stroke_key:
+        return
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            """
+            SELECT previous_focus, previous_set_at, expires_at
+            FROM player_focus
+            WHERE user_id = ? AND stroke = ?
+            """,
+            (int(user_id), stroke_key),
+        ).fetchone()
+        if not row:
+            return
+        previous = (row["previous_focus"] or "").strip()
+        if previous:
+            conn.execute(
+                """
+                UPDATE player_focus
+                SET focus = ?, set_at = ?, previous_focus = NULL, previous_set_at = NULL
+                WHERE user_id = ? AND stroke = ?
+                """,
+                (
+                    previous,
+                    row["previous_set_at"] or _now_sql(),
+                    int(user_id),
+                    stroke_key,
+                ),
+            )
+        else:
+            conn.execute(
+                "DELETE FROM player_focus WHERE user_id = ? AND stroke = ?",
+                (int(user_id), stroke_key),
+            )
+        conn.commit()
 
 
 def clear_player_focus(user_id: int, stroke: Optional[str] = None) -> None:
@@ -2430,6 +2594,9 @@ def create_review_job(
     stroke: str = "",
     reviewer_id: Optional[int] = None,
     source_channel: str = CHANNEL_TELEGRAM,
+    accent_mismatch: bool = False,
+    detected_json: str = "[]",
+    intake_strokes_json: str = "[]",
 ) -> int:
     if source_channel == CHANNEL_TELEGRAM:
         cancel_open_review_jobs(user_id, CHANNEL_TELEGRAM)
@@ -2443,8 +2610,8 @@ def create_review_job(
                 user_id, reviewer_id, created_at, status,
                 video_file_id, video_mime, language_code, draft_text,
                 focus_text, drill_text, drill_id, scores_json, stroke,
-                source_channel
-            ) VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                source_channel, accent_mismatch, detected_json, intake_strokes_json
+            ) VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
@@ -2460,6 +2627,9 @@ def create_review_job(
                 scores_json,
                 stroke or "",
                 source_channel,
+                1 if accent_mismatch else 0,
+                detected_json or "[]",
+                intake_strokes_json or "[]",
             ),
         )
         conn.commit()

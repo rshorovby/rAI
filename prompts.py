@@ -71,9 +71,11 @@ USER_PROMPT_RU = """\
 Поле focus — один короткий фокус недели для удара с этого видео (одно действие). Не переноси фокус с другого удара.
 Поле drills — массив id упражнений из списка в системном промпте (0–2 штуки).
 Поле findings — массив из 1–3 пунктов для игрока. Каждый пункт: problem (что не так, одно-два предложения), recommendation (как закрыть на корзине), drill_ids (0–2 id из каталога). Не пиши категории техника/ноги/баланс в findings. Markdown секций выше не убирай — это черновик для Forum.
+Поле primary_segment — один ключ удара, который реально доминирует на видео: forehand, backhand, serve, volley, footwork, rally.
+Поле detected_segments — массив всех видимых сегментов из того же списка (без general). Всегда заполняй детект по факту видео, даже если игрок выбрал другой удар или ничего не выбрал.
 Пример:
 ```json
-{"scores":{"footwork":6,"contact":5,"preparation":7,"follow_through":6},"focus":"Повернуться до отскока","drills":["count-for-more-time"],"findings":[{"problem":"Подготовка начинается после отскока — ракетка опаздывает.","recommendation":"До отскока разверните плечи и отведите ракетку назад. На корзине: три медленных форхенда с паузой на подготовке, потом обычный темп.","drill_ids":["count-for-more-time"]}]}
+{"scores":{"footwork":6,"contact":5,"preparation":7,"follow_through":6},"focus":"Повернуться до отскока","drills":["count-for-more-time"],"findings":[{"problem":"Подготовка начинается после отскока — ракетка опаздывает.","recommendation":"До отскока разверните плечи и отведите ракетку назад. На корзине: три медленных форхенда с паузой на подготовке, потом обычный темп.","drill_ids":["count-for-more-time"]}],"primary_segment":"forehand","detected_segments":["forehand","footwork"]}
 ```
 
 Важно: если на видео нет теннисных действий или контент не подходит для разбора — вежливо сообщи об этом вместо выдуманного анализа.
@@ -126,9 +128,11 @@ Score skills 0–10 based only on what is visible:
 Field focus — one short weekly focus for the stroke on this video (one action). Do not carry a focus from another stroke.
 Field drills — array of drill ids from the system prompt catalog (0–2 items).
 Field findings — array of 1–3 player-facing items. Each item: problem (what is wrong, one or two sentences), recommendation (how to close it in the basket), drill_ids (0–2 catalog ids). Do not put technique/footwork/balance categories in findings. Keep the markdown sections above — they are the Forum draft.
+Field primary_segment — the one stroke key that actually dominates the video: forehand, backhand, serve, volley, footwork, rally.
+Field detected_segments — array of every visible segment from that same list (no general). Always fill detect from the footage, even if the player selected a different stroke or selected none.
 Example:
 ```json
-{"scores":{"footwork":6,"contact":5,"preparation":7,"follow_through":6},"focus":"Turn before the bounce","drills":["count-for-more-time"],"findings":[{"problem":"Preparation starts after the bounce — the racket is late.","recommendation":"Turn the shoulders and take the racket back before the bounce. At the basket: three slow forehands with a pause on the unit, then normal pace.","drill_ids":["count-for-more-time"]}]}
+{"scores":{"footwork":6,"contact":5,"preparation":7,"follow_through":6},"focus":"Turn before the bounce","drills":["count-for-more-time"],"findings":[{"problem":"Preparation starts after the bounce — the racket is late.","recommendation":"Turn the shoulders and take the racket back before the bounce. At the basket: three slow forehands with a pause on the unit, then normal pace.","drill_ids":["count-for-more-time"]}],"primary_segment":"forehand","detected_segments":["forehand","footwork"]}
 ```
 
 Important: if the video shows no tennis actions or content is unsuitable — say so politely instead of inventing an analysis.
@@ -225,12 +229,15 @@ def build_system_prompt(
     active_focus: Optional[str] = None,
     drills_catalog: Optional[str] = None,
     coach_corrections: Optional[list] = None,
+    strokes: Optional[list] = None,
 ) -> str:
     from wiki_context import build_knowledge_block
 
     coach_ctx = build_coach_context(player_history or [], language_code)
     player_ctx = build_player_context(player_profile, language_code)
-    knowledge_ctx = build_knowledge_block(stroke, language_code)
+    knowledge_ctx = build_knowledge_block(
+        stroke, language_code, strokes=strokes
+    )
     correction_ctx = build_coach_correction_block(
         coach_corrections or [], language_code
     )
@@ -280,12 +287,15 @@ def build_follow_up_system_prompt(
     player_profile: Optional[dict] = None,
     stroke: Optional[str] = None,
     coach_corrections: Optional[list] = None,
+    strokes: Optional[list] = None,
 ) -> str:
     from wiki_context import build_knowledge_block
 
     coach_ctx = build_coach_context(player_history or [], language_code)
     player_ctx = build_player_context(player_profile, language_code)
-    knowledge_ctx = build_knowledge_block(stroke, language_code)
+    knowledge_ctx = build_knowledge_block(
+        stroke, language_code, strokes=strokes
+    )
     correction_ctx = build_coach_correction_block(
         coach_corrections or [], language_code
     )
@@ -377,14 +387,24 @@ def build_video_context_block(
         return ""
     stroke = video_context.get("stroke")
     look = video_context.get("look")
-    if not stroke and not look:
+    raw_strokes = video_context.get("strokes")
+    has_strokes_key = "strokes" in video_context
+    if not stroke and not look and not has_strokes_key:
         return ""
+
+    intake_keys = []
+    if isinstance(raw_strokes, list):
+        intake_keys = [str(s).strip() for s in raw_strokes if str(s).strip()]
+    elif stroke and stroke not in ("", "general"):
+        intake_keys = [stroke]
 
     base = normalize_language_code(language_code)
     if base == "ru":
         header = "УТОЧНЕНИЕ ОТ ИГРОКА ПЕРЕД РАЗБОРОМ:"
         stroke_l = "Удар для фокуса (со слов игрока)"
         look_l = "Смотреть в первую очередь"
+        general_l = "Игрок не выбрал сегмент — сделай общий обзор техники по тому, что видно. Заполни primary_segment и detected_segments."
+        multi_l = "Игрок отметил несколько сегментов — разбор точечный по ним, но детект всё равно по факту видео."
         rules = [
             "Выбор игрока — только ориентир приоритизации, не истина о содержимом ролика.",
             "Сначала по видео определи, что реально видно (удар, серия ударов, розыгрыш, движение без удара).",
@@ -397,6 +417,8 @@ def build_video_context_block(
         header = "PLAYER CLARIFICATION BEFORE ANALYSIS:"
         stroke_l = "Stroke to focus on (player said)"
         look_l = "Look at first"
+        general_l = "The player selected no segment — write a general technique overview from what is visible. Fill primary_segment and detected_segments."
+        multi_l = "The player marked several segments — target those, but detect still follows the footage."
         rules = [
             "The player's choice is a prioritization hint only — not ground truth about the footage.",
             "First determine what is actually visible (stroke, rally, point, movement without a hit).",
@@ -419,13 +441,25 @@ def build_video_context_block(
         header,
         "",
     ]
-    if stroke:
+    if has_strokes_key and not intake_keys:
+        lines.append(f"• {general_l}")
+    elif len(intake_keys) > 1:
+        labels = [
+            intake_value_label(ui_lang, "stroke", key) if key in (
+                "forehand", "backhand", "serve", "volley", "footwork", "rally"
+            ) else key
+            for key in intake_keys
+        ]
+        lines.append(f"• {stroke_l}: " + ", ".join(labels))
+        lines.append(f"• {multi_l}")
+    elif stroke and stroke not in ("", "general"):
         lines.append(f"• {stroke_l}: {intake_value_label(ui_lang, 'stroke', stroke)}")
     if look:
         lines.append(f"• {look_l}: {intake_value_label(ui_lang, 'look', look)}")
     lines.append("")
 
-    rubric = _STROKE_RUBRICS.get(stroke or "")
+    rubric_key = intake_keys[0] if len(intake_keys) == 1 else (stroke or "")
+    rubric = _STROKE_RUBRICS.get(rubric_key or "")
     if rubric:
         lines.append(f"Rubric: {rubric}")
         lines.append("")

@@ -48,6 +48,12 @@ _STROKE_PAGES = {
     ),
 }
 
+_GENERAL_PAGES = _CORE_GS + (
+    "wiki/concepts/footwork.md",
+    "wiki/concepts/split-step.md",
+    "wiki/concepts/balance.md",
+)
+
 _POLICY_REL = "policy-modern-defaults.md"
 
 _FRONTMATTER_RE = re.compile(r"^---\n.*?\n---\n", re.DOTALL)
@@ -84,7 +90,25 @@ def pages_for_stroke(stroke: Optional[str]) -> list[str]:
     """Return relative paths: policy first, then stroke-specific pages."""
     pages: list[str] = [_POLICY_REL]
     key = (stroke or "").strip().lower()
-    pages.extend(_STROKE_PAGES.get(key, _STROKE_PAGES["footwork"]))
+    if key in ("", "general"):
+        pages.extend(_GENERAL_PAGES)
+    else:
+        pages.extend(_STROKE_PAGES.get(key, _STROKE_PAGES["footwork"]))
+    return _dedupe_pages(pages)
+
+
+def pages_for_strokes(strokes: Optional[list] = None) -> list[str]:
+    keys = [str(s).strip().lower() for s in (strokes or []) if str(s).strip()]
+    keys = [k for k in keys if k and k != "general"]
+    if not keys:
+        return pages_for_stroke("general")
+    pages: list[str] = [_POLICY_REL]
+    for key in keys:
+        pages.extend(_STROKE_PAGES.get(key, ()))
+    return _dedupe_pages(pages)
+
+
+def _dedupe_pages(pages: list[str]) -> list[str]:
     seen = set()
     out: list[str] = []
     for p in pages:
@@ -99,10 +123,15 @@ def build_knowledge_block(
     language_code: str = "en",
     root: Path = KNOWLEDGE_ROOT,
     max_chars: int = MAX_KNOWLEDGE_CHARS,
+    strokes: Optional[list] = None,
 ) -> str:
     """Assemble a capped knowledge block for system prompts."""
+    if strokes is not None:
+        page_list = pages_for_strokes(strokes)
+    else:
+        page_list = pages_for_stroke(stroke)
     sections: list[str] = []
-    for rel in pages_for_stroke(stroke):
+    for rel in page_list:
         section = _read_reviewed(rel, root=root)
         if section:
             sections.append(section)

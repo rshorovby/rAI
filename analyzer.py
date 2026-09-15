@@ -110,6 +110,7 @@ class VideoAnalyzer:
                         active_focus=active_focus,
                         drills_catalog=drills_catalog,
                         coach_corrections=coach_corrections,
+                        strokes=(video_context or {}).get("strokes"),
                     ),
                     temperature=0.4,
                     automatic_function_calling=_NO_AFC,

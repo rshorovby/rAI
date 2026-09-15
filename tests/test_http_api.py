@@ -33,6 +33,7 @@ def test_apple_auth_me_logout(tmp_path):
         assert me.status_code == 200
         assert me.json()["player_id"] == player_id
         assert me.json()["profile"] is None
+        assert me.json()["ntrp"] is None
         out = client.post("/v1/me/logout", headers={"Authorization": "Bearer " + token})
         assert out.status_code == 204
         me2 = client.get("/v1/me", headers={"Authorization": "Bearer " + token})
@@ -188,13 +189,14 @@ def test_dossier_endpoint(tmp_path):
             {"stroke": "serve"},
         )
         prepared.scores = {"contact": 9, "footwork": 8}
-        services.enqueue_review(
+        job_id = services.enqueue_review(
             pid,
             prepared,
             language_code="ru",
             video_file_id="ios:d",
             video_mime="video/mp4",
         )
+        storage.mark_review_sent(job_id, status="ai_sent", final_text="ok")
         dossier = client.get(
             "/v1/dossier", headers={"Authorization": "Bearer " + token}
         )
@@ -204,6 +206,9 @@ def test_dossier_endpoint(tmp_path):
         assert len(body["segments"]) == 6
         serve = next(s for s in body["segments"] if s["id"] == "serve")
         assert serve["coverage_pending"] > 0
+        assert serve["job_count_pending"] == 1
+        assert "ntrp" in body["player"]
+        assert "focus" in serve
 
 
 def test_ai_sent_job_listed_in_open_and_history(tmp_path):
@@ -324,6 +329,7 @@ def test_put_and_skip_profile(tmp_path):
         assert profile["level"] == "recreational"
         assert profile["skipped"] is False
         assert profile["injuries"] == ""
+        assert saved.json()["ntrp"] == 3.0
         none_body = dict(_VALID_PROFILE)
         none_body["injuries"] = "none"
         none_saved = client.put("/v1/me/profile", json=none_body, headers=headers)

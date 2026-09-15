@@ -11,6 +11,14 @@ from i18n import report_section_headers
 
 SKILL_KEYS = ("footwork", "contact", "preparation", "follow_through")
 FINDINGS_LIMIT = 3
+SEGMENT_KEYS = (
+    "forehand",
+    "backhand",
+    "serve",
+    "volley",
+    "footwork",
+    "rally",
+)
 
 # RU/EN aliases → canonical
 SKILL_ALIASES = {
@@ -27,6 +35,26 @@ SKILL_ALIASES = {
     "проводка": "follow_through",
 }
 
+SEGMENT_ALIASES = {
+    "forehand": "forehand",
+    "форхенд": "forehand",
+    "backhand": "backhand",
+    "бэкхенд": "backhand",
+    "бекхенд": "backhand",
+    "serve": "serve",
+    "подача": "serve",
+    "volley": "volley",
+    "сетка": "volley",
+    "volley / net": "volley",
+    "footwork": "footwork",
+    "ноги": "footwork",
+    "работа ног": "footwork",
+    "rally": "rally",
+    "розыгрыш": "rally",
+    "general": "general",
+    "общий": "general",
+}
+
 
 @dataclass
 class ParsedReport:
@@ -38,6 +66,8 @@ class ParsedReport:
     summary: str = ""
     next_video: str = ""
     raw_meta: dict = field(default_factory=dict)
+    primary_segment: str = ""
+    detected_segments: list = field(default_factory=list)
 
 
 _JSON_BLOCK_RE = re.compile(
@@ -45,7 +75,7 @@ _JSON_BLOCK_RE = re.compile(
     re.DOTALL | re.IGNORECASE,
 )
 _BARE_JSON_RE = re.compile(
-    r"(\{\s*\"(?:scores|focus|drills|skills|findings).*?\})",
+    r"(\{\s*\"(?:scores|focus|drills|skills|findings|primary_segment|detected_segments).*?\})",
     re.DOTALL | re.IGNORECASE,
 )
 _SECTION_RE_TEMPLATE = r"##\s*{header}\s*\n(.*?)(?=\n##\s|\Z)"
@@ -114,6 +144,22 @@ def _normalize_findings(raw: Any) -> list[dict]:
         if len(findings) >= FINDINGS_LIMIT:
             break
     return findings
+
+
+def _normalize_segments(raw: Any) -> list:
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list):
+        return []
+    out: list = []
+    seen = set()
+    for item in raw:
+        key = SEGMENT_ALIASES.get(str(item).strip().lower())
+        if not key or key == "general" or key in seen:
+            continue
+        seen.add(key)
+        out.append(key)
+    return out
 
 
 def _extract_json_candidates(text: str) -> list[dict]:
@@ -253,7 +299,19 @@ def parse_report(text: str) -> ParsedReport:
     candidates = _extract_json_candidates(text)
     meta: dict = {}
     for data in candidates:
-        if any(k in data for k in ("scores", "skills", "focus", "drills", "drill_ids", "findings")):
+        if any(
+            k in data
+            for k in (
+                "scores",
+                "skills",
+                "focus",
+                "drills",
+                "drill_ids",
+                "findings",
+                "primary_segment",
+                "detected_segments",
+            )
+        ):
             meta = data
             break
 
@@ -271,6 +329,18 @@ def parse_report(text: str) -> ParsedReport:
     if not findings:
         findings = _findings_from_markdown(body)
 
+    primary = ""
+    prim_list = _normalize_segments(
+        meta.get("primary_segment") or meta.get("primary_stroke") or ""
+    )
+    if prim_list:
+        primary = prim_list[0]
+    detected = _normalize_segments(
+        meta.get("detected_segments") or meta.get("detected_strokes") or []
+    )
+    if primary and primary not in detected:
+        detected = [primary] + detected
+
     return ParsedReport(
         text=body,
         scores=scores,
@@ -280,6 +350,8 @@ def parse_report(text: str) -> ParsedReport:
         summary=_player_section(body, "summary"),
         next_video=_player_section(body, "next_video"),
         raw_meta=meta,
+        primary_segment=primary,
+        detected_segments=detected,
     )
 
 

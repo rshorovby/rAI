@@ -163,8 +163,35 @@ def _me_json(player_id: int, language_code: str = "") -> dict:
         "telegram_linked": storage.player_has_telegram(player_id),
         "language_code": resolve_ui_lang(lang or None),
         "display_name": storage.public_display_name(player_id),
+        "ntrp": services.player_ntrp(player_id),
         "profile": _profile_public(storage.get_player_profile(player_id)),
     }
+
+
+def _parse_job_intake(form) -> tuple:
+    look = str(form.get("look") or "")
+    comment = str(form.get("comment") or "")
+    language_code = str(form.get("language_code") or "") or "ru"
+    stroke_raw = str(form.get("stroke") or "").strip()
+    strokes: list = []
+    raw = form.get("strokes")
+    if raw is not None and raw != "":
+        text = raw if isinstance(raw, str) else str(raw)
+        parsed = None
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            parsed = [p.strip() for p in text.split(",") if p.strip()]
+        if isinstance(parsed, list):
+            strokes = []
+            for item in parsed:
+                key = str(item).strip()
+                if key in services.COVERAGE_SEGMENTS and key not in strokes:
+                    strokes.append(key)
+    if not strokes and stroke_raw in services.COVERAGE_SEGMENTS:
+        strokes = [stroke_raw]
+    compat = services.compatibility_stroke(strokes)
+    return compat, strokes, look, comment, language_code
 
 
 def _parse_profile_body(body: dict) -> Optional[dict]:
@@ -282,6 +309,7 @@ def create_app(
         if profile is None:
             return JSONResponse({"error": "invalid profile"}, status_code=400)
         storage.save_player_profile(player_id, profile)
+        services.ensure_ntrp_seed(player_id)
         return JSONResponse(_me_json(player_id))
 
     async def skip_profile(request: Request) -> Response:
@@ -330,10 +358,7 @@ def create_app(
         upload = form.get("video")
         if upload is None:
             return JSONResponse({"error": "video required"}, status_code=400)
-        stroke = (form.get("stroke") or "") or ""
-        look = (form.get("look") or "") or ""
-        comment = (form.get("comment") or "") or ""
-        language_code = (form.get("language_code") or "") or "ru"
+        stroke, strokes, look, comment, language_code = _parse_job_intake(form)
         if not services.has_quota(player_id):
             return JSONResponse({"error": "quota"}, status_code=403)
         suffix = ".mp4"
@@ -347,9 +372,10 @@ def create_app(
         path = tmp.name
         cleaned = False
         try:
-            video_context = {}
-            if stroke:
-                video_context["stroke"] = stroke
+            video_context = {
+                "stroke": stroke,
+                "strokes": strokes,
+            }
             if look:
                 video_context["look"] = look
             if enqueue_ios_job is not None:

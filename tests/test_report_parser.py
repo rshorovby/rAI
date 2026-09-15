@@ -46,6 +46,20 @@ def test_parse_findings():
     assert parsed.findings[2]["problem"] == "Третий"
 
 
+def test_parse_detect_segments():
+    text = """\
+## Краткое резюме
+Ок.
+
+```json
+{"scores":{"contact":8},"primary_segment":"serve","detected_segments":["serve","footwork"]}
+```
+"""
+    parsed = parse_report(text)
+    assert parsed.primary_segment == "serve"
+    assert parsed.detected_segments == ["serve", "footwork"]
+
+
 def test_parse_without_json():
     parsed = parse_report("## Краткое резюме\nПросто текст")
     assert parsed.scores == {}
