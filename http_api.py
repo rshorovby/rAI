@@ -162,6 +162,7 @@ def _me_json(player_id: int, language_code: str = "") -> dict:
         "player_id": player_id,
         "telegram_linked": storage.player_has_telegram(player_id),
         "language_code": resolve_ui_lang(lang or None),
+        "display_name": storage.public_display_name(player_id),
         "profile": _profile_public(storage.get_player_profile(player_id)),
     }
 
@@ -215,6 +216,9 @@ def create_app(
             logger.exception("apple token verify failed")
             return JSONResponse({"error": "invalid apple token"}, status_code=401)
         player_id = storage.get_or_create_apple_player(sub)
+        given = body.get("given_name") if isinstance(body.get("given_name"), str) else ""
+        family = body.get("family_name") if isinstance(body.get("family_name"), str) else ""
+        storage.seed_display_name_if_unset(player_id, given, family)
         session = storage.create_api_session(player_id)
         payload = _me_json(player_id, language_code)
         payload["token"] = session
@@ -286,6 +290,27 @@ def create_app(
         except AuthError as exc:
             return JSONResponse({"error": str(exc)}, status_code=401)
         storage.mark_profile_skipped(player_id)
+        return JSONResponse(_me_json(player_id))
+
+    async def patch_display_name(request: Request) -> Response:
+        try:
+            player_id = _bearer_player(request)
+        except AuthError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=401)
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"error": "invalid json"}, status_code=400)
+        if not isinstance(body, dict):
+            return JSONResponse({"error": "invalid json"}, status_code=400)
+        raw = body.get("display_name")
+        if raw is None:
+            raw = ""
+        if not isinstance(raw, str):
+            return JSONResponse({"error": "invalid display_name"}, status_code=400)
+        if len(raw.strip()) > storage.DISPLAY_NAME_MAX:
+            return JSONResponse({"error": "display_name too long"}, status_code=400)
+        storage.set_player_display_name(player_id, raw)
         return JSONResponse(_me_json(player_id))
 
     async def app_code(request: Request) -> Response:
@@ -408,6 +433,7 @@ def create_app(
         Route("/v1/me", delete_me, methods=["DELETE"]),
         Route("/v1/me/profile", put_profile, methods=["PUT"]),
         Route("/v1/me/profile/skip", skip_profile, methods=["POST"]),
+        Route("/v1/me/display-name", patch_display_name, methods=["PATCH"]),
         Route("/v1/link/telegram", link_telegram, methods=["POST"]),
         Route("/v1/link/app-code", app_code, methods=["POST"]),
         Route("/v1/jobs", create_job, methods=["POST"]),

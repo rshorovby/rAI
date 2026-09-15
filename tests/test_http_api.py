@@ -27,6 +27,7 @@ def test_apple_auth_me_logout(tmp_path):
         player_id = res.json()["player_id"]
         assert player_id > 0
         assert res.json()["telegram_linked"] is False
+        assert res.json()["display_name"] is None
         assert res.json()["profile"] is None
         me = client.get("/v1/me", headers={"Authorization": "Bearer " + token})
         assert me.status_code == 200
@@ -401,3 +402,91 @@ def test_link_telegram_imports_when_ios_skipped(tmp_path):
         assert profile["hand"] == "left"
         assert profile["injuries"] == "плечо"
         assert profile["skipped"] is False
+
+
+def test_apple_seeds_display_name_once(tmp_path):
+    with _tmp_db(tmp_path):
+        client = _client()
+        first = client.post(
+            "/v1/auth/apple",
+            json={
+                "identity_token": "sub-name",
+                "given_name": "Иван",
+                "family_name": "Петров",
+            },
+        )
+        assert first.status_code == 200
+        assert first.json()["display_name"] == "Иван Петров"
+        token = first.json()["token"]
+        second = client.post(
+            "/v1/auth/apple",
+            json={
+                "identity_token": "sub-name",
+                "given_name": "Другое",
+                "family_name": "Имя",
+            },
+        )
+        assert second.json()["display_name"] == "Иван Петров"
+        patched = client.patch(
+            "/v1/me/display-name",
+            json={"display_name": "Rust"},
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert patched.status_code == 200
+        assert patched.json()["display_name"] == "Rust"
+        cleared = client.patch(
+            "/v1/me/display-name",
+            json={"display_name": "  "},
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert cleared.json()["display_name"] is None
+        third = client.post(
+            "/v1/auth/apple",
+            json={
+                "identity_token": "sub-name",
+                "given_name": "Иван",
+                "family_name": "Петров",
+            },
+        )
+        assert third.json()["display_name"] is None
+
+
+def test_link_telegram_ios_display_name_wins(tmp_path):
+    with _tmp_db(tmp_path):
+        tg = storage.get_or_create_telegram_player(2003)
+        storage.upsert_user(2003, "ann", "Ann", "Tg", "ru")
+        code = storage.create_link_code(tg, storage.LINK_TG_TO_IOS)
+        client = _client()
+        auth = client.post(
+            "/v1/auth/apple",
+            json={
+                "identity_token": "sub-name-link",
+                "given_name": "Ivan",
+                "family_name": "Ios",
+            },
+        )
+        token = auth.json()["token"]
+        linked = client.post(
+            "/v1/link/telegram",
+            json={"code": code},
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert linked.status_code == 200
+        assert linked.json()["display_name"] == "Ivan Ios"
+
+
+def test_link_telegram_imports_display_name(tmp_path):
+    with _tmp_db(tmp_path):
+        tg = storage.get_or_create_telegram_player(2004)
+        storage.upsert_user(2004, "ann", "Ann", "Tg", "ru")
+        code = storage.create_link_code(tg, storage.LINK_TG_TO_IOS)
+        client = _client()
+        auth = client.post("/v1/auth/apple", json={"identity_token": "sub-name-empty"})
+        token = auth.json()["token"]
+        linked = client.post(
+            "/v1/link/telegram",
+            json={"code": code},
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert linked.status_code == 200
+        assert linked.json()["display_name"] == "Ann Tg"

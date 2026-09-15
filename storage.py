@@ -56,8 +56,9 @@ def _init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS players (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            created_at  TEXT    NOT NULL
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at    TEXT    NOT NULL,
+            display_name  TEXT
         );
         CREATE TABLE IF NOT EXISTS identities (
             player_id   INTEGER NOT NULL,
@@ -324,6 +325,7 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         ("player_profiles", "experience", "TEXT"),
         ("player_profiles", "coaching", "TEXT"),
         ("review_jobs", "source_channel", "TEXT NOT NULL DEFAULT 'telegram'"),
+        ("players", "display_name", "TEXT"),
     )
     for table, column, typedef in migrations:
         tables = {
@@ -485,6 +487,98 @@ def telegram_id_for(player_id: int) -> Optional[int]:
 
 def _now_sql() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+DISPLAY_NAME_MAX = 80
+
+
+def _compose_person_name(given: str = "", family: str = "") -> str:
+    parts = [p.strip() for p in (given or "", family or "") if (p or "").strip()]
+    return " ".join(parts)
+
+
+def _telegram_users_name(conn: sqlite3.Connection, player_id: int) -> str:
+    tables = _table_names(conn)
+    if "users" not in tables:
+        return ""
+    row = conn.execute(
+        "SELECT first_name, last_name FROM users WHERE user_id = ?",
+        (int(player_id),),
+    ).fetchone()
+    if not row:
+        return ""
+    return _compose_person_name(row["first_name"] or "", row["last_name"] or "")
+
+
+def get_stored_display_name(player_id: int) -> Optional[str]:
+    """None — не задавали. '' — игрок стёр имя."""
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            "SELECT display_name FROM players WHERE id = ?",
+            (int(player_id),),
+        ).fetchone()
+    if not row:
+        return None
+    value = row["display_name"]
+    if value is None:
+        return None
+    return str(value)
+
+
+def public_display_name(player_id: int) -> Optional[str]:
+    stored = get_stored_display_name(player_id)
+    if stored is not None:
+        stripped = stored.strip()
+        return stripped or None
+    with _connect() as conn:
+        _init_db(conn)
+        name = _telegram_users_name(conn, player_id)
+    return name or None
+
+
+def set_player_display_name(player_id: int, name: str) -> str:
+    """Пустая строка — явное очищение (клиент покажет плейсхолдер)."""
+    cleaned = (name or "").strip()
+    if len(cleaned) > DISPLAY_NAME_MAX:
+        cleaned = cleaned[:DISPLAY_NAME_MAX].rstrip()
+    stored = cleaned
+    now = _now_sql()
+    with _connect() as conn:
+        _init_db(conn)
+        exists = conn.execute(
+            "SELECT 1 FROM players WHERE id = ?",
+            (int(player_id),),
+        ).fetchone()
+        if exists:
+            conn.execute(
+                "UPDATE players SET display_name = ? WHERE id = ?",
+                (stored, int(player_id)),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO players (id, created_at, display_name) VALUES (?, ?, ?)",
+                (int(player_id), now, stored),
+            )
+        conn.commit()
+    return stored
+
+
+def seed_display_name_if_unset(player_id: int, given: str = "", family: str = "") -> None:
+    composed = _compose_person_name(given, family)
+    if not composed:
+        return
+    if get_stored_display_name(player_id) is not None:
+        return
+    set_player_display_name(player_id, composed)
+
+
+def carry_display_name_on_telegram_link(from_player_id: int, to_player_id: int) -> None:
+    if int(from_player_id) == int(to_player_id):
+        return
+    source = get_stored_display_name(from_player_id)
+    if source is not None and source.strip():
+        set_player_display_name(to_player_id, source.strip())
 
 
 def get_or_create_apple_player(apple_sub: str) -> int:
@@ -1011,6 +1105,7 @@ def carry_profile_on_telegram_link(from_player_id: int, to_player_id: int) -> No
         )
     elif source and source.get("skipped") and not dest:
         mark_profile_skipped(to_player_id)
+    carry_display_name_on_telegram_link(from_player_id, to_player_id)
     delete_player_profile(from_player_id)
 
 
