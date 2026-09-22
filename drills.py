@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 import storage
 
@@ -227,6 +228,7 @@ def sync_drills_from_wiki() -> int:
             description=description_ru,
             tags=list(tags),
             language="ru",
+            url=(meta.get("url") or "").strip() or None,
         )
         count += 1
     return count
@@ -392,6 +394,58 @@ _DRILL_EN: dict[str, dict[str, str]] = {
         "description": "Practice open-stance FH on wide balls only.",
     },
 }
+
+
+def _https_url(raw: Optional[str]) -> str:
+    text = (raw or "").strip()
+    if not text:
+        return ""
+    parsed = urlparse(text)
+    if parsed.scheme.lower() != "https" or not parsed.netloc:
+        return ""
+    return text
+
+
+def cards_for_ids(
+    drill_ids: Optional[list[str]] = None,
+    lang: str = "ru",
+    limit: int = 3,
+) -> list[dict]:
+    """Карточки каталога в порядке id. Неизвестный id пропускается. url — только https."""
+    pending: list[str] = []
+    seen: set[str] = set()
+    for raw in drill_ids or []:
+        drill_id = str(raw).strip()
+        if not drill_id or drill_id in seen:
+            continue
+        seen.add(drill_id)
+        pending.append(drill_id)
+    if not pending:
+        return []
+
+    all_drills = storage.list_drills()
+    if not all_drills:
+        sync_drills_from_wiki()
+        all_drills = storage.list_drills()
+    by_id = {d["id"]: d for d in all_drills}
+
+    cards: list[dict] = []
+    for drill_id in pending:
+        row = by_id.get(drill_id)
+        if row is None:
+            continue
+        localized = localize_drill(row, lang)
+        cards.append(
+            {
+                "id": drill_id,
+                "title": localized.get("title") or drill_id,
+                "description": localized.get("description") or "",
+                "url": _https_url(row.get("url")),
+            }
+        )
+        if len(cards) >= limit:
+            break
+    return cards
 
 
 def catalog_for_prompt(limit: int = 40) -> str:

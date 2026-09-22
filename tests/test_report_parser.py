@@ -42,6 +42,8 @@ def test_parse_findings():
     assert len(parsed.findings) == 3
     assert parsed.findings[0]["problem"].startswith("Ракетка")
     assert parsed.findings[0]["drill_ids"] == ["count-for-more-time"]
+    assert parsed.findings[0]["detail"] == ""
+    assert parsed.findings[0]["practice"] == ""
     assert parsed.findings[1]["problem"] == "Лишний"
     assert parsed.findings[2]["problem"] == "Третий"
 
@@ -97,6 +99,8 @@ def test_findings_from_top3_draft():
     assert len(parsed.findings) == 3
     assert parsed.findings[0]["problem"] == "Перенос веса на форхенде"
     assert "переносить вес" in parsed.findings[0]["recommendation"]
+    assert parsed.findings[0]["detail"] == ""
+    assert parsed.findings[0]["practice"] == ""
     assert parsed.findings[2]["problem"] == "Работа левой руки"
 
 
@@ -134,6 +138,19 @@ def test_parse_broken_json():
     parsed = parse_report(text)
     assert parsed.scores == {}
     assert "report" in parsed.text
+
+
+def test_finding_detail_practice_and_drill_cap():
+    text = """\
+```json
+{"findings":[{"problem":"Поздно.","recommendation":"Раньше.","detail":"На клипе замах после отскока.","practice":"Три медленных удара.","drill_ids":["a","b","c","d"]}]}
+```
+"""
+    parsed = parse_report(text)
+    item = parsed.findings[0]
+    assert item["detail"] == "На клипе замах после отскока."
+    assert item["practice"] == "Три медленных удара."
+    assert item["drill_ids"] == ["a", "b", "c"]
 
 
 def test_sparkline():

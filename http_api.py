@@ -15,6 +15,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
+import drills
 import services
 import storage
 from i18n import resolve_ui_lang
@@ -114,6 +115,14 @@ def _job_json(job: dict) -> dict:
         parsed["stroke"] = job.get("stroke") or ""
     if scores and not parsed.get("scores"):
         parsed["scores"] = scores
+    lang = resolve_ui_lang(job.get("language_code"))
+    findings = []
+    for item in parsed.get("findings") or []:
+        if not isinstance(item, dict):
+            continue
+        row = dict(item)
+        row["drills"] = drills.cards_for_ids(row.get("drill_ids"), lang)
+        findings.append(row)
     return {
         "id": job["id"],
         "status": job["status"],
@@ -124,7 +133,7 @@ def _job_json(job: dict) -> dict:
         "markdown": parsed.get("markdown") or text,
         "scores": parsed.get("scores") or {},
         "drills": parsed.get("drills") or [],
-        "findings": parsed.get("findings") or [],
+        "findings": findings,
         "summary": parsed.get("summary") or "",
         "next_video": parsed.get("next_video") or "",
         "coverage": services.job_coverage_payload(job["id"]),

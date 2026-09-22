@@ -11,6 +11,7 @@ from i18n import report_section_headers
 
 SKILL_KEYS = ("footwork", "contact", "preparation", "follow_through")
 FINDINGS_LIMIT = 3
+DRILL_IDS_PER_FINDING = 3
 SEGMENT_KEYS = (
     "forehand",
     "backhand",
@@ -138,7 +139,11 @@ def _normalize_findings(raw: Any) -> list[dict]:
             {
                 "problem": problem,
                 "recommendation": recommendation,
-                "drill_ids": _normalize_drill_ids(item.get("drill_ids") or item.get("drills") or []),
+                "detail": str(item.get("detail") or "").strip(),
+                "practice": str(item.get("practice") or "").strip(),
+                "drill_ids": _normalize_drill_ids(
+                    item.get("drill_ids") or item.get("drills") or []
+                )[:DRILL_IDS_PER_FINDING],
             }
         )
         if len(findings) >= FINDINGS_LIMIT:
@@ -242,7 +247,9 @@ def _finding(problem: str, recommendation: str, drill_ids: list[str] | None = No
     return {
         "problem": problem,
         "recommendation": recommendation,
-        "drill_ids": drill_ids or [],
+        "detail": "",
+        "practice": "",
+        "drill_ids": (drill_ids or [])[:DRILL_IDS_PER_FINDING],
     }
 
 

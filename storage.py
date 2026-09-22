@@ -201,7 +201,8 @@ def _init_db(conn: sqlite3.Connection) -> None:
             description       TEXT NOT NULL DEFAULT '',
             tags              TEXT NOT NULL DEFAULT '[]',
             telegram_file_id  TEXT,
-            language          TEXT NOT NULL DEFAULT 'ru'
+            language          TEXT NOT NULL DEFAULT 'ru',
+            url               TEXT NOT NULL DEFAULT ''
         );
 
         CREATE TABLE IF NOT EXISTS player_focus (
@@ -337,6 +338,7 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         ("players", "ntrp", "REAL"),
         ("players", "ntrp_seed", "REAL"),
         ("players", "ntrp_locked", "INTEGER NOT NULL DEFAULT 0"),
+        ("drills", "url", "TEXT NOT NULL DEFAULT ''"),
     )
     for table, column, typedef in migrations:
         tables = {
@@ -2074,19 +2076,21 @@ def upsert_drill(
     tags: Optional[list] = None,
     telegram_file_id: Optional[str] = None,
     language: str = "ru",
+    url: Optional[str] = None,
 ) -> None:
     with _connect() as conn:
         _init_db(conn)
         conn.execute(
             """
-            INSERT INTO drills (id, title, description, tags, telegram_file_id, language)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO drills (id, title, description, tags, telegram_file_id, language, url)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 title = excluded.title,
                 description = excluded.description,
                 tags = excluded.tags,
                 telegram_file_id = COALESCE(excluded.telegram_file_id, drills.telegram_file_id),
-                language = excluded.language
+                language = excluded.language,
+                url = COALESCE(NULLIF(excluded.url, ''), drills.url)
             """,
             (
                 drill_id,
@@ -2095,6 +2099,7 @@ def upsert_drill(
                 json.dumps(tags or [], ensure_ascii=False),
                 telegram_file_id,
                 language,
+                (url or "").strip(),
             ),
         )
         conn.commit()

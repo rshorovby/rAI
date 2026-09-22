@@ -70,12 +70,12 @@ USER_PROMPT_RU = """\
 - follow_through — проводка
 Поле focus — один короткий фокус недели для удара с этого видео (одно действие). Не переноси фокус с другого удара.
 Поле drills — массив id упражнений из списка в системном промпте (0–2 штуки).
-Поле findings — массив из 1–3 пунктов для игрока. Каждый пункт: problem (что не так, одно-два предложения), recommendation (как закрыть на корзине), drill_ids (0–2 id из каталога). Не пиши категории техника/ноги/баланс в findings. Markdown секций выше не убирай — это черновик для Forum.
+Поле findings — массив из 1–3 пунктов для игрока. Каждый пункт: problem (что не так, одно-два предложения), recommendation (как закрыть на корзине, одно-два предложения), detail (почему это видно на этом клипе, 2–4 предложения), practice (как исправлять на корте, отдельный текст), drill_ids (0–3 id из каталога). Не пиши категории техника/ноги/баланс и не пиши URL в findings. Markdown секций выше не убирай — это черновик для Forum.
 Поле primary_segment — один ключ удара, который реально доминирует на видео: forehand, backhand, serve, volley, footwork, rally.
 Поле detected_segments — массив всех видимых сегментов из того же списка (без general). Всегда заполняй детект по факту видео, даже если игрок выбрал другой удар или ничего не выбрал.
 Пример:
 ```json
-{"scores":{"footwork":6,"contact":5,"preparation":7,"follow_through":6},"focus":"Повернуться до отскока","drills":["count-for-more-time"],"findings":[{"problem":"Подготовка начинается после отскока — ракетка опаздывает.","recommendation":"До отскока разверните плечи и отведите ракетку назад. На корзине: три медленных форхенда с паузой на подготовке, потом обычный темп.","drill_ids":["count-for-more-time"]}],"primary_segment":"forehand","detected_segments":["forehand","footwork"]}
+{"scores":{"footwork":6,"contact":5,"preparation":7,"follow_through":6},"focus":"Повернуться до отскока","drills":["count-for-more-time"],"findings":[{"problem":"Подготовка начинается после отскока — ракетка опаздывает.","recommendation":"До отскока разверните плечи и отведите ракетку назад.","detail":"На клипе замах начинается после отскока, поэтому контакт опаздывает.","practice":"На корзине три медленных форхенда: пауза с ракеткой сзади до отскока, затем обычный темп.","drill_ids":["count-for-more-time"]}],"primary_segment":"forehand","detected_segments":["forehand","footwork"]}
 ```
 
 Важно: если на видео нет теннисных действий или контент не подходит для разбора — вежливо сообщи об этом вместо выдуманного анализа.
@@ -127,12 +127,12 @@ Score skills 0–10 based only on what is visible:
 - follow_through
 Field focus — one short weekly focus for the stroke on this video (one action). Do not carry a focus from another stroke.
 Field drills — array of drill ids from the system prompt catalog (0–2 items).
-Field findings — array of 1–3 player-facing items. Each item: problem (what is wrong, one or two sentences), recommendation (how to close it in the basket), drill_ids (0–2 catalog ids). Do not put technique/footwork/balance categories in findings. Keep the markdown sections above — they are the Forum draft.
+Field findings — array of 1–3 player-facing items. Each item: problem (what is wrong, one or two sentences), recommendation (how to close it in the basket, one or two sentences), detail (why this shows on this clip, 2–4 sentences), practice (how to fix it on court, a separate paragraph), drill_ids (0–3 catalog ids). Do not put technique/footwork/balance categories or URLs in findings. Keep the markdown sections above — they are the Forum draft.
 Field primary_segment — the one stroke key that actually dominates the video: forehand, backhand, serve, volley, footwork, rally.
 Field detected_segments — array of every visible segment from that same list (no general). Always fill detect from the footage, even if the player selected a different stroke or selected none.
 Example:
 ```json
-{"scores":{"footwork":6,"contact":5,"preparation":7,"follow_through":6},"focus":"Turn before the bounce","drills":["count-for-more-time"],"findings":[{"problem":"Preparation starts after the bounce — the racket is late.","recommendation":"Turn the shoulders and take the racket back before the bounce. At the basket: three slow forehands with a pause on the unit, then normal pace.","drill_ids":["count-for-more-time"]}],"primary_segment":"forehand","detected_segments":["forehand","footwork"]}
+{"scores":{"footwork":6,"contact":5,"preparation":7,"follow_through":6},"focus":"Turn before the bounce","drills":["count-for-more-time"],"findings":[{"problem":"Preparation starts after the bounce — the racket is late.","recommendation":"Turn the shoulders and take the racket back before the bounce.","detail":"On this clip the swing starts after the bounce, so contact is late.","practice":"At the basket, three slow forehands: pause with the racket back until the bounce, then normal pace.","drill_ids":["count-for-more-time"]}],"primary_segment":"forehand","detected_segments":["forehand","footwork"]}
 ```
 
 Important: if the video shows no tennis actions or content is unsuitable — say so politely instead of inventing an analysis.

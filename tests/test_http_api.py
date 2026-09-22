@@ -293,6 +293,60 @@ def test_job_json_includes_findings(tmp_path):
         assert job["next_video"] == "Форхенд сбоку."
         assert job["findings"][0]["problem"].startswith("Ракетка")
         assert job["findings"][0]["recommendation"].startswith("Отведите")
+        assert job["findings"][0]["detail"] == ""
+        assert job["findings"][0]["practice"] == ""
+        assert job["findings"][0]["drills"] == []
+
+
+def test_job_json_resolves_drill_cards(tmp_path):
+    with _tmp_db(tmp_path):
+        import drills
+
+        drills.sync_drills_from_wiki()
+        storage.upsert_drill(
+            "count-for-more-time",
+            title="Счёт",
+            description="Описание",
+            url="https://example.com/count",
+        )
+        client = _client()
+        res = client.post("/v1/auth/apple", json={"identity_token": "sub-drills"})
+        token = res.json()["token"]
+        pid = res.json()["player_id"]
+        draft = (
+            "```json\n"
+            '{"findings":[{"problem":"Поздно.","recommendation":"Раньше.",'
+            '"detail":"На клипе замах после отскока.","practice":"Три удара.",'
+            '"drill_ids":["missing","count-for-more-time"]}]}\n'
+            "```\n"
+        )
+        job_id = storage.create_review_job(
+            pid,
+            video_file_id="ios:drill-cards",
+            draft_text=draft,
+            source_channel=storage.CHANNEL_IOS,
+            language_code="ru",
+        )
+        storage.mark_review_sent(job_id, status="ai_sent", final_text=draft)
+        body = client.get(
+            f"/v1/jobs/{job_id}",
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert body.status_code == 200
+        finding = body.json()["findings"][0]
+        assert finding["detail"] == "На клипе замах после отскока."
+        assert finding["practice"] == "Три удара."
+        assert finding["drills"] == [
+            {
+                "id": "count-for-more-time",
+                "title": "Счёт для большего времени",
+                "description": (
+                    "Считайте вслух от отскока (или контакта соперника) до своего удара — "
+                    "так расширяется ощущение времени на том же полёте мяча."
+                ),
+                "url": "https://example.com/count",
+            }
+        ]
 
 
 def test_telegram_new_job_still_cancels_previous_telegram(tmp_path):
