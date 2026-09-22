@@ -26,6 +26,7 @@ from telegram.ext import (
     filters,
 )
 
+import acquisition
 import billing
 import cabinet
 import drills
@@ -708,6 +709,16 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     has_record = await asyncio.to_thread(storage.has_profile_record, player_id)
     user = update.effective_user or update.message.from_user
+    clicked = acquisition.normalize_start_code(
+        (context.args or [None])[0] if context.args else None
+    )
+    if clicked:
+        stored = await asyncio.to_thread(
+            storage.set_acquisition_source_if_empty, player_id, clicked
+        )
+        await _log_event(player_id, acquisition.EVENT_ACQUISITION_START, clicked)
+    else:
+        stored = await asyncio.to_thread(storage.get_acquisition_source, player_id)
     await _cabinet_notify(
         context,
         player_id,
@@ -716,6 +727,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             first_name=getattr(user, "first_name", "") or "",
             username=getattr(user, "username", "") or "",
             is_new=not has_record,
+            acquisition=acquisition.source_label(stored),
+            visit=acquisition.source_label(clicked),
         ),
         user=user,
     )
@@ -1865,10 +1878,10 @@ async def _post_review_job_to_forum(
         status=review.STATUS_QUEUED,
     )
 
-    channel = (
-        "Канал: iOS\n"
-        if (job.get("source_channel") or "") == storage.CHANNEL_IOS
-        else ""
+    acquisition_code = await asyncio.to_thread(storage.get_acquisition_source, user_id)
+    channel = cabinet.format_review_origin(
+        source_channel=job.get("source_channel") or "",
+        acquisition_label=acquisition.source_label(acquisition_code),
     )
     if manual:
         video_hint = (

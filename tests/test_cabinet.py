@@ -9,6 +9,27 @@ def test_format_start_new_and_returning():
     assert "▶️" in text2 or "вернулся" in text2.lower()
 
 
+def test_format_start_shows_acquisition_and_later_visit():
+    text = cabinet.format_start(1, is_new=True, acquisition="Минск-Мир")
+    assert "источник: Минск-Мир" in text
+    assert "этот заход" not in text
+    later = cabinet.format_start(
+        1, is_new=False, acquisition="Минск-Мир", visit="instagram"
+    )
+    assert "источник: Минск-Мир" in later
+    assert "этот заход: instagram" in later
+
+
+def test_format_review_origin_channel_and_source():
+    ios = cabinet.format_review_origin(
+        source_channel="ios", acquisition_label="Минск-Мир"
+    )
+    assert ios.startswith("Канал: iOS\nИсточник: Минск-Мир\n")
+    telegram = cabinet.format_review_origin(acquisition_label="Минск-Мир")
+    assert telegram == "Источник: Минск-Мир\n"
+    assert cabinet.format_review_origin() == ""
+
+
 def test_format_onboarding_with_profile():
     text = cabinet.format_onboarding_done(
         7, "Уровень: любитель", skipped=False, first_name="Bob"

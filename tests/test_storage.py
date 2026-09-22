@@ -230,6 +230,20 @@ def test_format_history_for_user(tmp_path):
     assert "разбор" in result.lower()
 
 
+def test_acquisition_source_keeps_first_code(tmp_path):
+    with _tmp_db(tmp_path):
+        player_id = storage.get_or_create_telegram_player(77)
+        assert storage.get_acquisition_source(player_id) is None
+        assert storage.set_acquisition_source_if_empty(player_id, "minsk_mir") == (
+            "minsk_mir"
+        )
+        assert (
+            storage.set_acquisition_source_if_empty(player_id, "instagram")
+            == "minsk_mir"
+        )
+        assert storage.get_acquisition_source(player_id) == "minsk_mir"
+
+
 def test_different_users_isolated(tmp_path):
     with _tmp_db(tmp_path):
         storage.save_session(1, SAMPLE_REPORT)

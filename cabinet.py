@@ -135,11 +135,35 @@ def format_start(
     first_name: str = "",
     username: str = "",
     is_new: bool = False,
+    acquisition: str = "",
+    visit: str = "",
 ) -> str:
     label = player_label(user_id, first_name, username)
-    if is_new:
-        return f"🚀 /start — новый игрок\n{label}\nid: {user_id}"
-    return f"▶️ /start — вернулся в бота\n{label}\nid: {user_id}"
+    title = "🚀 /start — новый игрок" if is_new else "▶️ /start — вернулся в бота"
+    lines = [title, label, f"id: {user_id}"]
+    acquisition = (acquisition or "").strip()
+    visit = (visit or "").strip()
+    if acquisition:
+        lines.append(f"источник: {acquisition}")
+    if visit and visit != acquisition:
+        lines.append(f"этот заход: {visit}")
+    return "\n".join(lines)
+
+
+def format_review_origin(
+    *,
+    source_channel: str = "",
+    acquisition_label: str = "",
+) -> str:
+    lines = []
+    if (source_channel or "") == storage.CHANNEL_IOS:
+        lines.append("Канал: iOS")
+    label = (acquisition_label or "").strip()
+    if label:
+        lines.append(f"Источник: {label}")
+    if not lines:
+        return ""
+    return "\n".join(lines) + "\n"
 
 
 def format_onboarding_done(

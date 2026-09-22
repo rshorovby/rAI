@@ -305,7 +305,9 @@ def test_coach_action_callback_ok_pins_draft(tmp_path):
     with patch.object(storage, "DB_PATH", tmp_path / "t.db"):
         job_id = storage.create_review_job(99, video_file_id="v", draft_text="draft")
         storage.update_review_job(job_id, forum_chat_id=-100123, message_thread_id=77)
-        storage.mark_review_sent(job_id, status=review.STATUS_AI_SENT, final_text="draft")
+        storage.mark_review_sent(
+            job_id, status=review.STATUS_AI_SENT, final_text="draft"
+        )
         storage.set_pending_coach_action(job_id, review.ACTION_FIX_AI)
         settings = _coach_forum_settings()
         query = MagicMock()
@@ -531,6 +533,42 @@ def test_post_ios_review_to_forum_sends_channel_and_deletes(tmp_path):
         assert any("Канал: iOS" in text for text in texts)
         application.bot.send_video.assert_awaited()
         assert not Path(video).exists()
+
+
+def test_review_header_includes_acquisition_source(tmp_path):
+    from bot import _ApplicationContext, _post_review_job_to_forum
+
+    with patch.object(storage, "DB_PATH", tmp_path / "t.db"):
+        pid = storage.get_or_create_telegram_player(501)
+        storage.set_acquisition_source_if_empty(pid, "minsk_mir")
+        job_id = storage.create_review_job(
+            pid,
+            video_file_id="file-501",
+            draft_text="## Краткое резюме\nok",
+            focus_text="Кисть",
+        )
+        settings = _coach_forum_settings()
+        application = MagicMock()
+        application.bot_data = {"settings": settings}
+        application.bot.send_message = AsyncMock()
+        application.bot.send_video = AsyncMock()
+
+        async def _run():
+            with patch(
+                "bot.cabinet.ensure_player_topic", new=AsyncMock(return_value=77)
+            ):
+                posted = await _post_review_job_to_forum(
+                    _ApplicationContext(application), job_id, pid
+                )
+                assert posted is True
+
+        asyncio.run(_run())
+        texts = [
+            call.kwargs["text"] for call in application.bot.send_message.await_args_list
+        ]
+        header = next(text for text in texts if text.startswith("🆕 Разбор"))
+        assert "Источник: Минск-Мир" in header
+        assert "Канал:" not in header
 
 
 def test_post_ios_review_forum_fail_still_ai_sent(tmp_path):

@@ -338,6 +338,7 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         ("players", "ntrp", "REAL"),
         ("players", "ntrp_seed", "REAL"),
         ("players", "ntrp_locked", "INTEGER NOT NULL DEFAULT 0"),
+        ("players", "acquisition_source", "TEXT"),
         ("drills", "url", "TEXT NOT NULL DEFAULT ''"),
     )
     for table, column, typedef in migrations:
@@ -588,7 +589,46 @@ def set_player_display_name(player_id: int, name: str) -> str:
     return stored
 
 
-def seed_display_name_if_unset(player_id: int, given: str = "", family: str = "") -> None:
+def get_acquisition_source(player_id: int) -> Optional[str]:
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            "SELECT acquisition_source FROM players WHERE id = ?",
+            (int(player_id),),
+        ).fetchone()
+    if not row:
+        return None
+    value = (row["acquisition_source"] or "").strip()
+    return value or None
+
+
+def set_acquisition_source_if_empty(player_id: int, code: str) -> Optional[str]:
+    """Первый непустой код остаётся. Возвращает сохранённый источник."""
+    code = (code or "").strip()
+    if not code:
+        return get_acquisition_source(player_id)
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            "SELECT acquisition_source FROM players WHERE id = ?",
+            (int(player_id),),
+        ).fetchone()
+        if not row:
+            return None
+        current = (row["acquisition_source"] or "").strip()
+        if current:
+            return current
+        conn.execute(
+            "UPDATE players SET acquisition_source = ? WHERE id = ?",
+            (code, int(player_id)),
+        )
+        conn.commit()
+    return code
+
+
+def seed_display_name_if_unset(
+    player_id: int, given: str = "", family: str = ""
+) -> None:
     composed = _compose_person_name(given, family)
     if not composed:
         return
