@@ -139,6 +139,7 @@ def _normalize_findings(raw: Any) -> list[dict]:
             {
                 "problem": problem,
                 "recommendation": recommendation,
+                "headline": str(item.get("headline") or "").strip(),
                 "detail": str(item.get("detail") or "").strip(),
                 "practice": str(item.get("practice") or "").strip(),
                 "drill_ids": _normalize_drill_ids(
@@ -224,11 +225,6 @@ def _labeled(block: str, *names: str) -> str:
     return ""
 
 
-def _is_strength(severity: str) -> bool:
-    lowered = severity.lower()
-    return "🟢" in severity or "сильн" in lowered or "strength" in lowered
-
-
 def _severity_rank(severity: str) -> int:
     if "🔴" in severity:
         return 0
@@ -239,16 +235,28 @@ def _severity_rank(severity: str) -> int:
     return 3
 
 
-def _finding(problem: str, recommendation: str, drill_ids: list[str] | None = None) -> dict | None:
+def _finding(
+    problem: str,
+    recommendation: str,
+    drill_ids: list[str] | None = None,
+    *,
+    detail: str = "",
+    practice: str = "",
+    headline: str = "",
+) -> dict | None:
     problem = _plain(problem)
     recommendation = _plain(recommendation)
+    detail = _plain(detail)
+    practice = _plain(practice)
+    headline = _plain(headline)
     if not problem or not recommendation:
         return None
     return {
         "problem": problem,
         "recommendation": recommendation,
-        "detail": "",
-        "practice": "",
+        "headline": headline,
+        "detail": detail,
+        "practice": practice,
         "drill_ids": (drill_ids or [])[:DRILL_IDS_PER_FINDING],
     }
 
@@ -283,19 +291,97 @@ def _findings_from_observations(text: str) -> list[dict]:
         problem = _labeled(block, "Проблема / плюс", "Issue / plus", "Проблема")
         recommendation = _labeled(block, "Рекомендация", "Recommendation")
         severity = _labeled(block, "Критичность", "Severity")
-        if _is_strength(severity):
-            continue
         recommendation, ids = _drill_ids_in(recommendation)
-        item = _finding(problem or observation, recommendation, ids)
+        headline_source = problem or observation
+        detail = observation if problem.strip() and observation.strip() else ""
+        item = _finding(
+            headline_source,
+            recommendation,
+            ids,
+            detail=detail,
+            practice=recommendation,
+        )
         if item is None:
             continue
         ranked.append((_severity_rank(severity), item))
     ranked.sort(key=lambda row: row[0])
-    return [item for _, item in ranked[:FINDINGS_LIMIT]]
+    return [item for _, item in ranked]
 
 
-def _findings_from_markdown(text: str) -> list[dict]:
-    return _findings_from_top3(text) or _findings_from_observations(text)
+def _words(text: str) -> list[str]:
+    return re.findall(r"[A-Za-zА-Яа-яЁё]{4,}", text.lower())
+
+
+def _related(left: str, right: str) -> bool:
+    if left == right:
+        return True
+    shared = 0
+    for a, b in zip(left, right):
+        if a != b:
+            break
+        shared += 1
+    return shared >= 5
+
+
+def _match_score(short: dict, block: dict) -> int:
+    title = _words(short.get("problem") or "")
+    body = _words(short.get("recommendation") or "")
+    block_words = _words(
+        " ".join(
+            [
+                block.get("problem") or "",
+                block.get("detail") or "",
+                block.get("practice") or "",
+                block.get("recommendation") or "",
+            ]
+        )
+    )
+    score = 0
+    for word in title:
+        if any(_related(word, other) for other in block_words):
+            score += 3
+    for word in body:
+        if any(_related(word, other) for other in block_words):
+            score += 1
+    return score
+
+
+def _attach_category_detail(shorts: list[dict], blocks: list[dict]) -> list[dict]:
+    """Короткий пункт остаётся карточкой. Совпавший блок категории — текст внутри."""
+    if not blocks:
+        return shorts
+    used: set[int] = set()
+    attached: list[dict] = []
+    for short in shorts:
+        best = None
+        best_score = 0
+        for index, block in enumerate(blocks):
+            if index in used:
+                continue
+            score = _match_score(short, block)
+            if score > best_score:
+                best_score = score
+                best = index
+        item = dict(short)
+        if best is not None and best_score >= 3:
+            used.add(best)
+            block = blocks[best]
+            parts = []
+            observation = (block.get("detail") or "").strip()
+            explanation = (block.get("problem") or "").strip()
+            if observation:
+                parts.append(observation)
+            if explanation and explanation != item.get("problem"):
+                parts.append(explanation)
+            if parts:
+                item["detail"] = "\n\n".join(parts)
+            practice = (block.get("practice") or block.get("recommendation") or "").strip()
+            if practice:
+                item["practice"] = practice
+            if not item.get("drill_ids") and block.get("drill_ids"):
+                item["drill_ids"] = list(block["drill_ids"])
+        attached.append(item)
+    return attached
 
 
 def parse_report(text: str) -> ParsedReport:
@@ -332,9 +418,12 @@ def parse_report(text: str) -> ParsedReport:
     cleaned = cleaned.strip()
     body = cleaned or text.strip()
 
-    findings = _normalize_findings(meta.get("findings"))
-    if not findings:
-        findings = _findings_from_markdown(body)
+    blocks = _findings_from_observations(body)
+    shorts = _normalize_findings(meta.get("findings")) or _findings_from_top3(body)
+    if shorts:
+        findings = _attach_category_detail(shorts, blocks)
+    else:
+        findings = blocks
 
     primary = ""
     prim_list = _normalize_segments(

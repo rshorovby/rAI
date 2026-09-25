@@ -100,8 +100,13 @@ def test_findings_from_top3_draft():
     assert parsed.findings[0]["problem"] == "Перенос веса на форхенде"
     assert "переносить вес" in parsed.findings[0]["recommendation"]
     assert parsed.findings[0]["detail"] == ""
-    assert parsed.findings[0]["practice"] == ""
-    assert parsed.findings[2]["problem"] == "Работа левой руки"
+    hand = parsed.findings[2]
+    assert hand["problem"] == "Работа левой руки"
+    assert "параллельно" in hand["recommendation"]
+    assert "Левая рука опускается." in hand["detail"]
+    assert "unit turn" in hand["detail"]
+    assert hand["practice"].startswith("Вытягивать левую руку")
+    assert hand["drill_ids"] == ["two-hand-sync"]
 
 
 def test_findings_from_observations_when_no_top3():
@@ -127,10 +132,14 @@ def test_findings_from_observations_when_no_top3():
 - **Рекомендация:** Делать разножку в момент наброса.
 """
     parsed = parse_report(text)
-    assert len(parsed.findings) == 2
+    assert len(parsed.findings) == 3
     assert parsed.findings[0]["problem"] == "Мяч близко к корпусу."
+    assert parsed.findings[0]["detail"] == "Контакт поздний."
+    assert parsed.findings[0]["practice"].startswith("Встречать мяч впереди")
     assert parsed.findings[0]["drill_ids"] == ["two-hand-sync"]
     assert parsed.findings[1]["problem"] == "Ноги залипают."
+    assert parsed.findings[2]["problem"] == "Стабильный ритм."
+    assert parsed.findings[2]["detail"] == "Хороший ритм замаха."
 
 
 def test_parse_broken_json():
@@ -151,6 +160,48 @@ def test_finding_detail_practice_and_drill_cap():
     assert item["detail"] == "На клипе замах после отскока."
     assert item["practice"] == "Три медленных удара."
     assert item["drill_ids"] == ["a", "b", "c"]
+
+
+def test_category_blocks_keep_full_recommendation_and_strength():
+    text = """\
+## Разбор по категориям
+
+### Техника удара
+- **Наблюдение:** Точка контакта слишком близко к корпусу. Локти прижаты.
+- **Проблема / плюс:** Поздний контакт не даёт рукам пройти сквозь мяч.
+- **Критичность:** 🔴 Критично
+- **Рекомендация:** Упражнение «Конус в точке удара» или ловля наброшенного мяча левой рукой далеко впереди.
+
+### Передвижение и работа ног
+- **Наблюдение:** Игрок стабильно выполняет разножку.
+- **Проблема / плюс:** Отличная база. Перенос веса работает.
+- **Критичность:** 🟢 Сильная сторона
+- **Рекомендация:** Продолжать поддерживать этот ритм ног, он даёт импульс для удара.
+
+## Топ-3 приоритета для тренировки
+1. **Точка контакта:** Встречать мяч дальше впереди корпуса.
+"""
+    parsed = parse_report(text)
+    assert len(parsed.findings) == 1
+    contact = parsed.findings[0]
+    assert contact["problem"] == "Точка контакта"
+    assert contact["recommendation"].startswith("Встречать мяч дальше")
+    assert contact["detail"].startswith("Точка контакта слишком близко")
+    assert "Поздний контакт" in contact["detail"]
+    assert "левой рукой далеко впереди" in contact["practice"]
+
+
+def test_without_short_title_category_text_stays_whole():
+    text = """\
+- **Наблюдение:** Мяч встречают у бедра.
+- **Проблема / плюс:** Это повторяющаяся зона роста из прошлых разборов. Поздняя точка контакта не даёт рукам пройти сквозь мяч.
+- **Рекомендация:** Упражнение «Конус в точке удара» или ловля наброшенного мяча левой рукой далеко впереди себя перед тем, как выполнить удар.
+"""
+    item = parse_report(text).findings[0]
+    assert "Поздняя точка контакта" in item["problem"]
+    assert item["practice"].endswith("выполнить удар.")
+    assert item["recommendation"] == item["practice"]
+    assert not item["recommendation"].endswith("…")
 
 
 def test_sparkline():
