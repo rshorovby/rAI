@@ -207,3 +207,17 @@ def test_without_short_title_category_text_stays_whole():
 def test_sparkline():
     assert len(sparkline([1, 2, 3, 4])) == 4
     assert sparkline([]) == "—"
+
+
+def test_focus_checks_and_issue_tags_drop_unknown():
+    text = """\
+## Краткое резюме
+ok
+
+```json
+{"focus":"разворот","focus_checks":[{"stroke":"forehand","status":"same"},{"stroke":"nope","status":"same"},{"stroke":"serve","status":"nope"}],"issue_tags":["unit-turn","not-a-tag","split-step"]}
+```
+"""
+    parsed = parse_report(text)
+    assert parsed.focus_checks == [{"stroke": "forehand", "status": "same"}]
+    assert parsed.issue_tags == ["unit-turn", "split-step"]

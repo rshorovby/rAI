@@ -615,6 +615,15 @@ async def _send_formatted(
         await context.bot.send_message(chat_id=chat_id, text=text, **kwargs)
 
 
+def _remember_free_question(
+    user_id, user_text: str, question_label: Optional[str]
+) -> None:
+    """Свободный вопрос игрока остаётся в памяти следующего разбора. Кнопки — нет."""
+    if not user_id or question_label:
+        return
+    storage.add_player_note(user_id, user_text)
+
+
 async def _process_followup(
     context: ContextTypes.DEFAULT_TYPE,
     user_data: dict,
@@ -639,15 +648,16 @@ async def _process_followup(
     history: list[dict[str, str]] = session.get("history", [])
 
     user_id = _get_user_id(user_data)
-    player_history = (
-        await asyncio.to_thread(storage.get_player_history, user_id) if user_id else []
-    )
-    player_profile = (
-        await asyncio.to_thread(storage.get_player_profile, user_id)
+    analysis_ctx = (
+        await asyncio.to_thread(
+            services.load_analysis_context, user_id, session.get("stroke")
+        )
         if user_id
-        else None
+        else {}
     )
-    coach_corrections = await _load_coach_corrections(user_id)
+    player_history = analysis_ctx.get("history") or []
+    player_profile = analysis_ctx.get("profile")
+    coach_corrections = analysis_ctx.get("corrections") or []
 
     settings: Settings = context.application.bot_data.get("settings")
     use_model = (
@@ -675,7 +685,9 @@ async def _process_followup(
         session.get("stroke"),
         use_model,
         coach_corrections,
+        analysis_ctx or None,
     )
+    await asyncio.to_thread(_remember_free_question, user_id, user_text, question_label)
     reply = result.text
     logger.info("Ответ ИИ получен (%s символов)", len(reply))
     if user_id:
@@ -2058,6 +2070,7 @@ async def _analyze_video_once(
     active_focus,
     drills_catalog,
     coach_corrections=None,
+    prompt_context=None,
 ):
     try:
         return await asyncio.wait_for(
@@ -2073,6 +2086,7 @@ async def _analyze_video_once(
                 active_focus,
                 drills_catalog,
                 coach_corrections,
+                prompt_context,
             ),
             timeout=200,
         )
@@ -2279,10 +2293,12 @@ async def _run_video_analysis(
             return
 
         stroke = ""
+        intake_strokes = None
         if video_context:
             stroke = (video_context.get("stroke") or "") or ""
+            intake_strokes = video_context.get("strokes")
         analysis_ctx = await asyncio.to_thread(
-            services.load_analysis_context, user_id, stroke
+            services.load_analysis_context, user_id, stroke, intake_strokes
         )
         player_history = analysis_ctx["history"]
         player_profile = analysis_ctx["profile"]
@@ -2319,6 +2335,7 @@ async def _run_video_analysis(
                 active_focus=active_focus,
                 drills_catalog=drills_catalog,
                 coach_corrections=coach_corrections,
+                prompt_context=analysis_ctx,
             )
         except Exception as primary_exc:
             logger.warning(
@@ -2356,6 +2373,7 @@ async def _run_video_analysis(
                     active_focus=active_focus,
                     drills_catalog=drills_catalog,
                     coach_corrections=coach_corrections,
+                    prompt_context=analysis_ctx,
                 )
                 used_simple = True
                 logger.info(

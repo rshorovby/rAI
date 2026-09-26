@@ -306,11 +306,14 @@ def test_focus_in_dossier_and_restore(tmp_path):
             video_mime="video/mp4",
         )
         _publish(job_id)
-        fh = next(s for s in services.dossier_payload(11)["segments"] if s["id"] == "forehand")
+        fh = next(
+            s for s in services.dossier_payload(11)["segments"] if s["id"] == "forehand"
+        )
         assert fh["focus"] == "кисть вперёд"
         assert fh["focus_status"] == "supervision"
         prepared2 = _prepared("forehand", {"contact": 8, "footwork": 8})
         prepared2.focus = "выше точка контакта"
+        prepared2.focus_checks = [{"stroke": "forehand", "status": "improved"}]
         job2 = services.enqueue_review(
             11,
             prepared2,
@@ -319,9 +322,13 @@ def test_focus_in_dossier_and_restore(tmp_path):
             video_mime="video/mp4",
         )
         _publish(job2, status="sent_coach")
-        fh = next(s for s in services.dossier_payload(11)["segments"] if s["id"] == "forehand")
+        fh = next(
+            s for s in services.dossier_payload(11)["segments"] if s["id"] == "forehand"
+        )
         assert fh["focus"] == "выше точка контакта"
         assert fh["focus_status"] == "agreed"
         storage.restore_player_focus(11, "forehand")
-        fh = next(s for s in services.dossier_payload(11)["segments"] if s["id"] == "forehand")
+        fh = next(
+            s for s in services.dossier_payload(11)["segments"] if s["id"] == "forehand"
+        )
         assert fh["focus"] == "кисть вперёд"

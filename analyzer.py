@@ -71,6 +71,7 @@ class VideoAnalyzer:
         active_focus: Optional[str] = None,
         drills_catalog: Optional[str] = None,
         coach_corrections: Optional[list] = None,
+        prompt_context: Optional[dict] = None,
     ) -> AnalysisResult:
         use_model = model or self._model
         upload_path, mute_tmp = strip_audio_for_upload(video_path)
@@ -111,6 +112,7 @@ class VideoAnalyzer:
                         drills_catalog=drills_catalog,
                         coach_corrections=coach_corrections,
                         strokes=(video_context or {}).get("strokes"),
+                        prompt_context=prompt_context,
                     ),
                     temperature=0.4,
                     automatic_function_calling=_NO_AFC,
@@ -179,6 +181,7 @@ class VideoAnalyzer:
         stroke: Optional[str] = None,
         model: Optional[str] = None,
         coach_corrections: Optional[list] = None,
+        prompt_context: Optional[dict] = None,
     ) -> AnalysisResult:
         use_model = model or self._model
         ui_lang = "ru" if normalize_language_code(language_code) == "ru" else "en"
@@ -230,6 +233,7 @@ class VideoAnalyzer:
                     player_profile,
                     stroke=stroke,
                     coach_corrections=coach_corrections,
+                    prompt_context=prompt_context,
                 ),
                 temperature=0.5,
                 automatic_function_calling=_NO_AFC,

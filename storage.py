@@ -10,7 +10,14 @@ from typing import Optional
 from i18n import DEFAULT_LANG, report_section_headers, t
 
 DB_PATH = Path(__file__).parent / "data" / "rally.db"
-MAX_HISTORY_SESSIONS = 5  # столько последних сессий попадает в контекст тренера
+MAX_HISTORY_SESSIONS = 5  # без фильтра по удару
+HISTORY_SAME_STROKE = 3
+HISTORY_OTHER = 2
+CHRONIC_WINDOW = 10
+CHRONIC_MIN_COUNT = 2
+PRACTICE_PROMPT_LIMIT = 3
+NOTE_PROMPT_LIMIT = 5
+NOTE_MAX_CHARS = 500
 ACTIVE_SESSION_TTL_DAYS = 7
 
 PROVIDER_TELEGRAM = "telegram"
@@ -31,6 +38,7 @@ _PLAYER_ID_COLUMNS = (
     ("payments", "user_id"),
     ("player_focus", "user_id"),
     ("practice_plans", "user_id"),
+    ("player_notes", "user_id"),
     ("player_forum_topics", "user_id"),
     ("review_jobs", "user_id"),
     ("survey_responses", "user_id"),
@@ -108,6 +116,16 @@ def _init_db(conn: sqlite3.Connection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_sessions_user
             ON player_sessions (user_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS player_notes (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id     INTEGER NOT NULL,
+            created_at  TEXT    NOT NULL,
+            source      TEXT    NOT NULL DEFAULT 'chat',
+            text        TEXT    NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_notes_user
+            ON player_notes (user_id, id DESC);
 
         CREATE TABLE IF NOT EXISTS player_profiles (
             user_id     INTEGER PRIMARY KEY,
@@ -320,6 +338,9 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         ("player_sessions", "scores", "TEXT NOT NULL DEFAULT ''"),
         ("player_sessions", "focus", "TEXT NOT NULL DEFAULT ''"),
         ("player_sessions", "stroke", "TEXT NOT NULL DEFAULT ''"),
+        ("player_sessions", "focus_checks", "TEXT NOT NULL DEFAULT ''"),
+        ("player_sessions", "drill_ids", "TEXT NOT NULL DEFAULT ''"),
+        ("player_sessions", "issue_tags", "TEXT NOT NULL DEFAULT ''"),
         ("users", "last_analysis_at", "TEXT"),
         ("users", "reminder_sent_at", "TEXT"),
         ("users", "digest_sent_at", "TEXT"),
@@ -1075,6 +1096,9 @@ def save_session(
     scores: Optional[dict] = None,
     focus: str = "",
     stroke: str = "",
+    focus_checks: Optional[list] = None,
+    drill_ids: Optional[list] = None,
+    issue_tags: Optional[list] = None,
 ) -> None:
     """Сохраняет краткое резюме, топ-3 и задание на следующее видео."""
     summary, top3, next_video = _extract_report_sections(report, language_code)
@@ -1086,8 +1110,9 @@ def save_session(
         conn.execute(
             """
             INSERT INTO player_sessions
-                (user_id, created_at, summary, top3, next_video, scores, focus, stroke)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (user_id, created_at, summary, top3, next_video, scores, focus,
+                 stroke, focus_checks, drill_ids, issue_tags)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
@@ -1098,35 +1123,103 @@ def save_session(
                 scores_json,
                 focus or "",
                 stroke or "",
+                json.dumps(focus_checks or [], ensure_ascii=False),
+                json.dumps(drill_ids or [], ensure_ascii=False),
+                json.dumps(issue_tags or [], ensure_ascii=False),
             ),
         )
         conn.commit()
 
 
-def get_player_history(user_id: int) -> list[dict]:
-    """Возвращает последние MAX_HISTORY_SESSIONS сессий (от старой к новой)."""
+def _loads_obj(raw: str, fallback):
+    if not raw:
+        return fallback
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return fallback
+    return data
+
+
+def _session_from_row(row) -> dict:
+    item = dict(row)
+    item.pop("id", None)
+    scores = _loads_obj(item.get("scores") or "", {})
+    item["scores"] = scores if isinstance(scores, dict) else {}
+    checks = _loads_obj(item.get("focus_checks") or "", [])
+    item["focus_checks"] = checks if isinstance(checks, list) else []
+    drills = _loads_obj(item.get("drill_ids") or "", [])
+    item["drill_ids"] = drills if isinstance(drills, list) else []
+    tags = _loads_obj(item.get("issue_tags") or "", [])
+    item["issue_tags"] = tags if isinstance(tags, list) else []
+    return item
+
+
+_SESSION_COLUMNS = (
+    "id, created_at, summary, top3, scores, focus, stroke, "
+    "focus_checks, drill_ids, issue_tags"
+)
+
+
+def get_player_history(user_id: int, stroke: Optional[str] = None) -> list[dict]:
+    """Последние сессии от старой к новой.
+
+    Без удара — MAX_HISTORY_SESSIONS последних.
+    С ударом — HISTORY_SAME_STROKE этого удара и HISTORY_OTHER любых других, без дублей.
+    """
+    key = (stroke or "").strip()
     with _connect() as conn:
         _init_db(conn)
-        rows = conn.execute(
-            """
-            SELECT created_at, summary, top3, scores, focus, stroke
+        if not key:
+            rows = conn.execute(
+                f"""
+                SELECT {_SESSION_COLUMNS}
+                FROM player_sessions
+                WHERE user_id = ?
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (user_id, MAX_HISTORY_SESSIONS),
+            ).fetchall()
+            return [_session_from_row(row) for row in reversed(rows)]
+
+        same = conn.execute(
+            f"""
+            SELECT {_SESSION_COLUMNS}
             FROM player_sessions
-            WHERE user_id = ?
+            WHERE user_id = ? AND stroke = ?
             ORDER BY id DESC
             LIMIT ?
             """,
-            (user_id, MAX_HISTORY_SESSIONS),
+            (user_id, key, HISTORY_SAME_STROKE),
         ).fetchall()
-    result = []
-    for row in reversed(rows):
-        item = dict(row)
-        raw = item.get("scores") or ""
-        try:
-            item["scores"] = json.loads(raw) if raw else {}
-        except json.JSONDecodeError:
-            item["scores"] = {}
-        result.append(item)
-    return result
+        same_ids = [int(row["id"]) for row in same]
+        if same_ids:
+            placeholders = ",".join("?" * len(same_ids))
+            others = conn.execute(
+                f"""
+                SELECT {_SESSION_COLUMNS}
+                FROM player_sessions
+                WHERE user_id = ? AND id NOT IN ({placeholders})
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (user_id, *same_ids, HISTORY_OTHER),
+            ).fetchall()
+        else:
+            others = conn.execute(
+                f"""
+                SELECT {_SESSION_COLUMNS}
+                FROM player_sessions
+                WHERE user_id = ?
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (user_id, HISTORY_OTHER),
+            ).fetchall()
+    merged = list(same) + list(others)
+    merged.sort(key=lambda row: int(row["id"]))
+    return [_session_from_row(row) for row in merged]
 
 
 def get_session_count(user_id: int) -> int:
@@ -1137,6 +1230,143 @@ def get_session_count(user_id: int) -> int:
             "SELECT COUNT(*) FROM player_sessions WHERE user_id = ?",
             (user_id,),
         ).fetchone()[0]
+
+
+def player_memory(user_id: int) -> dict:
+    """Сводка пути игрока для промпта: стаж, удары, закрытые фокусы, хронические теги."""
+    with _connect() as conn:
+        _init_db(conn)
+        totals = conn.execute(
+            """
+            SELECT COUNT(*) AS n, MIN(created_at) AS first_at
+            FROM player_sessions
+            WHERE user_id = ?
+            """,
+            (user_id,),
+        ).fetchone()
+        stroke_rows = conn.execute(
+            """
+            SELECT stroke, COUNT(*) AS n
+            FROM player_sessions
+            WHERE user_id = ? AND TRIM(stroke) != ''
+            GROUP BY stroke
+            ORDER BY n DESC, stroke
+            """,
+            (user_id,),
+        ).fetchall()
+        check_rows = conn.execute(
+            """
+            SELECT focus_checks FROM player_sessions
+            WHERE user_id = ? AND TRIM(focus_checks) != ''
+            """,
+            (user_id,),
+        ).fetchall()
+        recent = conn.execute(
+            """
+            SELECT stroke, issue_tags, created_at
+            FROM player_sessions
+            WHERE user_id = ?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (user_id, CHRONIC_WINDOW),
+        ).fetchall()
+    closed = 0
+    for row in check_rows:
+        checks = _loads_obj(row["focus_checks"] or "", [])
+        if not isinstance(checks, list):
+            continue
+        closed += sum(
+            1
+            for item in checks
+            if isinstance(item, dict) and item.get("status") == "improved"
+        )
+    counts: dict = {}
+    last_at: dict = {}
+    for row in recent:
+        tags = _loads_obj(row["issue_tags"] or "", [])
+        if not isinstance(tags, list):
+            continue
+        stroke = (row["stroke"] or "").strip() or "?"
+        for tag in tags:
+            slug = str(tag).strip()
+            if not slug:
+                continue
+            key = (stroke, slug)
+            counts[key] = counts.get(key, 0) + 1
+            last_at.setdefault(key, row["created_at"])
+    chronic = [
+        {
+            "stroke": stroke,
+            "tag": tag,
+            "count": count,
+            "last_at": last_at.get((stroke, tag), ""),
+        }
+        for (stroke, tag), count in counts.items()
+        if count >= CHRONIC_MIN_COUNT
+    ]
+    chronic.sort(key=lambda item: (-item["count"], item["tag"]))
+    return {
+        "session_count": int(totals["n"] or 0),
+        "first_at": totals["first_at"] or "",
+        "stroke_counts": {row["stroke"]: int(row["n"]) for row in stroke_rows},
+        "closed_focuses": closed,
+        "chronic": chronic,
+    }
+
+
+def recent_practice_answers(user_id: int, limit: int = PRACTICE_PROMPT_LIMIT) -> list:
+    """Последние ответы «как прошла тренировка»."""
+    n = max(1, min(int(limit), 5))
+    with _connect() as conn:
+        _init_db(conn)
+        rows = conn.execute(
+            """
+            SELECT focus_text, drill_text, drill_id, post_answer, created_at
+            FROM practice_plans
+            WHERE user_id = ? AND TRIM(COALESCE(post_answer, '')) != ''
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (user_id, n),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def add_player_note(user_id: int, text: str, source: str = "chat") -> None:
+    body = (text or "").strip()
+    if not body:
+        return
+    if len(body) > NOTE_MAX_CHARS:
+        body = body[: NOTE_MAX_CHARS - 1] + "…"
+    created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            """
+            INSERT INTO player_notes (user_id, created_at, source, text)
+            VALUES (?, ?, ?, ?)
+            """,
+            (user_id, created_at, source or "chat", body),
+        )
+        conn.commit()
+
+
+def recent_player_notes(user_id: int, limit: int = NOTE_PROMPT_LIMIT) -> list:
+    n = max(1, min(int(limit), 10))
+    with _connect() as conn:
+        _init_db(conn)
+        rows = conn.execute(
+            """
+            SELECT created_at, source, text
+            FROM player_notes
+            WHERE user_id = ?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (user_id, n),
+        ).fetchall()
+    return [dict(row) for row in reversed(rows)]
 
 
 def has_profile_record(user_id: int) -> bool:
@@ -3164,8 +3394,8 @@ def get_coach_corrections_for_prompt(
     player_id: Optional[int] = None,
     *,
     player_limit: int = 2,
-    global_limit: int = 4,
-    approved_limit: int = 3,
+    global_limit: int = 2,
+    approved_limit: int = 2,
 ) -> list[dict]:
     """Глобальный стиль тренера + персональные правки игрока для system prompt."""
     player_rows = []

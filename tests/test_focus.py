@@ -137,6 +137,48 @@ def test_migrate_legacy_one_row_per_user(tmp_path):
         assert storage.list_player_foci(6) == []
 
 
+def test_focus_changes_only_after_improved(tmp_path):
+    with _tmp_db(tmp_path):
+        storage.set_player_focus(8, "старый разворот", "forehand", days=7)
+        result = AnalysisResult(
+            text="## Краткое резюме\nok\n", usage=Usage(), model="m"
+        )
+        kept = services.prepare_report(result, {"stroke": "forehand"})
+        kept.focus = "новый фокус"
+        kept.focus_checks = [{"stroke": "forehand", "status": "same"}]
+        kept.memory_drill_ids = ["unit-turn-shadow"]
+        kept.issue_tags = ["unit-turn"]
+        services.save_analysis_session(8, kept, "ru")
+        saved = storage.get_player_history(8, "forehand")[-1]
+        assert saved["drill_ids"] == ["unit-turn-shadow"]
+        assert saved["issue_tags"] == ["unit-turn"]
+        assert saved["focus_checks"][0]["status"] == "same"
+        assert storage.get_player_focus(8, "forehand")["focus"] == "старый разворот"
+        assert kept.focus == "старый разворот"
+        changed = services.prepare_report(result, {"stroke": "forehand"})
+        changed.focus = "новый фокус"
+        changed.focus_checks = [{"stroke": "forehand", "status": "improved"}]
+        services.save_analysis_session(8, changed, "ru")
+        assert storage.get_player_focus(8, "forehand")["focus"] == "новый фокус"
+        storage.restore_player_focus(8, "forehand")
+        assert storage.get_player_focus(8, "forehand")["focus"] == "старый разворот"
+
+
+def test_prompt_lists_every_active_focus():
+    text = build_system_prompt(
+        "ru",
+        prompt_context={
+            "foci": [
+                {"stroke": "forehand", "focus": "разворот до отскока"},
+                {"stroke": "serve", "focus": "подброс в одну точку"},
+            ]
+        },
+    )
+    assert "разворот до отскока" in text
+    assert "подброс в одну точку" in text
+    assert "прежний текст" in text
+
+
 def test_prompt_does_not_reuse_other_stroke_focus():
     text = build_system_prompt("ru")
     assert "per stroke" in text

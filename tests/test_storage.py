@@ -207,6 +207,59 @@ def test_count(tmp_path):
         assert storage.get_session_count(99) == 0
 
 
+def test_history_keeps_same_stroke_and_two_others(tmp_path):
+    with _tmp_db(tmp_path):
+        for i in range(4):
+            storage.save_session(7, f"## Краткое резюме\nfh-{i}\n", stroke="forehand")
+        for i in range(3):
+            storage.save_session(7, f"## Краткое резюме\nsv-{i}\n", stroke="serve")
+        history = storage.get_player_history(7, "forehand")
+    summaries = [item["summary"] for item in history]
+    assert summaries.count("fh-0") == 0
+    assert {"fh-1", "fh-2", "fh-3"} <= set(summaries)
+    assert "sv-2" in summaries and "sv-1" in summaries
+    assert summaries.index("fh-1") < summaries.index("sv-2")
+
+
+def test_note_is_clipped_and_practice_answer_is_listed(tmp_path):
+    with _tmp_db(tmp_path):
+        storage.add_player_note(4, "я" * 600)
+        notes = storage.recent_player_notes(4)
+        plan_id = storage.create_practice_plan(
+            4, "разворот", "тень", "unit-turn-shadow"
+        )
+        storage.set_practice_post_answer(plan_id, "hard")
+        answers = storage.recent_practice_answers(4)
+    assert len(notes) == 1
+    assert len(notes[0]["text"]) == storage.NOTE_MAX_CHARS
+    assert notes[0]["text"].endswith("…")
+    assert answers[0]["post_answer"] == "hard"
+    assert answers[0]["drill_id"] == "unit-turn-shadow"
+
+
+def test_chronic_tag_needs_two_hits(tmp_path):
+    with _tmp_db(tmp_path):
+        storage.save_session(
+            5, "## Краткое резюме\na\n", stroke="forehand", issue_tags=["unit-turn"]
+        )
+        once = storage.player_memory(5)
+        storage.save_session(
+            5, "## Краткое резюме\nb\n", stroke="forehand", issue_tags=["unit-turn"]
+        )
+        storage.save_session(
+            5,
+            "## Краткое резюме\nc\n",
+            stroke="forehand",
+            focus_checks=[{"stroke": "forehand", "status": "improved"}],
+        )
+        memory = storage.player_memory(5)
+    assert once["chronic"] == []
+    assert memory["chronic"][0]["tag"] == "unit-turn"
+    assert memory["chronic"][0]["count"] == 2
+    assert memory["closed_focuses"] == 1
+    assert memory["stroke_counts"]["forehand"] == 3
+
+
 def test_max_history_limit(tmp_path):
     with _tmp_db(tmp_path):
         for _ in range(8):

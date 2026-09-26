@@ -86,7 +86,9 @@ def _read_reviewed(rel: str, root: Path = KNOWLEDGE_ROOT) -> Optional[str]:
     return f"### {title}\n\n{body}"
 
 
-def pages_for_stroke(stroke: Optional[str]) -> list[str]:
+def pages_for_stroke(
+    stroke: Optional[str], chronic_tags: Optional[list] = None
+) -> list[str]:
     """Return relative paths: policy first, then stroke-specific pages."""
     pages: list[str] = [_POLICY_REL]
     key = (stroke or "").strip().lower()
@@ -94,18 +96,61 @@ def pages_for_stroke(stroke: Optional[str]) -> list[str]:
         pages.extend(_GENERAL_PAGES)
     else:
         pages.extend(_STROKE_PAGES.get(key, _STROKE_PAGES["footwork"]))
-    return _dedupe_pages(pages)
+    return _with_chronic(_dedupe_pages(pages), chronic_tags)
 
 
-def pages_for_strokes(strokes: Optional[list] = None) -> list[str]:
+def pages_for_strokes(
+    strokes: Optional[list] = None, chronic_tags: Optional[list] = None
+) -> list[str]:
     keys = [str(s).strip().lower() for s in (strokes or []) if str(s).strip()]
     keys = [k for k in keys if k and k != "general"]
     if not keys:
-        return pages_for_stroke("general")
-    pages: list[str] = [_POLICY_REL]
-    for key in keys:
-        pages.extend(_STROKE_PAGES.get(key, ()))
-    return _dedupe_pages(pages)
+        pages = pages_for_stroke("general")
+    else:
+        pages = [_POLICY_REL]
+        for key in keys:
+            pages.extend(_STROKE_PAGES.get(key, ()))
+        pages = _dedupe_pages(pages)
+    return _with_chronic(pages, chronic_tags)
+
+
+def issue_tag_slugs(root: Path = KNOWLEDGE_ROOT) -> list:
+    """Slug проблем, которые модели разрешено писать в issue_tags."""
+    slugs: list = []
+    for folder in ("wiki/concepts", "wiki/errors"):
+        directory = root / folder
+        if not directory.is_dir():
+            continue
+        slugs.extend(path.stem for path in sorted(directory.glob("*.md")))
+    return _dedupe_pages(slugs)
+
+
+def _chronic_pages(chronic_tags: Optional[list]) -> list:
+    pages: list = []
+    for tag in list(chronic_tags or [])[:2]:
+        slug = str(tag).strip()
+        if not slug or "/" in slug or slug.startswith("."):
+            continue
+        for folder in ("wiki/concepts", "wiki/errors"):
+            pages.append(f"{folder}/{slug}.md")
+    return pages
+
+
+def _with_chronic(pages: list, chronic_tags: Optional[list]) -> list:
+    extra = _chronic_pages(chronic_tags)
+    if not extra:
+        return _dedupe_pages(pages)
+    policy = [
+        page
+        for page in pages
+        if "/strokes/" not in page
+        and "/concepts/" not in page
+        and "/errors/" not in page
+    ]
+    stroke_pages = [page for page in pages if "/strokes/" in page]
+    rest = [page for page in pages if page not in policy and page not in stroke_pages]
+    rest = [page for page in rest if page not in extra]
+    return _dedupe_pages(policy + stroke_pages + extra + rest)
 
 
 def _dedupe_pages(pages: list[str]) -> list[str]:
@@ -124,12 +169,13 @@ def build_knowledge_block(
     root: Path = KNOWLEDGE_ROOT,
     max_chars: int = MAX_KNOWLEDGE_CHARS,
     strokes: Optional[list] = None,
+    chronic_tags: Optional[list] = None,
 ) -> str:
     """Assemble a capped knowledge block for system prompts."""
     if strokes is not None:
-        page_list = pages_for_strokes(strokes)
+        page_list = pages_for_strokes(strokes, chronic_tags)
     else:
-        page_list = pages_for_stroke(stroke)
+        page_list = pages_for_stroke(stroke, chronic_tags)
     sections: list[str] = []
     for rel in page_list:
         section = _read_reviewed(rel, root=root)

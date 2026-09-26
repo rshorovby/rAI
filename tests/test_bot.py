@@ -68,6 +68,18 @@ def _make_coach_context(settings: Settings):
     return context
 
 
+def test_free_question_is_remembered_button_is_not(tmp_path):
+    from bot import _remember_free_question
+
+    with patch.object(storage, "DB_PATH", tmp_path / "notes.db"):
+        _remember_free_question(3, "болит локоть на бэкхенде", None)
+        _remember_free_question(3, "что с ногами", "Топ-3")
+        _remember_free_question(3, "   ", None)
+        notes = storage.recent_player_notes(3)
+    assert len(notes) == 1
+    assert "локоть" in notes[0]["text"]
+
+
 def test_coach_forum_text_goes_to_player():
     settings = _coach_forum_settings()
     update = _make_coach_forum_update(text="Смотри на кисть")

@@ -39,6 +39,21 @@ def test_report_payload_parses_scores():
     assert payload["findings"][0]["recommendation"] == "R"
 
 
+def test_memory_drill_ids_union_top_level_and_findings():
+    result = AnalysisResult(
+        text=(
+            "## Краткое резюме\nok\n```json\n"
+            '{"drills":["count-for-more-time"],"findings":[{"problem":"поздно",'
+            '"recommendation":"раньше","drill_ids":["unit-turn-shadow",'
+            '"count-for-more-time"]}]}\n```'
+        ),
+        usage=Usage(),
+        model="m",
+    )
+    prepared = services.prepare_report(result, {"stroke": "forehand"})
+    assert prepared.memory_drill_ids == ["count-for-more-time", "unit-turn-shadow"]
+
+
 def test_prepare_and_enqueue_review(tmp_path):
     with _tmp_db(tmp_path):
         result = AnalysisResult(

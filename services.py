@@ -1,15 +1,16 @@
 """Доменный слой без типов Telegram: квота, анализ, очередь, прогресс."""
 
+import json
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
-import json
 
 import billing
 import drills
 import storage
 from analyzer import AnalysisResult, VideoAnalyzer
-from report_parser import SKILL_KEYS, parse_report, SEGMENT_KEYS
+from report_parser import SEGMENT_KEYS, SKILL_KEYS, parse_report
 
 COVERAGE_SEGMENTS = SEGMENT_KEYS
 COVERAGE_SLOTS = SKILL_KEYS
@@ -60,14 +61,41 @@ def progress_scores(player_id: int, days: int = 90) -> list:
     return storage.get_progress_scores(player_id, days)
 
 
-def load_analysis_context(player_id: int, stroke: Optional[str] = None) -> dict:
-    focus_row = storage.get_player_focus(player_id, stroke)
+def load_analysis_context(
+    player_id: int,
+    stroke: Optional[str] = None,
+    strokes: Optional[list] = None,
+) -> dict:
+    history_stroke = ""
+    if (stroke or "") in COVERAGE_SEGMENTS:
+        history_stroke = stroke or ""
+    else:
+        for item in strokes or []:
+            if item in COVERAGE_SEGMENTS:
+                history_stroke = item
+                break
+    focus_row = storage.get_player_focus(player_id, history_stroke or None)
+    memory = storage.player_memory(player_id)
+    chronic: list = []
+    for item in memory.get("chronic") or []:
+        tag = item.get("tag")
+        if tag and tag not in chronic:
+            chronic.append(tag)
+        if len(chronic) >= 2:
+            break
     return {
-        "history": storage.get_player_history(player_id),
+        "history": storage.get_player_history(player_id, history_stroke or None),
         "profile": storage.get_player_profile(player_id),
         "corrections": storage.get_coach_corrections_for_prompt(player_id),
         "focus": (focus_row or {}).get("focus"),
         "drills_catalog": drills.catalog_for_prompt(),
+        "session_count": memory["session_count"],
+        "today": datetime.now().strftime("%Y-%m-%d"),
+        "foci": storage.list_player_foci(player_id),
+        "practice": storage.recent_practice_answers(player_id),
+        "notes": storage.recent_player_notes(player_id),
+        "path": memory,
+        "chronic_tags": chronic,
     }
 
 
@@ -86,6 +114,9 @@ class PreparedReport:
     accent_mismatch: bool = False
     write_full: str = ""
     write_secondary: Optional[list] = None
+    focus_checks: Optional[list] = None
+    issue_tags: Optional[list] = None
+    memory_drill_ids: Optional[list] = None
 
 
 def intake_strokes_from_context(video_context: Optional[dict]) -> list:
@@ -205,7 +236,46 @@ def prepare_report(
         accent_mismatch=mismatch,
         write_full=write_full,
         write_secondary=write_secondary,
+        focus_checks=list(parsed.focus_checks or []),
+        issue_tags=list(parsed.issue_tags or []),
+        memory_drill_ids=_memory_drill_ids(parsed),
     )
+
+
+def _memory_drill_ids(parsed) -> list:
+    ids: list = []
+    for raw in list(parsed.drill_ids or []):
+        drill_id = str(raw).strip()
+        if drill_id and drill_id not in ids:
+            ids.append(drill_id)
+    for finding in parsed.findings or []:
+        for raw in finding.get("drill_ids") or []:
+            drill_id = str(raw).strip()
+            if drill_id and drill_id not in ids:
+                ids.append(drill_id)
+    return ids[:8]
+
+
+def settle_focus(player_id: int, prepared: PreparedReport) -> None:
+    """Новый фокус пишется, только если старого нет или по удару стало лучше."""
+    stroke = (prepared.stroke or "").strip()
+    if stroke not in COVERAGE_SEGMENTS:
+        return
+    status = ""
+    for item in prepared.focus_checks or []:
+        if item.get("stroke") == stroke:
+            status = item.get("status") or ""
+            break
+    current = storage.get_player_focus(player_id, stroke)
+    current_text = ((current or {}).get("focus") or "").strip()
+    proposed = (prepared.focus or "").strip()
+    if not current_text or status == "improved":
+        chosen = proposed or current_text
+        prepared.focus = chosen
+        if chosen:
+            storage.set_player_focus(player_id, chosen, stroke, FOCUS_TTL_DAYS)
+        return
+    prepared.focus = current_text
 
 
 def analyze_video(
@@ -219,9 +289,11 @@ def analyze_video(
     model: str,
 ) -> PreparedReport:
     stroke = ""
+    intake = None
     if video_context:
         stroke = (video_context.get("stroke") or "") or ""
-    ctx = load_analysis_context(player_id, stroke)
+        intake = video_context.get("strokes")
+    ctx = load_analysis_context(player_id, stroke, intake)
     result = analyzer.analyze(
         video_path,
         user_comment,
@@ -233,6 +305,7 @@ def analyze_video(
         ctx["focus"],
         ctx["drills_catalog"],
         ctx["corrections"],
+        ctx,
     )
     return prepare_report(result, video_context)
 
@@ -242,6 +315,7 @@ def save_analysis_session(
     prepared: PreparedReport,
     language_code: str,
 ) -> None:
+    settle_focus(player_id, prepared)
     storage.save_session(
         player_id,
         prepared.text,
@@ -249,11 +323,10 @@ def save_analysis_session(
         prepared.scores,
         prepared.focus,
         prepared.stroke,
+        prepared.focus_checks,
+        prepared.memory_drill_ids,
+        prepared.issue_tags,
     )
-    if prepared.focus and prepared.stroke in COVERAGE_SEGMENTS:
-        storage.set_player_focus(
-            player_id, prepared.focus, prepared.stroke, FOCUS_TTL_DAYS
-        )
 
 
 def enqueue_review(
@@ -268,6 +341,7 @@ def enqueue_review(
     source_channel: str = storage.CHANNEL_TELEGRAM,
     look: str = "",
 ) -> int:
+    settle_focus(player_id, prepared)
     job_id = storage.create_review_job(
         player_id,
         video_file_id=video_file_id,
@@ -282,13 +356,11 @@ def enqueue_review(
         source_channel=source_channel,
         accent_mismatch=prepared.accent_mismatch,
         detected_json=json.dumps(prepared.detected_segments or [], ensure_ascii=False),
-        intake_strokes_json=json.dumps(prepared.intake_strokes or [], ensure_ascii=False),
+        intake_strokes_json=json.dumps(
+            prepared.intake_strokes or [], ensure_ascii=False
+        ),
     )
     apply_coverage(player_id, job_id, prepared, look=look)
-    if prepared.focus and prepared.stroke in COVERAGE_SEGMENTS:
-        storage.set_player_focus(
-            player_id, prepared.focus, prepared.stroke, FOCUS_TTL_DAYS
-        )
     return job_id
 
 
@@ -315,9 +387,7 @@ def apply_coverage(
         if segment not in COVERAGE_SEGMENTS or segment == full:
             continue
         added.extend(
-            _write_segment_slots(
-                player_id, job_id, prepared, segment, "", max_slots=1
-            )
+            _write_segment_slots(player_id, job_id, prepared, segment, "", max_slots=1)
         )
     return added
 
@@ -427,7 +497,9 @@ def ensure_ntrp_seed(player_id: int) -> Optional[float]:
     return row.get("ntrp") if row.get("ntrp") is not None else seed
 
 
-def apply_ntrp(player_id: int, progress_mean: float, core_counts: dict) -> Optional[float]:
+def apply_ntrp(
+    player_id: int, progress_mean: float, core_counts: dict
+) -> Optional[float]:
     row = storage.get_player_ntrp_row(player_id)
     if row.get("ntrp_locked"):
         value = row.get("ntrp")
@@ -452,10 +524,7 @@ def player_ntrp(player_id: int) -> Optional[float]:
     return apply_ntrp(
         player_id,
         scales["player"]["progress_mean_pending"],
-        {
-            segment["id"]: segment["job_count_pending"]
-            for segment in scales["segments"]
-        },
+        {segment["id"]: segment["job_count_pending"] for segment in scales["segments"]},
     )
 
 
@@ -566,7 +635,8 @@ def compute_player_scales(player_id: int) -> dict:
             "progress_committed": _progress_percent(player_prog_committed),
             "progress_mean_pending": player_prog_pending,
             "progress_mean_committed": player_prog_committed,
-            "goals_unlocked": player_fam_committed >= 40 and core_committed_positive >= 2,
+            "goals_unlocked": player_fam_committed >= 40
+            and core_committed_positive >= 2,
         },
         "segments": segments,
     }
@@ -575,12 +645,9 @@ def compute_player_scales(player_id: int) -> dict:
 def dossier_payload(player_id: int) -> dict:
     scales = compute_player_scales(player_id)
     core_counts = {
-        segment["id"]: segment["job_count_pending"]
-        for segment in scales["segments"]
+        segment["id"]: segment["job_count_pending"] for segment in scales["segments"]
     }
-    ntrp = apply_ntrp(
-        player_id, scales["player"]["progress_mean_pending"], core_counts
-    )
+    ntrp = apply_ntrp(player_id, scales["player"]["progress_mean_pending"], core_counts)
     scales["player"]["ntrp"] = ntrp
     return scales
 

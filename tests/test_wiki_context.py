@@ -130,3 +130,10 @@ def test_follow_up_prompt_includes_knowledge():
 
 def test_knowledge_slugs_helper():
     assert "policy-modern-defaults.md" in knowledge_slugs_for_tests("volley")
+
+
+def test_chronic_tag_is_placed_before_later_concepts():
+    block = build_knowledge_block("forehand", "ru", chronic_tags=["split-step"])
+    assert "### split-step" in block
+    if "### hip-rotation" in block:
+        assert block.find("### split-step") < block.find("### hip-rotation")

@@ -84,6 +84,40 @@ def test_correction_block_in_system_prompt():
     assert "не копируй" in system.lower() or "Не копируй" in system
 
 
+def test_history_is_personal_and_comes_after_the_coach_standard():
+    history = [
+        {
+            "created_at": "2026-09-20 10:00:00",
+            "summary": "Поздний разворот.",
+            "top3": "",
+            "stroke": "forehand",
+            "focus": "разворот",
+            "scores": {"contact": 4},
+            "drill_ids": ["unit-turn-shadow"],
+        }
+    ]
+    corrections = [
+        {
+            "scope": "player",
+            "draft_text": "черновик",
+            "delta_text": "у него двуручный бэкхенд",
+        }
+    ]
+    text = build_system_prompt(
+        "ru",
+        history,
+        coach_corrections=corrections,
+        prompt_context={"today": "2026-09-26", "session_count": 6},
+    )
+    assert "форхенд" in text
+    assert "6 дн. назад" in text
+    assert "видео №7" in text
+    assert "unit-turn-shadow" in text
+    assert "больше чем на 1" in text
+    assert "факты об этом игроке" in text
+    assert text.find("ЭТАЛОН ТРЕНЕРА") < text.find("ЗАМЕТКИ О ИГРОКЕ")
+
+
 def test_correction_block_splits_global_and_player():
     corrections = [
         {

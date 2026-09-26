@@ -69,6 +69,8 @@ class ParsedReport:
     raw_meta: dict = field(default_factory=dict)
     primary_segment: str = ""
     detected_segments: list = field(default_factory=list)
+    focus_checks: list = field(default_factory=list)
+    issue_tags: list = field(default_factory=list)
 
 
 _JSON_BLOCK_RE = re.compile(
@@ -150,6 +152,46 @@ def _normalize_findings(raw: Any) -> list[dict]:
         if len(findings) >= FINDINGS_LIMIT:
             break
     return findings
+
+
+_FOCUS_STATUSES = ("improved", "same", "worse", "not_visible")
+
+
+def _normalize_focus_checks(raw: Any) -> list:
+    if not isinstance(raw, list):
+        return []
+    checks: list = []
+    seen = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        stroke = SEGMENT_ALIASES.get(str(item.get("stroke") or "").strip().lower())
+        status = str(item.get("status") or "").strip().lower()
+        if stroke not in SEGMENT_KEYS or status not in _FOCUS_STATUSES:
+            continue
+        if stroke in seen:
+            continue
+        seen.add(stroke)
+        checks.append({"stroke": stroke, "status": status})
+    return checks
+
+
+def _normalize_issue_tags(raw: Any) -> list:
+    from wiki_context import issue_tag_slugs
+
+    allowed = set(issue_tag_slugs())
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list):
+        return []
+    tags: list = []
+    for item in raw:
+        slug = str(item).strip()
+        if slug in allowed and slug not in tags:
+            tags.append(slug)
+        if len(tags) >= 3:
+            break
+    return tags
 
 
 def _normalize_segments(raw: Any) -> list:
@@ -375,7 +417,9 @@ def _attach_category_detail(shorts: list[dict], blocks: list[dict]) -> list[dict
                 parts.append(explanation)
             if parts:
                 item["detail"] = "\n\n".join(parts)
-            practice = (block.get("practice") or block.get("recommendation") or "").strip()
+            practice = (
+                block.get("practice") or block.get("recommendation") or ""
+            ).strip()
             if practice:
                 item["practice"] = practice
             if not item.get("drill_ids") and block.get("drill_ids"):
@@ -403,6 +447,8 @@ def parse_report(text: str) -> ParsedReport:
                 "findings",
                 "primary_segment",
                 "detected_segments",
+                "focus_checks",
+                "issue_tags",
             )
         ):
             meta = data
@@ -448,6 +494,8 @@ def parse_report(text: str) -> ParsedReport:
         raw_meta=meta,
         primary_segment=primary,
         detected_segments=detected,
+        focus_checks=_normalize_focus_checks(meta.get("focus_checks")),
+        issue_tags=_normalize_issue_tags(meta.get("issue_tags")),
     )
 
 

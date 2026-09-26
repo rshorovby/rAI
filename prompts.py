@@ -1,3 +1,4 @@
+from datetime import date, datetime
 from typing import Optional
 
 from i18n import language_instruction, normalize_language_code
@@ -70,12 +71,14 @@ USER_PROMPT_RU = """\
 - follow_through — проводка
 Поле focus — один короткий фокус недели для удара с этого видео (одно действие). Не переноси фокус с другого удара.
 Поле drills — массив id упражнений из списка в системном промпте (0–2 штуки).
+Поле focus_checks — проверки активных фокусов, чей удар виден на видео. Элемент: stroke (ключ удара), status (improved, same, worse или not_visible). Если фокус не стал лучше, в поле focus повтори его прежний текст.
+Поле issue_tags — 0–3 slug из списка в системном промпте. Только то, что видно на этом видео.
 Поле findings — массив из 1–3 пунктов для игрока. Каждый пункт: problem (что не так, одно-два предложения), recommendation (как закрыть на корзине, одно-два предложения), detail (почему это видно на этом клипе, 2–4 предложения), practice (как исправлять на корте, отдельный текст), drill_ids (0–3 id из каталога). Не пиши категории техника/ноги/баланс и не пиши URL в findings. Markdown секций выше не убирай — это черновик для Forum.
 Поле primary_segment — один ключ удара, который реально доминирует на видео: forehand, backhand, serve, volley, footwork, rally.
 Поле detected_segments — массив всех видимых сегментов из того же списка (без general). Всегда заполняй детект по факту видео, даже если игрок выбрал другой удар или ничего не выбрал.
 Пример:
 ```json
-{"scores":{"footwork":6,"contact":5,"preparation":7,"follow_through":6},"focus":"Повернуться до отскока","drills":["count-for-more-time"],"findings":[{"problem":"Подготовка начинается после отскока — ракетка опаздывает.","recommendation":"До отскока разверните плечи и отведите ракетку назад.","detail":"На клипе замах начинается после отскока, поэтому контакт опаздывает.","practice":"На корзине три медленных форхенда: пауза с ракеткой сзади до отскока, затем обычный темп.","drill_ids":["count-for-more-time"]}],"primary_segment":"forehand","detected_segments":["forehand","footwork"]}
+{"scores":{"footwork":6,"contact":5,"preparation":7,"follow_through":6},"focus":"Повернуться до отскока","focus_checks":[{"stroke":"forehand","status":"same"}],"issue_tags":["unit-turn"],"drills":["count-for-more-time"],"findings":[{"problem":"Подготовка начинается после отскока — ракетка опаздывает.","recommendation":"До отскока разверните плечи и отведите ракетку назад.","detail":"На клипе замах начинается после отскока, поэтому контакт опаздывает.","practice":"На корзине три медленных форхенда: пауза с ракеткой сзади до отскока, затем обычный темп.","drill_ids":["count-for-more-time"]}],"primary_segment":"forehand","detected_segments":["forehand","footwork"]}
 ```
 
 Важно: если на видео нет теннисных действий или контент не подходит для разбора — вежливо сообщи об этом вместо выдуманного анализа.
@@ -127,12 +130,14 @@ Score skills 0–10 based only on what is visible:
 - follow_through
 Field focus — one short weekly focus for the stroke on this video (one action). Do not carry a focus from another stroke.
 Field drills — array of drill ids from the system prompt catalog (0–2 items).
+Field focus_checks — checks of active foci whose stroke is visible. Each item: stroke, status (improved, same, worse, or not_visible). If a focus did not improve, repeat its previous text in focus.
+Field issue_tags — 0–3 slugs from the system prompt list. Only what is visible on this video.
 Field findings — array of 1–3 player-facing items. Each item: problem (what is wrong, one or two sentences), recommendation (how to close it in the basket, one or two sentences), detail (why this shows on this clip, 2–4 sentences), practice (how to fix it on court, a separate paragraph), drill_ids (0–3 catalog ids). Do not put technique/footwork/balance categories or URLs in findings. Keep the markdown sections above — they are the Forum draft.
 Field primary_segment — the one stroke key that actually dominates the video: forehand, backhand, serve, volley, footwork, rally.
 Field detected_segments — array of every visible segment from that same list (no general). Always fill detect from the footage, even if the player selected a different stroke or selected none.
 Example:
 ```json
-{"scores":{"footwork":6,"contact":5,"preparation":7,"follow_through":6},"focus":"Turn before the bounce","drills":["count-for-more-time"],"findings":[{"problem":"Preparation starts after the bounce — the racket is late.","recommendation":"Turn the shoulders and take the racket back before the bounce.","detail":"On this clip the swing starts after the bounce, so contact is late.","practice":"At the basket, three slow forehands: pause with the racket back until the bounce, then normal pace.","drill_ids":["count-for-more-time"]}],"primary_segment":"forehand","detected_segments":["forehand","footwork"]}
+{"scores":{"footwork":6,"contact":5,"preparation":7,"follow_through":6},"focus":"Turn before the bounce","focus_checks":[{"stroke":"forehand","status":"same"}],"issue_tags":["unit-turn"],"drills":["count-for-more-time"],"findings":[{"problem":"Preparation starts after the bounce — the racket is late.","recommendation":"Turn the shoulders and take the racket back before the bounce.","detail":"On this clip the swing starts after the bounce, so contact is late.","practice":"At the basket, three slow forehands: pause with the racket back until the bounce, then normal pace.","drill_ids":["count-for-more-time"]}],"primary_segment":"forehand","detected_segments":["forehand","footwork"]}
 ```
 
 Important: if the video shows no tennis actions or content is unsuitable — say so politely instead of inventing an analysis.
@@ -221,6 +226,63 @@ def build_player_context(profile: Optional[dict], language_code: str = "en") -> 
     return "\n".join(lines)
 
 
+def _issue_tag_line() -> str:
+    from wiki_context import issue_tag_slugs
+
+    slugs = issue_tag_slugs()
+    if not slugs:
+        return ""
+    return "Issue tags (pick 0–3 slugs that are visible on this video): " + ", ".join(
+        slugs
+    )
+
+
+def _append_personal(
+    parts: list,
+    language_code: str,
+    player_history: Optional[list],
+    active_focus: Optional[str],
+    prompt_context: Optional[dict],
+) -> None:
+    ctx = prompt_context or {}
+    history = player_history or []
+    coach_ctx = build_coach_context(
+        history,
+        language_code,
+        today=ctx.get("today"),
+        session_count=ctx.get("session_count"),
+    )
+    if coach_ctx:
+        parts.append(coach_ctx)
+    foci_ctx = build_foci_block(ctx.get("foci") or [], language_code)
+    parts.append(
+        "Weekly focus is per stroke. If an active focus is provided, verify only that "
+        "on this video. If none is provided, set a new focus for the stroke on this "
+        "video; do not reuse a focus from another stroke."
+    )
+    if foci_ctx:
+        parts.append(foci_ctx)
+    elif active_focus:
+        parts.append(
+            "Active weekly focus for this stroke to verify on this video:\n"
+            f'"{active_focus}"\n'
+            "In the summary, explicitly say whether it improved, stayed the same, or got worse. "
+            "Do not judge a different stroke against this focus."
+        )
+    scores_ctx = build_scores_block(history, language_code)
+    if scores_ctx:
+        parts.append(scores_ctx)
+    practice_ctx = build_practice_block(ctx.get("practice") or [], language_code)
+    if practice_ctx:
+        parts.append(practice_ctx)
+    notes_ctx = build_notes_block(ctx.get("notes") or [], language_code)
+    if notes_ctx:
+        parts.append(notes_ctx)
+    path_ctx = build_path_block(ctx.get("path"), language_code)
+    if path_ctx:
+        parts.append(path_ctx)
+
+
 def build_system_prompt(
     language_code: str,
     player_history: Optional[list] = None,
@@ -230,13 +292,17 @@ def build_system_prompt(
     drills_catalog: Optional[str] = None,
     coach_corrections: Optional[list] = None,
     strokes: Optional[list] = None,
+    prompt_context: Optional[dict] = None,
 ) -> str:
     from wiki_context import build_knowledge_block
 
-    coach_ctx = build_coach_context(player_history or [], language_code)
+    ctx = prompt_context or {}
     player_ctx = build_player_context(player_profile, language_code)
     knowledge_ctx = build_knowledge_block(
-        stroke, language_code, strokes=strokes
+        stroke,
+        language_code,
+        strokes=strokes,
+        chronic_tags=ctx.get("chronic_tags"),
     )
     correction_ctx = build_coach_correction_block(
         coach_corrections or [], language_code
@@ -247,37 +313,16 @@ def build_system_prompt(
         parts.append(player_ctx)
     if knowledge_ctx:
         parts.append(knowledge_ctx)
-    if coach_ctx:
-        parts.append(coach_ctx)
     if correction_ctx:
         parts.append(correction_ctx)
-    parts.append(
-        "Weekly focus is per stroke. If an active focus is provided, verify only that "
-        "on this video. If none is provided, set a new focus for the stroke on this "
-        "video; do not reuse a focus from another stroke."
-    )
-    if active_focus:
-        parts.append(
-            "Active weekly focus for this stroke to verify on this video:\n"
-            f'"{active_focus}"\n'
-            "In the summary, explicitly say whether it improved, stayed the same, or got worse. "
-            "Do not judge a different stroke against this focus."
-        )
     if drills_catalog:
         parts.append(
             "Available drills (pick 0–2 ids for the metadata JSON):\n" + drills_catalog
         )
-    # scores history for continuity
-    history = player_history or []
-    score_lines = []
-    for s in history:
-        scores = s.get("scores") or {}
-        if scores:
-            score_lines.append(
-                f"- {s.get('created_at', '?')} [{s.get('stroke') or '?'}]: {scores}"
-            )
-    if score_lines:
-        parts.append("Recent skill scores (for continuity):\n" + "\n".join(score_lines))
+    tag_line = _issue_tag_line()
+    if tag_line:
+        parts.append(tag_line)
+    _append_personal(parts, language_code, player_history, active_focus, ctx)
     return "\n\n".join(parts)
 
 
@@ -288,13 +333,17 @@ def build_follow_up_system_prompt(
     stroke: Optional[str] = None,
     coach_corrections: Optional[list] = None,
     strokes: Optional[list] = None,
+    prompt_context: Optional[dict] = None,
 ) -> str:
     from wiki_context import build_knowledge_block
 
-    coach_ctx = build_coach_context(player_history or [], language_code)
+    ctx = prompt_context or {}
     player_ctx = build_player_context(player_profile, language_code)
     knowledge_ctx = build_knowledge_block(
-        stroke, language_code, strokes=strokes
+        stroke,
+        language_code,
+        strokes=strokes,
+        chronic_tags=ctx.get("chronic_tags"),
     )
     correction_ctx = build_coach_correction_block(
         coach_corrections or [], language_code
@@ -305,10 +354,9 @@ def build_follow_up_system_prompt(
         parts.append(player_ctx)
     if knowledge_ctx:
         parts.append(knowledge_ctx)
-    if coach_ctx:
-        parts.append(coach_ctx)
     if correction_ctx:
         parts.append(correction_ctx)
+    _append_personal(parts, language_code, player_history, None, ctx)
     return "\n\n".join(parts)
 
 
@@ -445,9 +493,12 @@ def build_video_context_block(
         lines.append(f"• {general_l}")
     elif len(intake_keys) > 1:
         labels = [
-            intake_value_label(ui_lang, "stroke", key) if key in (
-                "forehand", "backhand", "serve", "volley", "footwork", "rally"
-            ) else key
+            (
+                intake_value_label(ui_lang, "stroke", key)
+                if key
+                in ("forehand", "backhand", "serve", "volley", "footwork", "rally")
+                else key
+            )
             for key in intake_keys
         ]
         lines.append(f"• {stroke_l}: " + ", ".join(labels))
@@ -496,9 +547,9 @@ def build_analysis_prompt(
 
 
 _MAX_CORRECTION_CHARS = 1100
-_MAX_GLOBAL_CORRECTIONS = 4
+_MAX_GLOBAL_CORRECTIONS = 2
 _MAX_PLAYER_CORRECTIONS = 2
-_MAX_APPROVED_CORRECTIONS = 3
+_MAX_APPROVED_CORRECTIONS = 2
 
 
 def _clip_correction(text: str, limit: int = _MAX_CORRECTION_CHARS) -> str:
@@ -581,6 +632,14 @@ def build_coach_correction_block(corrections: list, language_code: str = "en") -
             "Не копируй текст эталона дословно и не переноси факты с чужого ролика.",
             "Если эталон и текущее видео расходятся — верь видео, но держи метод тренера.",
         ]
+        if global_items or approved_items:
+            instructions.append(
+                "Запрет переносить факты относится к глобальным примерам и чужим роликам."
+            )
+        if player_items:
+            instructions.append(
+                "Блок «по этому игроку» — факты об этом игроке. Их можно и нужно использовать в разборе."
+            )
     else:
         header = "STAFF COACH GOLD STANDARD (for every review):"
         approved_l = "Approved AI drafts (the coach pressed OK — match this bar):"
@@ -597,6 +656,14 @@ def build_coach_correction_block(corrections: list, language_code: str = "en") -
             "Do not copy the gold standard verbatim or carry facts from another clip.",
             "If the gold standard and this video disagree — trust the video, keep the coach's method.",
         ]
+        if global_items or approved_items:
+            instructions.append(
+                "The ban on carrying facts applies to global examples and other players' clips."
+            )
+        if player_items:
+            instructions.append(
+                "The block for this player is facts about this player. Use them in the review."
+            )
 
     lines = [
         "─────────────────────────────────────────",
@@ -617,19 +684,117 @@ def build_coach_correction_block(corrections: list, language_code: str = "en") -
     return "\n".join(lines)
 
 
-def build_coach_context(history: list[dict], language_code: str = "en") -> str:
+_STROKE_LABELS = {
+    "ru": {
+        "forehand": "форхенд",
+        "backhand": "бэкхенд",
+        "serve": "подача",
+        "volley": "волей",
+        "footwork": "ноги",
+        "rally": "розыгрыш",
+    },
+    "en": {
+        "forehand": "forehand",
+        "backhand": "backhand",
+        "serve": "serve",
+        "volley": "volley",
+        "footwork": "footwork",
+        "rally": "rally",
+    },
+}
+
+_FOCUS_STATUS_LABELS = {
+    "ru": {
+        "improved": "стало лучше",
+        "same": "так же",
+        "worse": "стало хуже",
+        "not_visible": "не видно",
+    },
+    "en": {
+        "improved": "improved",
+        "same": "same",
+        "worse": "worse",
+        "not_visible": "not visible",
+    },
+}
+
+_PRACTICE_ANSWERS = {
+    "ru": {
+        "yes": "тренировался",
+        "hard": "было трудно",
+        "skip": "пропустил",
+    },
+    "en": {
+        "yes": "practiced",
+        "hard": "it was hard",
+        "skip": "skipped",
+    },
+}
+
+
+def _ui_lang(language_code: str) -> str:
+    return "ru" if normalize_language_code(language_code) == "ru" else "en"
+
+
+def _stroke_label(language_code: str, stroke: Optional[str]) -> str:
+    key = (stroke or "").strip()
+    labels = _STROKE_LABELS[_ui_lang(language_code)]
+    return labels.get(key, key or "?")
+
+
+def _parse_day(created_at: str) -> Optional[date]:
+    raw = (created_at or "").strip()[:10]
+    try:
+        return datetime.strptime(raw, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _when_label(created_at: str, today: date, language_code: str) -> str:
+    created = _parse_day(created_at)
+    if created is None:
+        return created_at or "?"
+    days = max(0, (today - created).days)
+    ui = _ui_lang(language_code)
+    if ui == "ru":
+        if days == 0:
+            relative = "сегодня"
+        elif days == 1:
+            relative = "вчера"
+        else:
+            relative = f"{days} дн. назад"
+    else:
+        if days == 0:
+            relative = "today"
+        elif days == 1:
+            relative = "yesterday"
+        else:
+            relative = f"{days} days ago"
+    return f"{relative} · {created.isoformat()}"
+
+
+def build_coach_context(
+    history: list[dict],
+    language_code: str = "en",
+    today: Optional[str] = None,
+    session_count: Optional[int] = None,
+) -> str:
     """Формирует блок «заметки тренера» из прошлых сессий для вставки в system prompt."""
-    if not history:
+    if not history and session_count is None:
         return ""
 
-    base = normalize_language_code(language_code)
-    if base == "ru":
+    ui = _ui_lang(language_code)
+    day = _parse_day(today or "") or date.today()
+    if ui == "ru":
         header = "ЗАМЕТКИ О ИГРОКЕ (предыдущие сессии):"
         session_label = "Сессия"
         top3_label = "Топ-3 тогда:"
+        focus_label = "Фокус тогда:"
+        check_label = "Проверка фокуса:"
+        drills_label = "Выдано:"
         instructions = [
             "При разборе нового видео:",
-            "• Сравни с предыдущими сессиями — что изменилось, что улучшилось, что осталось.",
+            "• Сравнивай сессии того же удара. Чужой удар — только фон, не эталон прогресса.",
             "• Если проблема повторяется — отметь это явно («как и в прошлый раз…»).",
             "• Если виден прогресс — похвали конкретно.",
         ]
@@ -637,9 +802,12 @@ def build_coach_context(history: list[dict], language_code: str = "en") -> str:
         header = "PLAYER NOTES (previous sessions):"
         session_label = "Session"
         top3_label = "Top 3 then:"
+        focus_label = "Focus then:"
+        check_label = "Focus check:"
+        drills_label = "Drills given:"
         instructions = [
             "When analyzing the new video:",
-            "• Compare with previous sessions — what changed, improved, or persisted.",
+            "• Compare sessions of the same stroke. Another stroke is background, not a progress baseline.",
             '• If an issue repeats — note it explicitly (e.g. "as before…").',
             "• If progress is visible — praise specifically.",
         ]
@@ -648,18 +816,262 @@ def build_coach_context(history: list[dict], language_code: str = "en") -> str:
         "─────────────────────────────────────────",
         header,
         "",
+        f"{'Сегодня' if ui == 'ru' else 'Today'}: {day.isoformat()}.",
     ]
+    if session_count is not None:
+        number = int(session_count) + 1
+        if ui == "ru":
+            if int(session_count) <= 0:
+                lines.append("Это первое видео игрока.")
+            else:
+                lines.append(
+                    f"Это видео №{number}. Раньше разобрано {int(session_count)}."
+                )
+        else:
+            if int(session_count) <= 0:
+                lines.append("This is the player's first video.")
+            else:
+                lines.append(
+                    f"This is video #{number}. {int(session_count)} reviewed before."
+                )
+    lines.append("")
+    status_labels = _FOCUS_STATUS_LABELS[ui]
+    if not history:
+        lines.append("Прошлых сессий нет." if ui == "ru" else "No previous sessions.")
+        lines.append("─────────────────────────────────────────")
+        return "\n".join(lines)
     for i, s in enumerate(history, 1):
-        lines.append(f"{session_label} {i} · {s['created_at']}:")
-        lines.append(f"  {s['summary']}")
-        if s["top3"]:
+        when = _when_label(str(s.get("created_at") or ""), day, language_code)
+        stroke = _stroke_label(language_code, s.get("stroke"))
+        lines.append(f"{session_label} {i} · {stroke} · {when}:")
+        lines.append(f"  {s.get('summary') or ''}")
+        if s.get("focus"):
+            lines.append(f"  {focus_label} {s['focus']}")
+        checks = s.get("focus_checks") or []
+        if checks:
+            bits = []
+            for item in checks:
+                if not isinstance(item, dict):
+                    continue
+                status = status_labels.get(
+                    item.get("status") or "", item.get("status") or ""
+                )
+                bits.append(
+                    f"{_stroke_label(language_code, item.get('stroke'))}: {status}"
+                )
+            if bits:
+                lines.append(f"  {check_label} " + "; ".join(bits))
+        if s.get("top3"):
             top3_oneline = " | ".join(
                 ln.strip() for ln in s["top3"].splitlines() if ln.strip()
             )
             lines.append(f"  {top3_label} {top3_oneline}")
+        drills = [
+            str(item).strip()
+            for item in (s.get("drill_ids") or [])
+            if str(item).strip()
+        ]
+        if drills:
+            lines.append(f"  {drills_label} " + ", ".join(drills))
         lines.append("")
 
     lines += instructions
+    lines.append("─────────────────────────────────────────")
+    return "\n".join(lines)
+
+
+def build_scores_block(history: list, language_code: str = "en") -> str:
+    grouped: dict = {}
+    order: list = []
+    for session in history or []:
+        scores = session.get("scores") or {}
+        if not scores:
+            continue
+        stroke = (session.get("stroke") or "").strip() or "?"
+        if stroke not in grouped:
+            order.append(stroke)
+            grouped[stroke] = []
+        grouped[stroke].append((session.get("created_at") or "?", scores))
+    if not grouped:
+        return ""
+    ui = _ui_lang(language_code)
+    if ui == "ru":
+        header = "ОЦЕНКИ НАВЫКОВ (для непрерывности, по ударам):"
+        rules = [
+            "Сравнивай оценки только внутри одного удара.",
+            "Ставь балл по этому видео. Не подгоняй его под прошлые.",
+            "Если балл изменился больше чем на 1 — объясни, что изменилось на видео.",
+        ]
+    else:
+        header = "SKILL SCORES (for continuity, by stroke):"
+        rules = [
+            "Compare scores only within the same stroke.",
+            "Score this video. Do not fit the number to past scores.",
+            "If a score moves by more than 1 point, explain what changed on the video.",
+        ]
+    lines = ["─────────────────────────────────────────", header, ""]
+    for stroke in order:
+        lines.append(_stroke_label(language_code, stroke) + ":")
+        for created_at, scores in grouped[stroke]:
+            lines.append(f"- {created_at}: {scores}")
+    lines.append("")
+    lines.extend(rules)
+    lines.append("─────────────────────────────────────────")
+    return "\n".join(lines)
+
+
+def build_foci_block(foci: list, language_code: str = "en") -> str:
+    rows = []
+    for item in foci or []:
+        text = (item.get("focus") or "").strip()
+        stroke = (item.get("stroke") or "").strip()
+        if not text or not stroke:
+            continue
+        rows.append((stroke, text))
+    if not rows:
+        return ""
+    ui = _ui_lang(language_code)
+    if ui == "ru":
+        header = "АКТИВНЫЕ ФОКУСЫ ИГРОКА (по ударам):"
+        rules = [
+            "Проверь на этом видео только те фокусы, чей удар реально виден.",
+            "В focus_checks поставь improved, same, worse или not_visible.",
+            "Если фокус не стал лучше — в поле focus повтори его прежний текст. Новый не придумывай.",
+            "Если видимого фокуса нет — focus можно задать заново, для удара этого видео.",
+        ]
+    else:
+        header = "ACTIVE PLAYER FOCI (per stroke):"
+        rules = [
+            "Verify only the foci whose stroke is actually visible on this video.",
+            "Set focus_checks to improved, same, worse, or not_visible.",
+            "If a focus did not improve, repeat its previous text in focus. Do not invent a new one.",
+            "If no visible focus applies, you may set a new focus for the stroke on this video.",
+        ]
+    lines = ["─────────────────────────────────────────", header, ""]
+    for stroke, text in rows:
+        lines.append(f'- {_stroke_label(language_code, stroke)}: "{text}"')
+    lines.append("")
+    lines.extend(rules)
+    lines.append("─────────────────────────────────────────")
+    return "\n".join(lines)
+
+
+def build_practice_block(plans: list, language_code: str = "en") -> str:
+    rows = [item for item in (plans or []) if (item.get("post_answer") or "").strip()]
+    if not rows:
+        return ""
+    ui = _ui_lang(language_code)
+    labels = _PRACTICE_ANSWERS[ui]
+    if ui == "ru":
+        header = "ТРЕНИРОВКИ ПОСЛЕ ПРОШЛЫХ РАЗБОРОВ:"
+        rules = [
+            "Упражнение, после которого игрок ответил «было трудно» или «пропустил», не повторяй тем же id.",
+            "То, что игрок тренировал, развивай следующим шагом, а не заменяй другой темой.",
+        ]
+    else:
+        header = "PRACTICE AFTER PREVIOUS REVIEWS:"
+        rules = [
+            "Do not repeat a drill id the player found hard or skipped.",
+            "Build on what the player actually practiced. Do not swap it for another topic.",
+        ]
+    lines = ["─────────────────────────────────────────", header, ""]
+    for item in rows:
+        answer = labels.get(
+            item.get("post_answer") or "", item.get("post_answer") or ""
+        )
+        drill = (item.get("drill_id") or "").strip() or (
+            item.get("drill_text") or ""
+        ).strip()
+        focus = (item.get("focus_text") or "").strip()
+        if ui == "ru":
+            lines.append(f"- {answer}: фокус «{focus}»; упражнение {drill}")
+        else:
+            lines.append(f'- {answer}: focus "{focus}"; drill {drill}')
+    lines.append("")
+    lines.extend(rules)
+    lines.append("─────────────────────────────────────────")
+    return "\n".join(lines)
+
+
+def build_notes_block(notes: list, language_code: str = "en") -> str:
+    rows = [item for item in (notes or []) if (item.get("text") or "").strip()]
+    if not rows:
+        return ""
+    ui = _ui_lang(language_code)
+    header = "ИГРОК ПИСАЛ:" if ui == "ru" else "THE PLAYER WROTE:"
+    rule = (
+        "Учитывай жалобы, ограничения и то, что игрок не понял. Не выдумывай, чего в заметках нет."
+        if ui == "ru"
+        else "Use complaints, limits, and what the player did not understand. Do not invent beyond the notes."
+    )
+    lines = ["─────────────────────────────────────────", header, ""]
+    for item in rows:
+        lines.append(f"- {item.get('created_at') or '?'}: {item['text'].strip()}")
+    lines.append("")
+    lines.append(rule)
+    lines.append("─────────────────────────────────────────")
+    return "\n".join(lines)
+
+
+def build_path_block(path: Optional[dict], language_code: str = "en") -> str:
+    if not path or not path.get("session_count"):
+        return ""
+    ui = _ui_lang(language_code)
+    chronic = path.get("chronic") or []
+    strokes = path.get("stroke_counts") or {}
+    if ui == "ru":
+        header = "ПУТЬ ИГРОКА:"
+        lines = [
+            "─────────────────────────────────────────",
+            header,
+            "",
+            f"Всего видео: {int(path['session_count'])}. Первое: {path.get('first_at') or '—'}.",
+            "Закрыто фокусов (стало лучше): "
+            + str(int(path.get("closed_focuses") or 0))
+            + ".",
+        ]
+        if strokes:
+            bits = [
+                f"{_stroke_label(language_code, key)} {count}"
+                for key, count in strokes.items()
+            ]
+            lines.append("Удары: " + ", ".join(bits) + ".")
+        if chronic:
+            lines.append("Хронические проблемы (2+ раза за последние видео):")
+            for item in chronic:
+                lines.append(
+                    f"- {_stroke_label(language_code, item.get('stroke'))} / "
+                    f"{item.get('tag')}: {item.get('count')} раз, последний {item.get('last_at') or '?'}"
+                )
+        lines.append(
+            "Повтор называй явно. Прогресс по хронической проблеме хвали конкретно."
+        )
+    else:
+        lines = [
+            "─────────────────────────────────────────",
+            "PLAYER PATH:",
+            "",
+            f"Videos: {int(path['session_count'])}. First: {path.get('first_at') or '—'}.",
+            "Foci closed (improved): "
+            + str(int(path.get("closed_focuses") or 0))
+            + ".",
+        ]
+        if strokes:
+            bits = [
+                f"{_stroke_label(language_code, key)} {count}"
+                for key, count in strokes.items()
+            ]
+            lines.append("Strokes: " + ", ".join(bits) + ".")
+        if chronic:
+            lines.append("Chronic issues (2+ times in recent videos):")
+            for item in chronic:
+                lines.append(
+                    f"- {_stroke_label(language_code, item.get('stroke'))} / "
+                    f"{item.get('tag')}: {item.get('count')}, last {item.get('last_at') or '?'}"
+                )
+        lines.append(
+            "Name a repeat explicitly. Praise progress on a chronic issue specifically."
+        )
     lines.append("─────────────────────────────────────────")
     return "\n".join(lines)
 
