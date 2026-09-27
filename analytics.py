@@ -83,7 +83,7 @@ def format_analytics_report(data: dict) -> str:
     evals = data.get("coach_evals") or {}
 
     lines = [
-        "📊 RallyAI — статистика",
+        "📊 SwingSync — статистика",
         "",
         "Пользователи",
         f"• Нажали /start: {users}",
@@ -177,7 +177,7 @@ def format_daly_report(data: dict) -> str:
     new_suffix = f" (+{new_today} сегодня)" if new_today else ""
     return "\n".join(
         [
-            "📈 RallyAI — daily",
+            "📈 SwingSync — daily",
             "",
             "Пользователи",
             f"• С ≥1 разбором: {data.get('users_with_analysis', 0)}{new_suffix}",
