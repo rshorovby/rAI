@@ -56,12 +56,14 @@ def _parse_categories(body: str) -> list[dict[str, str]]:
 
 
 def _parse_top3_items(body: str) -> list[str]:
-    items: list[str] = []
+    items: list[list[str]] = []
     for line in body.splitlines():
-        m = re.match(r"^\s*\d+[.)]\s*(.+)$", line.strip())
-        if m:
-            items.append(m.group(1).strip())
-    return items[:3]
+        match = re.match(r"^\s*\d+[.)]\s*(.+)$", line.strip())
+        if match:
+            items.append([match.group(1).strip()])
+        elif items and line.strip():
+            items[-1].append(line.strip())
+    return ["\n".join(parts) for parts in items][:3]
 
 
 def parse_report(report: str, language_code: str = "ru") -> dict[str, Any]:
@@ -203,7 +205,7 @@ def keyboard_top3(lang: str, state: dict) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     items = state["sections"].get("top3_items") or []
     for i, item in enumerate(items, start=1):
-        label = f"{i}. {item}"
+        label = f"{i}. {item.splitlines()[0]}"
         if len(label) > 60:
             label = label[:57] + "…"
         rows.append([InlineKeyboardButton(label, callback_data=f"d:prio:{i}")])

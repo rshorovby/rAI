@@ -76,6 +76,22 @@ Dark video.
     assert sections["top3_items"][0].startswith("Lower")
 
 
+def test_top3_item_keeps_why_line():
+    report = """\
+## Краткое резюме
+Ок.
+
+## Топ-3 приоритета для тренировки
+1. **Действие:** удерживать левую руку
+**Зачем:** корпус не раскрывается раньше удара
+2. Добавить сплит-степ
+"""
+    sections = parse_report(report, "ru")
+    assert "Зачем" in sections["top3_items"][0]
+    assert sections["top3_items"][1] == "Добавить сплит-степ"
+    assert sections["errors"][0] == sections["top3_items"][0]
+
+
 def test_error_card_and_index():
     from analysis_dialog import format_error_card, start_dialog
 

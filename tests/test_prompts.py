@@ -21,6 +21,15 @@ def test_prompts_assistant_not_coach_persona():
     assert "not as the coach" in USER_PROMPT_EN
 
 
+def test_top3_requires_action_and_why_labels():
+    assert "**Действие:**" in USER_PROMPT_RU
+    assert "**Зачем:**" in USER_PROMPT_RU
+    assert "одно предложение с конкретным действием" not in USER_PROMPT_RU
+    assert "**Action:**" in USER_PROMPT_EN
+    assert "**Why:**" in USER_PROMPT_EN
+    assert "one sentence with a concrete action" not in USER_PROMPT_EN
+
+
 def test_user_prompt_requires_next_video_section():
     assert "## Следующее видео" in USER_PROMPT_RU
     assert "## Next video" in USER_PROMPT_EN

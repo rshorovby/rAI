@@ -57,7 +57,10 @@ USER_PROMPT_RU = """\
 (тот же формат)
 
 ## Топ-3 приоритета для тренировки
-Нумерованный список от самого важного к менее важному. Каждый пункт — одно предложение с конкретным действием.
+Ровно три пункта, от самого важного к менее важному. Каждый пункт — строго две строки:
+1. **Действие:** одно конкретное действие на корте
+**Зачем:** одно предложение, почему это видно на этом видео
+Метки **Действие:** и **Зачем:** обязательны. Не склеивай пункт в одно предложение и не подставляй вместо метки длинное тире или двоеточие.
 
 ## Следующее видео
 Обязательная секция (только для внутреннего использования — игроку покажут отдельным сообщением). 2–4 предложения: какой удар снять, с какого ракурса (сбоку / сзади-сбоку), длительность 10–20 сек, на что обратить внимание при съёмке, чтобы проверить прогресс по главному приоритету.
@@ -116,7 +119,10 @@ For each observation include:
 (same format)
 
 ## Top 3 training priorities
-Numbered list from most to least important. Each item — one sentence with a concrete action.
+Exactly three items, most important first. Each item is exactly two lines:
+1. **Action:** one concrete on-court action
+**Why:** one sentence on why this shows in this video
+The labels **Action:** and **Why:** are required. Do not collapse an item into one sentence and do not replace a label with an em dash or a colon.
 
 ## Next video
 Required section (for internal use only — the player sees it in a separate message). 2–4 sentences: which stroke to film, camera angle (side / back-side), 10–20 seconds, what to focus on when filming to check progress on the main priority.

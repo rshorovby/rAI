@@ -21,7 +21,9 @@ def test_parse_full_report():
     assert parsed.focus.startswith("Повернуться")
     assert parsed.drill_ids == ["count-for-more-time"]
     assert parsed.summary == "Хороший форхенд."
-    assert parsed.findings == []
+    assert len(parsed.findings) == 1
+    assert parsed.findings[0]["problem"] == "Подготовка раньше"
+    assert parsed.findings[0]["recommendation"] == "Подготовка раньше"
 
 
 def test_parse_findings():
@@ -107,6 +109,39 @@ def test_findings_from_top3_draft():
     assert "unit turn" in hand["detail"]
     assert hand["practice"].startswith("Вытягивать левую руку")
     assert hand["drill_ids"] == ["two-hand-sync"]
+
+
+def test_top3_sentence_without_colon_is_kept():
+    text = """\
+## Топ-3 приоритета для тренировки
+1. Удерживать левую руку — корпус не раскрывается раньше удара.
+2. Встречать мяч дальше впереди себя, давая руке вытянуться.
+3. Следить за переносом веса: после удара энергия идёт вперёд.
+"""
+    findings = parse_report(text).findings
+    assert len(findings) == 3
+    assert findings[0]["problem"] == findings[0]["recommendation"]
+    assert "—" in findings[0]["problem"]
+    assert findings[1]["problem"].startswith("Встречать мяч")
+    assert findings[2]["problem"] == "Следить за переносом веса"
+    assert findings[2]["recommendation"].startswith("после удара")
+
+
+def test_top3_action_why_labels():
+    text = """\
+## Топ-3 приоритета для тренировки
+1. **Действие:** удерживать левую руку на уровне груди
+**Зачем:** так корпус не раскрывается раньше удара (id: unit-turn)
+2. **Action:** meet the ball further in front
+**Why:** the arm stays free through contact
+"""
+    findings = parse_report(text).findings
+    assert len(findings) == 2
+    assert findings[0]["problem"] == "удерживать левую руку на уровне груди"
+    assert findings[0]["recommendation"] == "так корпус не раскрывается раньше удара"
+    assert findings[0]["drill_ids"] == ["unit-turn"]
+    assert findings[1]["problem"] == "meet the ball further in front"
+    assert findings[1]["recommendation"] == "the arm stays free through contact"
 
 
 def test_findings_from_observations_when_no_top3():

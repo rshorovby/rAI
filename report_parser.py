@@ -226,7 +226,11 @@ def _extract_json_candidates(text: str) -> list[dict]:
 
 _BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
 _DRILL_ID_RE = re.compile(r"\(id:\s*([a-z0-9\-]+)\)", re.IGNORECASE)
-_TOP3_ITEM_RE = re.compile(r"^\s*\d+\.\s+(.+)$", re.MULTILINE)
+_TOP3_NUM_RE = re.compile(r"^\s*\d+\.\s+(.+)$")
+_TOP3_LABEL_RE = re.compile(
+    r"\*\*(Действие|Зачем|Action|Why):\*\*\s*",
+    re.IGNORECASE,
+)
 _OBS_START_RE = re.compile(
     r"-\s*\*\*(?:Наблюдение|Observation):\*\*",
     re.IGNORECASE,
@@ -303,15 +307,68 @@ def _finding(
     }
 
 
+def _top3_bodies(section: str) -> list[str]:
+    bodies: list[list[str]] = []
+    for line in section.splitlines():
+        match = _TOP3_NUM_RE.match(line)
+        if match:
+            bodies.append([match.group(1).strip()])
+            continue
+        if bodies and line.strip():
+            bodies[-1].append(line.strip())
+    return ["\n".join(parts).strip() for parts in bodies]
+
+
+def _labeled_top3(body: str) -> tuple[str, str] | None:
+    marks = list(_TOP3_LABEL_RE.finditer(body))
+    if not marks:
+        return None
+    chunks: dict[str, str] = {}
+    for index, mark in enumerate(marks):
+        end = marks[index + 1].start() if index + 1 < len(marks) else len(body)
+        key = mark.group(1).casefold()
+        chunks[key] = body[mark.end() : end].strip()
+    action = chunks.get("действие") or chunks.get("action") or ""
+    why = chunks.get("зачем") or chunks.get("why") or ""
+    if not action and not why:
+        return None
+    if not action:
+        action = why
+    if not why:
+        why = action
+    return action, why
+
+
+def _finding_from_top3_body(body: str) -> dict | None:
+    pair = _labeled_top3(body)
+    if pair:
+        problem, recommendation = pair
+    else:
+        first, _, tail = body.partition("\n")
+        problem, recommendation = _split_label_value(first)
+        tail = tail.strip()
+        if tail:
+            recommendation = (
+                f"{recommendation}\n{tail}".strip() if recommendation else tail
+            )
+        if not recommendation:
+            recommendation = problem
+    recommendation, ids = _drill_ids_in(recommendation)
+    problem, title_ids = _drill_ids_in(problem)
+    if title_ids and not ids:
+        ids = title_ids
+    if not recommendation:
+        recommendation = problem
+    return _finding(problem, recommendation, ids)
+
+
 def _findings_from_top3(text: str) -> list[dict]:
     section = _player_section(text, "top3")
     if not section:
         return []
     findings: list[dict] = []
-    for match in _TOP3_ITEM_RE.finditer(section):
-        title, rest = _split_label_value(match.group(1))
-        rest, ids = _drill_ids_in(rest)
-        item = _finding(title, rest, ids)
+    for body in _top3_bodies(section):
+        item = _finding_from_top3_body(body)
         if item is None:
             continue
         findings.append(item)
