@@ -86,7 +86,7 @@ def load_analysis_context(
     return {
         "history": storage.get_player_history(player_id, history_stroke or None),
         "profile": storage.get_player_profile(player_id),
-        "corrections": storage.get_coach_corrections_for_prompt(player_id),
+        "corrections": [],
         "focus": (focus_row or {}).get("focus"),
         "drills_catalog": drills.catalog_for_prompt(),
         "session_count": memory["session_count"],

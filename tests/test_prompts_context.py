@@ -63,7 +63,8 @@ def test_correction_block_includes_approved():
     assert "Точка контакта" in block
     assert "AI-помощник" in block
     system = build_system_prompt("ru", coach_corrections=corrections)
-    assert "нажал ОК" in system
+    assert "нажал ОК" not in system
+    assert "ЭТАЛОН ТРЕНЕРА" not in system
 
 
 def test_correction_block_in_system_prompt():
@@ -80,8 +81,7 @@ def test_correction_block_in_system_prompt():
     assert "встретить мяч" in block
     assert "вычеркнул" in block
     system = build_system_prompt("ru", coach_corrections=corrections)
-    assert "ЭТАЛОН ТРЕНЕРА" in system
-    assert "не копируй" in system.lower() or "Не копируй" in system
+    assert "ЭТАЛОН ТРЕНЕРА" not in system
 
 
 def test_history_is_personal_and_comes_after_the_coach_standard():
@@ -114,8 +114,9 @@ def test_history_is_personal_and_comes_after_the_coach_standard():
     assert "видео №7" in text
     assert "unit-turn-shadow" in text
     assert "больше чем на 1" in text
-    assert "факты об этом игроке" in text
-    assert text.find("ЭТАЛОН ТРЕНЕРА") < text.find("ЗАМЕТКИ О ИГРОКЕ")
+    assert "факты об этом игроке" not in text
+    assert "ЭТАЛОН ТРЕНЕРА" not in text
+    assert "у него двуручный бэкхенд" not in text
 
 
 def test_correction_block_splits_global_and_player():

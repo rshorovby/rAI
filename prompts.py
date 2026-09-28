@@ -310,17 +310,12 @@ def build_system_prompt(
         strokes=strokes,
         chronic_tags=ctx.get("chronic_tags"),
     )
-    correction_ctx = build_coach_correction_block(
-        coach_corrections or [], language_code
-    )
     lang_rule = language_instruction(language_code)
     parts = [SYSTEM_PROMPT_BASE.strip(), lang_rule]
     if player_ctx:
         parts.append(player_ctx)
     if knowledge_ctx:
         parts.append(knowledge_ctx)
-    if correction_ctx:
-        parts.append(correction_ctx)
     if drills_catalog:
         parts.append(
             "Available drills (pick 0–2 ids for the metadata JSON):\n" + drills_catalog
@@ -351,17 +346,12 @@ def build_follow_up_system_prompt(
         strokes=strokes,
         chronic_tags=ctx.get("chronic_tags"),
     )
-    correction_ctx = build_coach_correction_block(
-        coach_corrections or [], language_code
-    )
     lang_rule = language_instruction(language_code)
     parts = [FOLLOW_UP_SYSTEM_PROMPT_BASE.strip(), lang_rule]
     if player_ctx:
         parts.append(player_ctx)
     if knowledge_ctx:
         parts.append(knowledge_ctx)
-    if correction_ctx:
-        parts.append(correction_ctx)
     _append_personal(parts, language_code, player_history, None, ctx)
     return "\n\n".join(parts)
 

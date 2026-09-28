@@ -24,6 +24,7 @@ data/
 *.mov
 *.webm
 tmp/
+eval_out/
 
 # IDE / ОС
 .DS_Store
