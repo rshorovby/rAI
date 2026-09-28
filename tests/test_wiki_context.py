@@ -19,6 +19,13 @@ def test_pages_for_forehand_include_policy_and_stroke():
     assert "wiki/concepts/gradual-acceleration.md" in pages
 
 
+def test_pages_for_serve_omit_grip():
+    pages = pages_for_stroke("serve")
+    assert "wiki/strokes/serve.md" in pages
+    assert "wiki/concepts/grip.md" not in pages
+    assert "wiki/concepts/ground-force.md" in pages
+
+
 def test_pages_for_backhand_include_2h():
     pages = pages_for_stroke("backhand")
     assert "wiki/strokes/backhand.md" in pages
@@ -113,7 +120,8 @@ def test_unverified_page_skipped(tmp_path: Path):
     )
     block = build_knowledge_block("serve", "en", root=tmp_path)
     assert "Secret serve" not in block
-    assert "Grip ok" in block
+    assert "Grip ok" not in block
+    assert "GF ok" in block
 
 
 def test_system_prompt_includes_knowledge():

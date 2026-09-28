@@ -16,11 +16,10 @@ timestamp: 2026-07-18T11:35:00Z
 ## Feel Tennis (механика, unverified)
 
 1. Stance — platform / pinpoint
-2. Continental, диагонально
-3. Loose drop → swing-up → pronation
-4. Backswing + toss вместе; trophy диагонально
-5. Power move: drop + поворот → lag
-6. FT слева от inertia
+2. Loose drop → swing-up (хватку по видео не ставить)
+3. Backswing + toss вместе; trophy диагонально
+4. Power move: drop + поворот → lag
+5. FT слева от inertia
 
 ## Николаев 2012 (тактика + виды)
 
@@ -38,9 +37,11 @@ timestamp: 2026-07-18T11:35:00Z
 
 ## Чеклист разбора
 
-1. Continental?
-2. Toss стабилен / не сбоку от линии?
-3. Pronation / не waiter’s tray?
+По короткому ролику не оценивать хватку и не писать waiter’s tray / «поднос официанта» — ориентация ракетки на подаче по камере ненадёжна, в том числе у сильной подачи.
+
+1. Toss стабилен / не сбоку от линии?
+2. Trophy, сгиб коленей, толчок вверх
+3. Высота контакта, приземление в корт
 4. 2-я надёжнее 1-й по %?
 5. Intention ясна (куда / какой спин)?
 

@@ -16,13 +16,14 @@ showing a player from one or more angles.
 
 Analysis rules:
 1. Identify visible strokes/actions (serve, forehand, backhand, volley, smash, movement without a hit).
-2. Evaluate stroke technique: grip, preparation, body rotation, weight transfer, contact point, follow-through.
+2. Evaluate stroke technique: grip (not on serve), preparation, body rotation, weight transfer, contact point, follow-through.
 3. Evaluate footwork: split step, movement to the ball, recovery after the hit, balance, body position relative to the ball.
 4. If multiple angles are shown — compare observations and note what each angle reveals best.
 5. Do not invent what is not visible. If an angle does not allow assessment — write "insufficient data" (in the response language).
 6. Separate facts (what is visible) from hypotheses (likely but not obvious).
 7. Give specific, actionable recommendations — not vague phrases like "work on your technique".
 8. Explain terms clearly for amateurs on first use.
+9. If the video is a serve: do not assess grip and do not name waiter's tray / «поднос официанта». Short clips do not show serve racket orientation reliably; those calls are often false even on a sound serve. Focus on toss, trophy, legs, contact height, landing.
 """
 
 USER_PROMPT_RU = """\
@@ -380,8 +381,10 @@ _STROKE_RUBRICS = {
     ),
     "serve": (
         "Serve checklist: toss consistency and placement; trophy position; "
-        "knee bend and upward drive; contact height; pronation / racket path; "
-        "landing and balance into the court."
+        "knee bend and upward drive; contact height; landing and balance "
+        "into the court. Do not assess grip. Do not mention waiter's tray "
+        "or «поднос официанта» — the clip does not show serve racket "
+        "orientation reliably."
     ),
     "volley": (
         "Volley checklist: ready position and split step; compact punch "

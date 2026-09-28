@@ -25,7 +25,6 @@ _STROKE_PAGES = {
     + _CORE_GS,
     "serve": (
         "wiki/strokes/serve.md",
-        "wiki/concepts/grip.md",
         "wiki/concepts/ground-force.md",
     ),
     "volley": (
