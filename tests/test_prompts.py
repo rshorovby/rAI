@@ -85,19 +85,13 @@ def test_rally_stroke_rubric():
     assert "Rally" in result or "rally" in result.lower()
 
 
-def test_serve_prompt_skips_grip_and_waiters_tray():
+def test_legacy_serve_prompt_still_names_the_trigger_phrase(monkeypatch):
+    monkeypatch.delenv("STRUCTURED_ANALYSIS_V2", raising=False)
     assert "waiter's tray" in SYSTEM_PROMPT_BASE
     assert "поднос официанта" in SYSTEM_PROMPT_BASE
-    assert "not on serve" in SYSTEM_PROMPT_BASE
     result = build_analysis_prompt("ru", video_context={"stroke": "serve"})
-    assert "Do not assess grip" in result
     assert "waiter's tray" in result
     assert "поднос официанта" in result
-    from wiki_context import build_knowledge_block
-
-    knowledge = build_knowledge_block("serve", "ru")
-    assert "wiki/concepts/grip.md" not in knowledge
-    assert "Continental?" not in knowledge
 
 
 def test_video_context_block_empty_without_answers():

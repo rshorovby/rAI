@@ -1,3 +1,4 @@
+import os
 from datetime import date, datetime
 from typing import Optional
 
@@ -25,6 +26,41 @@ Analysis rules:
 8. Explain terms clearly for amateurs on first use.
 9. If the video is a serve: do not assess grip and do not name waiter's tray / «поднос официанта». Short clips do not show serve racket orientation reliably; those calls are often false even on a sound serve. Focus on toss, trophy, legs, contact height, landing.
 """
+
+SYSTEM_PROMPT_V2 = """\
+You are an AI tennis-technique assistant. A human staff coach is in charge; \
+you prepare a draft they may approve, rewrite, or ignore. Never speak as the player's \
+coach and never write in first person as a coach (no "as your coach", "on my lesson", \
+"я как тренер"). Do not imply the review comes from a human. Write as an assistant's \
+technical notes. Use the knowledge of an experienced tennis coach with 15+ years \
+working with recreational and semi-professional players.
+
+Your task is to provide a technical breakdown of a short video (10–30 seconds) \
+showing a player from one or more angles.
+
+Analysis rules:
+1. Identify visible strokes/actions (serve, forehand, backhand, volley, smash, movement without a hit).
+2. Evaluate stroke technique: grip (not on serve), preparation, body rotation, weight transfer, contact point, follow-through.
+3. Evaluate footwork: split step, movement to the ball, recovery after the hit, balance, body position relative to the ball.
+4. If multiple angles are shown — compare observations and note what each angle reveals best.
+5. Do not invent what is not visible. If an angle does not allow assessment, set certainty to insufficient and do not state a judgement.
+6. Mark what is visible as seen and what is likely but not obvious as likely.
+7. Give specific, actionable recommendations — not vague phrases like "work on your technique".
+"""
+
+
+def structured_analysis_v2_enabled() -> bool:
+    raw = os.getenv("STRUCTURED_ANALYSIS_V2", "")
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+def use_structured_analysis_v2(language_code: str) -> bool:
+    """Новый промпт только по-русски и только при включённом флаге."""
+    return (
+        structured_analysis_v2_enabled()
+        and normalize_language_code(language_code) == "ru"
+    )
+
 
 USER_PROMPT_RU = """\
 Проанализируй прикреплённое видео теннисиста и подготовь структурированный отчёт.
@@ -250,6 +286,7 @@ def _append_personal(
     player_history: Optional[list],
     active_focus: Optional[str],
     prompt_context: Optional[dict],
+    include_status_rules: bool = True,
 ) -> None:
     ctx = prompt_context or {}
     history = player_history or []
@@ -261,7 +298,11 @@ def _append_personal(
     )
     if coach_ctx:
         parts.append(coach_ctx)
-    foci_ctx = build_foci_block(ctx.get("foci") or [], language_code)
+    foci_ctx = build_foci_block(
+        ctx.get("foci") or [],
+        language_code,
+        include_status_rules=include_status_rules,
+    )
     parts.append(
         "Weekly focus is per stroke. If an active focus is provided, verify only that "
         "on this video. If none is provided, set a new focus for the stroke on this "
@@ -270,12 +311,17 @@ def _append_personal(
     if foci_ctx:
         parts.append(foci_ctx)
     elif active_focus:
-        parts.append(
-            "Active weekly focus for this stroke to verify on this video:\n"
-            f'"{active_focus}"\n'
-            "In the summary, explicitly say whether it improved, stayed the same, or got worse. "
-            "Do not judge a different stroke against this focus."
-        )
+        lines = [
+            "Active weekly focus for this stroke to verify on this video:",
+            f'"{active_focus}"',
+        ]
+        if include_status_rules:
+            lines.append(
+                "In the summary, explicitly say whether it improved, stayed the same, "
+                "or got worse."
+            )
+        lines.append("Do not judge a different stroke against this focus.")
+        parts.append("\n".join(lines))
     scores_ctx = build_scores_block(history, language_code)
     if scores_ctx:
         parts.append(scores_ctx)
@@ -300,7 +346,19 @@ def build_system_prompt(
     coach_corrections: Optional[list] = None,
     strokes: Optional[list] = None,
     prompt_context: Optional[dict] = None,
+    experiment_v2: bool = False,
 ) -> str:
+    if experiment_v2 and use_structured_analysis_v2(language_code):
+        return _build_system_prompt_v2(
+            language_code,
+            player_history,
+            player_profile,
+            stroke,
+            active_focus,
+            drills_catalog,
+            strokes,
+            prompt_context,
+        )
     from wiki_context import build_knowledge_block
 
     ctx = prompt_context or {}
@@ -325,6 +383,57 @@ def build_system_prompt(
     if tag_line:
         parts.append(tag_line)
     _append_personal(parts, language_code, player_history, active_focus, ctx)
+    return "\n\n".join(parts)
+
+
+def _build_system_prompt_v2(
+    language_code: str,
+    player_history: Optional[list],
+    player_profile: Optional[dict],
+    stroke: Optional[str],
+    active_focus: Optional[str],
+    drills_catalog: Optional[str],
+    strokes: Optional[list],
+    prompt_context: Optional[dict],
+) -> str:
+    from stroke_blocks import load_general_rules, load_stroke_blocks
+    from wiki_context import build_knowledge_block
+
+    ctx = prompt_context or {}
+    parts = [
+        SYSTEM_PROMPT_V2.strip(),
+        language_instruction(language_code),
+        load_general_rules(),
+        load_stroke_blocks(),
+    ]
+    knowledge_ctx = build_knowledge_block(
+        stroke,
+        language_code,
+        strokes=strokes,
+        chronic_tags=ctx.get("chronic_tags"),
+        sanitize=True,
+        omit_serve_page=True,
+    )
+    if knowledge_ctx:
+        parts.append(knowledge_ctx)
+    if drills_catalog:
+        parts.append(
+            "Available drills (pick 0–2 ids for the metadata JSON):\n" + drills_catalog
+        )
+    tag_line = _issue_tag_line()
+    if tag_line:
+        parts.append(tag_line)
+    player_ctx = build_player_context(player_profile, language_code)
+    if player_ctx:
+        parts.append(player_ctx)
+    _append_personal(
+        parts,
+        language_code,
+        player_history,
+        active_focus,
+        ctx,
+        include_status_rules=False,
+    )
     return "\n\n".join(parts)
 
 
@@ -429,6 +538,7 @@ _LOOK_INSTRUCTIONS = {
 def build_video_context_block(
     video_context: Optional[dict],
     language_code: str = "en",
+    experiment_v2: bool = False,
 ) -> str:
     if not video_context:
         return ""
@@ -509,11 +619,16 @@ def build_video_context_block(
     lines.append("")
 
     rubric_key = intake_keys[0] if len(intake_keys) == 1 else (stroke or "")
+    v2 = experiment_v2 and use_structured_analysis_v2(language_code)
     rubric = _STROKE_RUBRICS.get(rubric_key or "")
+    if v2 and rubric_key == "serve":
+        rubric = None
     if rubric:
         lines.append(f"Rubric: {rubric}")
         lines.append("")
     look_rule = _LOOK_INSTRUCTIONS.get(look or "")
+    if v2 and look == "technique" and intake_keys == ["serve"]:
+        look_rule = ""
     if look_rule:
         lines.append(look_rule)
         lines.append("")
@@ -527,9 +642,12 @@ def build_analysis_prompt(
     language_code: str = "en",
     user_comment: Optional[str] = None,
     video_context: Optional[dict] = None,
+    experiment_v2: bool = False,
 ) -> str:
     parts: list[str] = []
-    ctx = build_video_context_block(video_context, language_code)
+    ctx = build_video_context_block(
+        video_context, language_code, experiment_v2=experiment_v2
+    )
     if ctx:
         parts.append(ctx)
 
@@ -919,7 +1037,9 @@ def build_scores_block(history: list, language_code: str = "en") -> str:
     return "\n".join(lines)
 
 
-def build_foci_block(foci: list, language_code: str = "en") -> str:
+def build_foci_block(
+    foci: list, language_code: str = "en", include_status_rules: bool = True
+) -> str:
     rows = []
     for item in foci or []:
         text = (item.get("focus") or "").strip()
@@ -946,6 +1066,8 @@ def build_foci_block(foci: list, language_code: str = "en") -> str:
             "If a focus did not improve, repeat its previous text in focus. Do not invent a new one.",
             "If no visible focus applies, you may set a new focus for the stroke on this video.",
         ]
+    if not include_status_rules:
+        rules = [rules[0], rules[3]]
     lines = ["─────────────────────────────────────────", header, ""]
     for stroke, text in rows:
         lines.append(f'- {_stroke_label(language_code, stroke)}: "{text}"')

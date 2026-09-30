@@ -4,6 +4,21 @@ import re
 from pathlib import Path
 from typing import Optional
 
+_WIKI_LINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
+_WIKI_LABEL_RE = re.compile(r"\b(?:P[123]|RESOLVED|unverified)\b", re.IGNORECASE)
+_FEEL_TENNIS_RE = re.compile(r"feel\s*tennis", re.IGNORECASE)
+_WAITER_RE = re.compile(
+    r"waiter(?:['’]s)?(?:\s+tray)?|поднос(?:\s+официанта)?",
+    re.IGNORECASE,
+)
+_SLUG_RE = re.compile(r"\b[a-z0-9]+(?:-[a-z0-9]+)+\b")
+_EMPTY_PARENS_RE = re.compile(r"\(\s*-?\s*(?:,\s*)*\)")
+_HANGING_HEADING_RE = re.compile(r"(?m)^(#{1,6}\s*)[—–-]+\s*")
+_ARROW_JUNK_RE = re.compile(r"\s*·\s*→\s*|\s*→\s*")
+_SLUG_FRAGMENT_RE = re.compile(r"-?[a-z0-9]+(?:-[a-z0-9]+)+\)")
+TERMS_PATH = Path(__file__).resolve().parent / "wiki_terms_ru.yml"
+_AUTHOR_NAMES = ("Николаев", "Джумок", "Feel Tennis")
+
 KNOWLEDGE_ROOT = Path(__file__).resolve().parent / "knowledge"
 MAX_KNOWLEDGE_CHARS = 7000
 
@@ -68,7 +83,121 @@ def _strip_frontmatter(text: str) -> tuple[str, Optional[str]]:
     return body, status
 
 
-def _read_reviewed(rel: str, root: Path = KNOWLEDGE_ROOT) -> Optional[str]:
+def load_wiki_terms(path: Path = TERMS_PATH) -> dict:
+    """Черновик slug → русская формулировка. Строки без двоеточия пропускает."""
+    terms = {}
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError:
+        return terms
+    for line in raw.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or ":" not in stripped:
+            continue
+        key, value = stripped.split(":", 1)
+        key = key.strip()
+        value = value.strip()
+        if key and value:
+            terms[key] = value
+    return terms
+
+
+def _table_has_empty_cell(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped.startswith("|"):
+        return False
+    cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+    if not cells:
+        return False
+    if all(cell and set(cell) <= set("-: ") for cell in cells):
+        return False
+    return any(cell == "" for cell in cells)
+
+
+def lint_sanitized_wiki(text: str) -> list:
+    """Следы сырой wiki, которых в промпте быть не должно."""
+    hits = []
+    if "[[" in text or "]]" in text:
+        hits.append("brackets")
+    if _EMPTY_PARENS_RE.search(text):
+        hits.append("empty parens")
+    if re.search(r"(?m)^#{1,6}\s*[—–]", text) or "· →" in text:
+        hits.append("hanging mark")
+    if re.search(r"-[a-z0-9]+(?:-[a-z0-9]+)*\)", text):
+        hits.append("slug fragment")
+    if any(_table_has_empty_cell(line) for line in text.splitlines()):
+        hits.append("empty table cell")
+    return hits
+
+
+def sanitize_wiki(text: str, terms: Optional[dict] = None) -> str:
+    """Убрать из текста страницы ссылки, служебные метки и запрещённые фразы.
+
+    Slug из таблицы становится русской формулировкой. Неизвестного slug в тексте
+    не остаётся. Имена авторов не трогает: их печатает lint_wiki_authors.
+    """
+    glossary = load_wiki_terms() if terms is None else terms
+
+    def _link(match: re.Match) -> str:
+        inner = match.group(1).strip()
+        shown = ""
+        key = inner
+        if "|" in inner:
+            key, shown = inner.split("|", 1)
+            shown = shown.strip()
+        key = key.split("#", 1)[0].strip()
+        if key in glossary:
+            return glossary[key]
+        if shown and not _SLUG_RE.search(shown) and not re.search(r"[A-Za-z]", shown):
+            return shown
+        return ""
+
+    cleaned = _WIKI_LINK_RE.sub(_link, text)
+    cleaned = _WIKI_LABEL_RE.sub("", cleaned)
+    cleaned = _FEEL_TENNIS_RE.sub("", cleaned)
+    cleaned = _WAITER_RE.sub("", cleaned)
+
+    def _slug(match: re.Match) -> str:
+        return glossary.get(match.group(0), "")
+
+    cleaned = _SLUG_RE.sub(_slug, cleaned)
+    lines = []
+    for line in cleaned.splitlines():
+        line = _EMPTY_PARENS_RE.sub("", line)
+        line = _SLUG_FRAGMENT_RE.sub("", line)
+        line = _ARROW_JUNK_RE.sub(" ", line)
+        line = _HANGING_HEADING_RE.sub(r"\1", line)
+        line = re.sub(r"(?<=\S) {2,}", " ", line)
+        line = re.sub(r"\s+([,.;:])", r"\1", line)
+        if _table_has_empty_cell(line):
+            continue
+        if line.strip() in {"—", "–", "-", "·", "→"}:
+            continue
+        lines.append(line.rstrip())
+    return "\n".join(lines).strip()
+
+
+def lint_wiki_authors(root: Path = KNOWLEDGE_ROOT) -> list:
+    """Упоминания имён источников в wiki. Страницы не правит."""
+    wiki = root / "wiki"
+    if not wiki.is_dir():
+        return []
+    hits = []
+    for path in sorted(wiki.rglob("*.md")):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        rel = str(path.relative_to(root))
+        for name in _AUTHOR_NAMES:
+            if name.lower() in text.lower():
+                hits.append(f"{rel}: {name}")
+    return hits
+
+
+def _read_reviewed(
+    rel: str, root: Path = KNOWLEDGE_ROOT, sanitize: bool = False
+) -> Optional[str]:
     path = root / rel
     if not path.is_file():
         return None
@@ -79,6 +208,8 @@ def _read_reviewed(rel: str, root: Path = KNOWLEDGE_ROOT) -> Optional[str]:
     body, status = _strip_frontmatter(raw)
     if status and status != "reviewed":
         return None
+    if sanitize:
+        body = sanitize_wiki(body)
     if not body:
         return None
     title = path.stem
@@ -114,14 +245,11 @@ def pages_for_strokes(
 
 
 def issue_tag_slugs(root: Path = KNOWLEDGE_ROOT) -> list:
-    """Slug проблем, которые модели разрешено писать в issue_tags."""
-    slugs: list = []
-    for folder in ("wiki/concepts", "wiki/errors"):
-        directory = root / folder
-        if not directory.is_dir():
-            continue
-        slugs.extend(path.stem for path in sorted(directory.glob("*.md")))
-    return _dedupe_pages(slugs)
+    """Slug проблем из единого реестра. Каталог wiki больше не источник списка."""
+    del root
+    from issue_tags import issue_tag_slugs as registry_slugs
+
+    return registry_slugs()
 
 
 def _chronic_pages(chronic_tags: Optional[list]) -> list:
@@ -169,15 +297,19 @@ def build_knowledge_block(
     max_chars: int = MAX_KNOWLEDGE_CHARS,
     strokes: Optional[list] = None,
     chronic_tags: Optional[list] = None,
+    sanitize: bool = False,
+    omit_serve_page: bool = False,
 ) -> str:
     """Assemble a capped knowledge block for system prompts."""
     if strokes is not None:
         page_list = pages_for_strokes(strokes, chronic_tags)
     else:
         page_list = pages_for_stroke(stroke, chronic_tags)
+    if omit_serve_page:
+        page_list = [page for page in page_list if page != "wiki/strokes/serve.md"]
     sections: list[str] = []
     for rel in page_list:
-        section = _read_reviewed(rel, root=root)
+        section = _read_reviewed(rel, root=root, sanitize=sanitize)
         if section:
             sections.append(section)
 

@@ -72,6 +72,7 @@ class VideoAnalyzer:
         drills_catalog: Optional[str] = None,
         coach_corrections: Optional[list] = None,
         prompt_context: Optional[dict] = None,
+        experiment_v2: bool = False,
     ) -> AnalysisResult:
         use_model = model or self._model
         upload_path, mute_tmp = strip_audio_for_upload(video_path)
@@ -96,7 +97,10 @@ class VideoAnalyzer:
                             ),
                             types.Part.from_text(
                                 text=build_analysis_prompt(
-                                    language_code, user_comment, video_context
+                                    language_code,
+                                    user_comment,
+                                    video_context,
+                                    experiment_v2=experiment_v2,
                                 )
                             ),
                         ],
@@ -113,6 +117,7 @@ class VideoAnalyzer:
                         coach_corrections=coach_corrections,
                         strokes=(video_context or {}).get("strokes"),
                         prompt_context=prompt_context,
+                        experiment_v2=experiment_v2,
                     ),
                     temperature=0.4,
                     automatic_function_calling=_NO_AFC,

@@ -1,0 +1,522 @@
+{
+  "type": "object",
+  "propertyOrdering": [
+    "video",
+    "primary_segment",
+    "detected_segments",
+    "observations",
+    "remarks",
+    "scores",
+    "focus_checks",
+    "findings",
+    "focus",
+    "issue_tags",
+    "drills",
+    "next_video",
+    "summary"
+  ],
+  "required": [
+    "video",
+    "observations",
+    "remarks",
+    "scores",
+    "focus_checks",
+    "findings",
+    "focus",
+    "summary",
+    "next_video",
+    "issue_tags",
+    "drills",
+    "primary_segment",
+    "detected_segments"
+  ],
+  "properties": {
+    "video": {
+      "type": "object",
+      "description": "Что реально на видео. Заполняй первым, по факту, не по ожиданию игрока.",
+      "propertyOrdering": [
+        "duration_sec_approx",
+        "angles",
+        "visible_content",
+        "stroke_repetitions",
+        "mismatch_with_player_choice",
+        "mismatch_note",
+        "level_estimate"
+      ],
+      "required": [
+        "angles",
+        "visible_content",
+        "stroke_repetitions",
+        "mismatch_with_player_choice",
+        "level_estimate"
+      ],
+      "properties": {
+        "duration_sec_approx": {
+          "type": "integer",
+          "nullable": true
+        },
+        "angles": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "side",
+              "back",
+              "back_side",
+              "front",
+              "other",
+              "unknown"
+            ]
+          }
+        },
+        "visible_content": {
+          "type": "string",
+          "enum": [
+            "single_stroke",
+            "stroke_series",
+            "rally",
+            "movement_only",
+            "not_tennis"
+          ]
+        },
+        "stroke_repetitions": {
+          "type": "integer",
+          "description": "Сколько раз виден основной удар (для подачи: сколько подач).",
+          "minimum": 0
+        },
+        "mismatch_with_player_choice": {
+          "type": "boolean"
+        },
+        "mismatch_note": {
+          "type": "string",
+          "nullable": true,
+          "description": "Если расхождение есть: что видно, что указал игрок. Иначе null."
+        },
+        "level_estimate": {
+          "type": "string",
+          "enum": [
+            "beginner",
+            "intermediate",
+            "advanced",
+            "competitive",
+            "unknown"
+          ]
+        }
+      }
+    },
+    "observations": {
+      "type": "array",
+      "description": "Нейтральное описание по фазам ДО оценок. Без суждений.",
+      "minItems": 0,
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "propertyOrdering": [
+          "t",
+          "segment",
+          "what_is_seen"
+        ],
+        "required": [
+          "t",
+          "segment",
+          "what_is_seen"
+        ],
+        "properties": {
+          "t": {
+            "type": "string",
+            "description": "Таймкод mm:ss"
+          },
+          "segment": {
+            "type": "string",
+            "enum": [
+              "forehand",
+              "backhand",
+              "serve",
+              "volley",
+              "footwork",
+              "rally",
+              "other"
+            ]
+          },
+          "what_is_seen": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "remarks": {
+      "type": "array",
+      "description": "Замечания для markdown-отчёта. category сам определяет раздел (техника / ноги / баланс). Пустой раздел = нет элементов этой категории.",
+      "maxItems": 9,
+      "items": {
+        "type": "object",
+        "propertyOrdering": [
+          "category",
+          "t",
+          "observation",
+          "certainty",
+          "why_it_matters",
+          "severity",
+          "recommendation"
+        ],
+        "required": [
+          "category",
+          "t",
+          "observation",
+          "certainty",
+          "why_it_matters"
+        ],
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": [
+              "technique",
+              "movement",
+              "balance"
+            ]
+          },
+          "t": {
+            "type": "string",
+            "description": "Таймкод mm:ss"
+          },
+          "observation": {
+            "type": "string"
+          },
+          "certainty": {
+            "type": "string",
+            "enum": [
+              "seen",
+              "likely",
+              "insufficient"
+            ],
+            "description": "seen = видно; likely = гипотеза; insufficient = по этому ракурсу оценить нельзя."
+          },
+          "why_it_matters": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "critical",
+              "important",
+              "minor",
+              "strength"
+            ],
+            "description": "null, если certainty = insufficient."
+          },
+          "recommendation": {
+            "type": "string",
+            "nullable": true,
+            "description": "Одно конкретное упражнение или фокус. null для insufficient и strength."
+          }
+        }
+      }
+    },
+    "scores": {
+      "type": "array",
+      "description": "Оценки 0-10 по абсолютной шкале. Допустимые оси зависят от primary_segment и проверяются кодом (см. таблицу в инструкциях агента); схема этого не ограничивает.",
+      "maxItems": 7,
+      "items": {
+        "type": "object",
+        "propertyOrdering": [
+          "axis",
+          "evidence",
+          "value"
+        ],
+        "required": [
+          "axis",
+          "evidence",
+          "value"
+        ],
+        "properties": {
+          "axis": {
+            "type": "string",
+            "enum": [
+              "toss",
+              "preparation",
+              "leg_drive",
+              "contact",
+              "follow_through",
+              "footwork",
+              "balance"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "description": "Одно предложение с таймкодом."
+          },
+          "value": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 10
+          }
+        }
+      }
+    },
+    "focus_checks": {
+      "type": "array",
+      "description": "Только для активных фокусов. Ключи ударов: подача=serve, форхенд=forehand, бэкхенд=backhand, вольё=volley, ноги=footwork, розыгрыш=rally.",
+      "items": {
+        "type": "object",
+        "propertyOrdering": [
+          "stroke",
+          "evidence",
+          "status"
+        ],
+        "required": [
+          "stroke",
+          "evidence",
+          "status"
+        ],
+        "properties": {
+          "stroke": {
+            "type": "string",
+            "enum": [
+              "forehand",
+              "backhand",
+              "serve",
+              "volley",
+              "footwork",
+              "rally"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "description": "Что на клипе подтверждает статус, с таймкодом. Нет доказательства = not_visible."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "improved",
+              "same",
+              "worse",
+              "not_visible"
+            ]
+          }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "description": "Главные пункты для игрока, от самого важного. Из них же рендерится Топ-3 (Действие = recommendation, Зачем = problem). Отдельного списка приоритетов нет.",
+      "minItems": 0,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "propertyOrdering": [
+          "t",
+          "problem",
+          "detail",
+          "recommendation",
+          "practice",
+          "drill_ids",
+          "issue_tags"
+        ],
+        "required": [
+          "t",
+          "problem",
+          "detail",
+          "recommendation",
+          "practice",
+          "drill_ids"
+        ],
+        "properties": {
+          "t": {
+            "type": "string",
+            "description": "Таймкод mm:ss"
+          },
+          "problem": {
+            "type": "string",
+            "description": "Что не так, 1-2 предложения."
+          },
+          "detail": {
+            "type": "string",
+            "description": "Почему это видно на этом клипе, 2-4 предложения."
+          },
+          "recommendation": {
+            "type": "string",
+            "description": "Как закрыть на корзине, 1-2 предложения."
+          },
+          "practice": {
+            "type": "string",
+            "description": "Как исправлять на корте, отдельный текст."
+          },
+          "drill_ids": {
+            "type": "array",
+            "maxItems": 3,
+            "items": {
+              "type": "string",
+              "enum": [
+                "toss-spot",
+                "knee-bend-serve",
+                "split-step-timing"
+              ]
+            }
+          },
+          "issue_tags": {
+            "type": "array",
+            "maxItems": 3,
+            "items": {
+              "type": "string",
+              "enum": [
+                "aim-calibration",
+                "balance",
+                "ball-feel",
+                "biomechanics-first",
+                "clear-intention",
+                "contact-point",
+                "effortless-power",
+                "footwork",
+                "form-vs-technique",
+                "free-hitting",
+                "gradual-acceleration",
+                "grip",
+                "ground-force",
+                "hip-rotation",
+                "mezhdudarnoe-vremya",
+                "racket-as-weight",
+                "racquet-path",
+                "repeatable-swing",
+                "shoulder-rotation",
+                "split-step",
+                "still-head",
+                "strike-zone",
+                "time-perception",
+                "topspin-roll",
+                "unit-turn",
+                "universal-swing",
+                "visual-illusions",
+                "weight-transfer",
+                "late-contact",
+                "no-split-step",
+                "toss-placement",
+                "toss-height",
+                "trophy-position",
+                "knee-bend-drive",
+                "contact-height",
+                "arm-deceleration",
+                "serve-finish-balance",
+                "contact-in-front",
+                "spacing-to-ball",
+                "non-dominant-hand",
+                "volley-backswing-too-long",
+                "volley-contact-in-front",
+                "ready-position-net",
+                "recovery-position",
+                "small-adjustment-steps",
+                "first-step-direction"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "focus": {
+      "type": "string",
+      "description": "Один короткий фокус недели для удара с этого видео. Правила повтора/смены: см. общие правила."
+    },
+    "summary": {
+      "type": "string",
+      "description": "2-3 предложения. Идёт ПОСЛЕДНИМ полем ответа, в отчёте показывается первым."
+    },
+    "next_video": {
+      "type": "string",
+      "description": "2-4 предложения: какой удар, ракурс, сколько повторов подряд, длительность 10-20 сек, что проверить. Только для внутреннего использования."
+    },
+    "issue_tags": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "string",
+        "enum": [
+          "aim-calibration",
+          "balance",
+          "ball-feel",
+          "biomechanics-first",
+          "clear-intention",
+          "contact-point",
+          "effortless-power",
+          "footwork",
+          "form-vs-technique",
+          "free-hitting",
+          "gradual-acceleration",
+          "grip",
+          "ground-force",
+          "hip-rotation",
+          "mezhdudarnoe-vremya",
+          "racket-as-weight",
+          "racquet-path",
+          "repeatable-swing",
+          "shoulder-rotation",
+          "split-step",
+          "still-head",
+          "strike-zone",
+          "time-perception",
+          "topspin-roll",
+          "unit-turn",
+          "universal-swing",
+          "visual-illusions",
+          "weight-transfer",
+          "late-contact",
+          "no-split-step",
+          "toss-placement",
+          "toss-height",
+          "trophy-position",
+          "knee-bend-drive",
+          "contact-height",
+          "arm-deceleration",
+          "serve-finish-balance",
+          "contact-in-front",
+          "spacing-to-ball",
+          "non-dominant-hand",
+          "volley-backswing-too-long",
+          "volley-contact-in-front",
+          "ready-position-net",
+          "recovery-position",
+          "small-adjustment-steps",
+          "first-step-direction"
+        ]
+      }
+    },
+    "drills": {
+      "type": "array",
+      "maxItems": 2,
+      "items": {
+        "type": "string",
+        "enum": [
+          "toss-spot",
+          "knee-bend-serve",
+          "split-step-timing"
+        ]
+      }
+    },
+    "primary_segment": {
+      "type": "string",
+      "enum": [
+        "forehand",
+        "backhand",
+        "serve",
+        "volley",
+        "footwork",
+        "rally",
+        "none"
+      ]
+    },
+    "detected_segments": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "forehand",
+          "backhand",
+          "serve",
+          "volley",
+          "footwork",
+          "rally"
+        ]
+      }
+    }
+  }
+}
