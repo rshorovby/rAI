@@ -137,6 +137,7 @@ def _job_json(job: dict) -> dict:
         "summary": parsed.get("summary") or "",
         "next_video": parsed.get("next_video") or "",
         "coverage": services.job_coverage_payload(job["id"]),
+        "elaborations": storage.list_job_elaborations(job["id"]),
     }
 
 
@@ -227,6 +228,7 @@ def create_app(
     verify_apple: Optional[VerifyApple] = None,
     enqueue_ios_job: Optional[Callable] = None,
     after_ios_job: Optional[Callable] = None,
+    elaborate: Optional[Callable] = None,
 ) -> Starlette:
     if verify_apple is None:
         from apple_auth import verify_apple_identity_token
@@ -461,6 +463,52 @@ def create_app(
         storage.save_device_token(player_id, token)
         return Response(status_code=204)
 
+    async def elaborate_job(request: Request) -> Response:
+        try:
+            player_id = _bearer_player(request)
+        except AuthError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=401)
+        job_id = int(request.path_params["job_id"])
+        job = storage.get_review_job(job_id)
+        if not job or int(job["user_id"]) != player_id:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"error": "json required"}, status_code=400)
+        if not isinstance(body, dict):
+            return JSONResponse({"error": "json required"}, status_code=400)
+        lane = body.get("lane") or ""
+        key = (body.get("key") or "").strip()
+        if lane not in ("observation", "priority") or not key or len(key) > 800:
+            return JSONResponse({"error": "lane and key required"}, status_code=400)
+        report = (job.get("final_text") or "").strip() or (job.get("draft_text") or "")
+        if not report or key not in report:
+            return JSONResponse({"error": "unknown item"}, status_code=400)
+        saved = storage.get_job_elaboration(job_id, lane, key)
+        if saved:
+            return JSONResponse({"text": saved})
+        block = services.elaboration_block(report, key)
+        prompt = services.elaboration_prompt(lane, block, job.get("language_code") or "ru")
+        runner = elaborate or services.elaborate_report
+        try:
+            text = await asyncio.to_thread(
+                runner,
+                player_id,
+                report,
+                prompt,
+                job.get("language_code") or "ru",
+                job.get("stroke") or "",
+            )
+        except Exception:
+            logger.exception("elaboration failed job=%s", job_id)
+            return JSONResponse({"error": "elaboration failed"}, status_code=502)
+        text = (text or "").strip()
+        if not text:
+            return JSONResponse({"error": "empty elaboration"}, status_code=502)
+        stored = storage.save_job_elaboration(job_id, lane, key, text)
+        return JSONResponse({"text": stored})
+
     routes = [
         Route("/v1/auth/apple", auth_apple, methods=["POST"]),
         Route("/v1/me", me, methods=["GET"]),
@@ -474,6 +522,7 @@ def create_app(
         Route("/v1/jobs", create_job, methods=["POST"]),
         Route("/v1/jobs", list_jobs, methods=["GET"]),
         Route("/v1/jobs/{job_id:int}", get_job, methods=["GET"]),
+        Route("/v1/jobs/{job_id:int}/elaborations", elaborate_job, methods=["POST"]),
         Route("/v1/dossier", dossier, methods=["GET"]),
         Route("/v1/progress", progress, methods=["GET"]),
         Route("/v1/device-tokens", device_tokens, methods=["POST"]),

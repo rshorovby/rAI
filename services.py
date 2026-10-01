@@ -692,3 +692,101 @@ def report_payload(text: str) -> dict:
         "next_video": parsed.next_video,
         "stroke": "",
     }
+
+
+def elaboration_block(report: str, key: str) -> str:
+    for chunk in report.split("\n\n"):
+        if key in chunk:
+            return chunk.strip()
+    return key
+
+
+def elaboration_prompt(lane: str, block: str, language_code: str) -> str:
+    from i18n import resolve_ui_lang
+
+    ru = resolve_ui_lang(language_code) == "ru"
+    lowered = block.lower()
+    strength = (
+        "🟢" in block
+        or "сильная сторона" in lowered
+        or "strength" in lowered
+    )
+    if lane == "priority":
+        if ru:
+            return (
+                "Сделай подробный разбор этого приоритета из анализа "
+                "(что именно не так и как исправить на тренировке):\n"
+                f"{block}"
+            )
+        return (
+            "Give a detailed breakdown of this training priority from the analysis "
+            "(what's wrong and how to fix it):\n"
+            f"{block}"
+        )
+    if strength:
+        if ru:
+            return (
+                "Это сильная сторона из разбора. Коротко: как удержать это "
+                "на тренировке и одно конкретное упражнение "
+                f"(пока без ссылки на видео):\n{block}"
+            )
+        return (
+            "This is a strength from the analysis. Briefly: how to keep it "
+            "in practice and one specific drill (no video link yet):\n"
+            f"{block}"
+        )
+    if ru:
+        return (
+            "Это одно замечание из разбора. Дай короткую рекомендацию: "
+            "что изменить на тренировке и одно конкретное упражнение "
+            f"(пока без ссылки на видео):\n{block}"
+        )
+    return (
+        "This is one note from the analysis. Give a short tip: what to "
+        "change in practice and one specific drill "
+        f"(no video link yet):\n{block}"
+    )
+
+
+def elaborate_report(
+    player_id,
+    report: str,
+    prompt: str,
+    language_code: str,
+    stroke: str,
+) -> str:
+    from config import load_settings
+    from pricing import cost_for_usage
+
+    settings = load_settings()
+    analyzer = VideoAnalyzer(settings.gemini_api_key, settings.gemini_model)
+    ctx = load_analysis_context(player_id, stroke or None) if player_id else {}
+    use_model = (
+        settings.model_for(billing.is_pro(player_id))
+        if player_id
+        else settings.gemini_model
+    )
+    result = analyzer.chat(
+        report,
+        [],
+        prompt,
+        ctx.get("history") or [],
+        language_code or "ru",
+        ctx.get("profile"),
+        stroke or None,
+        use_model,
+        ctx.get("corrections") or [],
+        ctx or None,
+    )
+    if player_id:
+        storage.log_usage(
+            player_id,
+            "chat",
+            result.model,
+            result.usage.input_tokens,
+            result.usage.output_tokens,
+            result.usage.thinking_tokens,
+            None,
+            cost_for_usage(result.usage, result.model),
+        )
+    return result.text

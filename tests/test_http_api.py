@@ -550,3 +550,57 @@ def test_link_telegram_imports_display_name(tmp_path):
         )
         assert linked.status_code == 200
         assert linked.json()["display_name"] == "Ann Tg"
+
+
+def test_elaboration_is_saved_on_the_job(tmp_path):
+    calls = []
+
+    def fake(player_id, report, prompt, language_code, stroke):
+        calls.append(prompt)
+        return "Держите левую руку дольше."
+
+    with _tmp_db(tmp_path):
+        client = TestClient(
+            http_api.create_app(verify_apple=lambda token: token, elaborate=fake)
+        )
+        auth = client.post("/v1/auth/apple", json={"identity_token": "sub-deep"})
+        token = auth.json()["token"]
+        headers = {"Authorization": "Bearer " + token}
+        player_id = auth.json()["player_id"]
+        job_id = storage.create_review_job(
+            player_id,
+            video_file_id="ios:clip",
+            draft_text=(
+                "**Наблюдение:** Левая рука слишком рано уходит вниз.\n"
+                "**Критичность:** 🟠 Важно\n"
+            ),
+            source_channel=storage.CHANNEL_IOS,
+        )
+        body = {"lane": "observation", "key": "Левая рука слишком рано уходит вниз."}
+        first = client.post(
+            f"/v1/jobs/{job_id}/elaborations", json=body, headers=headers
+        )
+        assert first.status_code == 200
+        assert first.json()["text"] == "Держите левую руку дольше."
+        assert len(calls) == 1
+        assert "одно замечание" in calls[0]
+        second = client.post(
+            f"/v1/jobs/{job_id}/elaborations", json=body, headers=headers
+        )
+        assert second.status_code == 200
+        assert second.json()["text"] == first.json()["text"]
+        assert len(calls) == 1
+        loaded = client.get(f"/v1/jobs/{job_id}", headers=headers)
+        assert loaded.json()["elaborations"] == [
+            {
+                "lane": "observation",
+                "key": "Левая рука слишком рано уходит вниз.",
+                "text": "Держите левую руку дольше.",
+            }
+        ]
+        missing = client.post(
+            f"/v1/jobs/{job_id}/elaborations",
+            json={"lane": "observation", "key": "этого нет в черновике"},
+            headers=headers,
+        )
+        assert missing.status_code == 400

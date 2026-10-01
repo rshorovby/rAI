@@ -24,7 +24,8 @@
 | POST | `/v1/link/app-code` | Код из приложения для пустого Telegram. Ответ: `code`, `expires_in`. |
 | POST | `/v1/jobs` | multipart: `video` + `stroke` + опционально `strokes` (JSON-массив сегментов) + `look` + `comment` + `language_code`. `stroke` = единственный выбранный, иначе `general`. iOS не шлёт `look`. `source_channel=ios`. Не cancel других iOS-заявок. После анализа — тот же пост в Forum, что у бота (тема `player_id`, видео, черновик, кнопки). Ответ — `ai_sent`. JSON разбора: `primary_segment` + `detected_segments`. |
 | GET | `/v1/jobs` | `?open=1` — `queued` / `in_review` / `ai_sent`. Иначе `ai_sent` / `sent_coach` / `sent_fallback`. |
-| GET | `/v1/jobs/{id}` | Заявка + `markdown` / `scores` / `focus` / `drills` / `stroke` / `summary` / `next_video` / `findings` (≤3: `problem`, `recommendation`, `detail`, `practice`, `drill_ids`, `drills`). |
+| GET | `/v1/jobs/{id}` | Заявка + `markdown` / `scores` / `focus` / `drills` / `stroke` / `summary` / `next_video` / `findings` (≤3: `problem`, `recommendation`, `detail`, `practice`, `drill_ids`, `drills`) / `elaborations` (`lane`, `key`, `text`). |
+| POST | `/v1/jobs/{id}/elaborations` | Углубление пункта. Тело: `lane` (`observation` / `priority`), `key` (текст карточки, подстрока markdown этой заявки). Если текст уже сохранён — он же, без модели. Иначе промпт как кнопка бота, ответ `{text}` пишется к заявке. |
 | GET | `/v1/dossier` | Прогресс и изученность игрока и 6 сегментов: pending / committed (`progress_*`, `familiarity_*`, `coverage_*` = алиас изученности), `ntrp`, `job_count_*`, `progress_mean_*`, `focus`, `focus_status` (`supervision` / `agreed`), слоты (внутренние), `next_to_film`, `goals_unlocked`. Канон формул на сервере. |
 | GET | `/v1/progress` | Ряды scores, как `/progress`. |
 | POST | `/v1/device-tokens` | Тело: `token`. APNs. |

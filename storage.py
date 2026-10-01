@@ -289,6 +289,15 @@ def _init_db(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_review_status_created
             ON review_jobs (status, created_at);
 
+        CREATE TABLE IF NOT EXISTS job_elaborations (
+            job_id     INTEGER NOT NULL,
+            lane       TEXT    NOT NULL,
+            item_key   TEXT    NOT NULL,
+            body       TEXT    NOT NULL,
+            created_at TEXT    NOT NULL,
+            PRIMARY KEY (job_id, lane, item_key)
+        );
+
         CREATE TABLE IF NOT EXISTS coverage_contributions (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             player_id   INTEGER NOT NULL,
@@ -2909,6 +2918,61 @@ def create_review_job(
         )
         conn.commit()
         return int(cur.lastrowid)
+
+
+def get_job_elaboration(job_id: int, lane: str, item_key: str) -> Optional[str]:
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            """
+            SELECT body FROM job_elaborations
+            WHERE job_id = ? AND lane = ? AND item_key = ?
+            """,
+            (int(job_id), lane, item_key),
+        ).fetchone()
+    if not row:
+        return None
+    return str(row["body"])
+
+
+def save_job_elaboration(job_id: int, lane: str, item_key: str, body: str) -> str:
+    created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            """
+            INSERT INTO job_elaborations (job_id, lane, item_key, body, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(job_id, lane, item_key) DO NOTHING
+            """,
+            (int(job_id), lane, item_key, body, created_at),
+        )
+        row = conn.execute(
+            """
+            SELECT body FROM job_elaborations
+            WHERE job_id = ? AND lane = ? AND item_key = ?
+            """,
+            (int(job_id), lane, item_key),
+        ).fetchone()
+        conn.commit()
+    return str(row["body"]) if row else body
+
+
+def list_job_elaborations(job_id: int) -> list:
+    with _connect() as conn:
+        _init_db(conn)
+        rows = conn.execute(
+            """
+            SELECT lane, item_key, body FROM job_elaborations
+            WHERE job_id = ?
+            ORDER BY created_at, item_key
+            """,
+            (int(job_id),),
+        ).fetchall()
+    return [
+        {"lane": row["lane"], "key": row["item_key"], "text": row["body"]}
+        for row in rows
+    ]
 
 
 def get_review_job(job_id: int) -> Optional[dict]:
