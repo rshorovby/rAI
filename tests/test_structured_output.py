@@ -162,9 +162,38 @@ def test_validators_timecode_focus_and_axis():
     assert any("ось balance" in note for note in notes)
 
 
-def test_phrase_retry_then_returns_draft_with_incident():
+def test_serve_racket_face_does_not_reach_the_player():
     dirty = _serve()
-    dirty["summary"] = "Поднос официанта на подбросе."
+    dirty["summary"] = "Поднос официанта. Подброс низковат."
+    dirty["focus"] = "континентальная хватка"
+    dirty["observations"].append(
+        {
+            "t": "0:02",
+            "segment": "serve",
+            "what_is_seen": "Фаза трофея. Ракетка развернута струнной поверхностью вверх. Колени согнуты.",
+        }
+    )
+    dirty["remarks"].append(
+        {
+            "category": "technique",
+            "t": "0:02",
+            "observation": "Ракетка в фазе замаха открывается струнами вверх («поднос официанта»).",
+            "certainty": "seen",
+            "why_it_matters": "Блокирует хлёсткий удар с пронацией.",
+            "severity": "critical",
+            "recommendation": "Отработка замаха с сохранением положения ракетки на ребре.",
+        }
+    )
+    dirty["findings"].append(
+        {
+            "t": "0:02",
+            "problem": "Как и в прошлый раз, сохраняется проблема «подноса официанта».",
+            "recommendation": "Вернуться к отработке континентальной хватки и имитации замаха ребром ракетки.",
+            "detail": "Ракетка открыта струнами.",
+            "practice": "Имитация ребром ракетки.",
+            "drill_ids": [],
+        }
+    )
     calls = {"n": 0}
 
     def generate():
@@ -181,10 +210,31 @@ def test_phrase_retry_then_returns_draft_with_incident():
         user_prompt="user",
         model="m",
     )
-    assert calls["n"] == 2
-    assert outcome["run_log"]["retries"] == 1
-    assert outcome["run_log"]["phrase_incident"] is True
-    assert "Поднос" in outcome["text"]
+    text = outcome["text"].lower()
+    assert calls["n"] == 1
+    assert outcome["run_log"]["phrase_incident"] is False
+    for token in ("поднос", "waiter", "хват", "струн", "ребр", "пронац", "континент"):
+        assert token not in text
+    assert "Подброс низковат" in outcome["text"]
+    assert "Колени согнуты" in outcome["text"]
+    assert "Левая рука" in outcome["text"]
+
+
+def test_serve_report_of_only_racket_face_is_blocked():
+    dirty = _serve()
+    dirty["findings"] = [
+        {
+            "t": "0:02",
+            "problem": "Поднос официанта.",
+            "recommendation": "Континентальная хватка.",
+            "detail": "",
+            "practice": "",
+            "drill_ids": [],
+        }
+    ]
+    blocking, _, fixed = apply_checks(dirty, drill_ids=["toss-spot"])
+    assert any("findings" in item for item in blocking)
+    assert fixed["findings"] == []
 
 
 def test_schema_failure_after_retries_raises():

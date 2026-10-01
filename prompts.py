@@ -990,13 +990,19 @@ def build_coach_context(
         lines.append("Прошлых сессий нет." if ui == "ru" else "No previous sessions.")
         lines.append("─────────────────────────────────────────")
         return "\n".join(lines)
+    from analysis_checks import redact_racket_orientation
+    from focus_strokes import stroke_key
+
     for i, s in enumerate(history, 1):
         when = _when_label(str(s.get("created_at") or ""), day, language_code)
+        serve = stroke_key(s.get("stroke")) == "serve"
         stroke = _stroke_label(language_code, s.get("stroke"))
         lines.append(f"{session_label} {i} · {stroke} · {when}:")
-        lines.append(f"  {s.get('summary') or ''}")
-        if s.get("focus"):
-            lines.append(f"  {focus_label} {s['focus']}")
+        summary = redact_racket_orientation(s.get("summary") or "", serve=serve)
+        lines.append(f"  {summary}")
+        focus = redact_racket_orientation(s.get("focus") or "", serve=serve)
+        if focus:
+            lines.append(f"  {focus_label} {focus}")
         checks = s.get("focus_checks") or []
         if checks:
             bits = []
@@ -1011,11 +1017,13 @@ def build_coach_context(
                 )
             if bits:
                 lines.append(f"  {check_label} " + "; ".join(bits))
-        if s.get("top3"):
+        top3 = redact_racket_orientation(s.get("top3") or "", serve=serve)
+        if top3:
             top3_oneline = " | ".join(
-                ln.strip() for ln in s["top3"].splitlines() if ln.strip()
+                ln.strip() for ln in top3.splitlines() if ln.strip()
             )
-            lines.append(f"  {top3_label} {top3_oneline}")
+            if top3_oneline:
+                lines.append(f"  {top3_label} {top3_oneline}")
         drills = [
             str(item).strip()
             for item in (s.get("drill_ids") or [])
@@ -1123,16 +1131,23 @@ def build_foci_block(
         ]
     if not include_status_rules:
         rules = [rules[0], rules[3]]
-    lines = ["─────────────────────────────────────────", header, ""]
-    for stroke, text in rows:
-        lines.append(f'- {_stroke_label(language_code, stroke)}: "{text}"')
-        if include_stroke_key:
-            from focus_strokes import stroke_key
+    from analysis_checks import redact_racket_orientation
+    from focus_strokes import stroke_key
 
+    body = []
+    for stroke, text in rows:
+        serve = stroke_key(stroke) == "serve"
+        shown = redact_racket_orientation(text, serve=serve)
+        if not shown:
+            continue
+        body.append(f'- {_stroke_label(language_code, stroke)}: "{shown}"')
+        if include_stroke_key:
             key = stroke_key(stroke)
             if key:
-                lines.append(f"  ключ: {key}")
-    lines.append("")
+                body.append(f"  ключ: {key}")
+    if not body:
+        return ""
+    lines = ["─────────────────────────────────────────", header, "", *body, ""]
     lines.extend(rules)
     lines.append("─────────────────────────────────────────")
     return "\n".join(lines)

@@ -45,6 +45,50 @@ def test_no_top3_doesnt_crash():
     assert "Просто резюме." in result
 
 
+def test_serve_history_does_not_carry_racket_face():
+    from prompts import build_foci_block
+
+    history = [
+        {
+            "created_at": "01 Oct 2026",
+            "stroke": "serve",
+            "summary": "Поднос официанта. Подброс низкий.",
+            "top3": "1. Континентальная хватка\n2. Выше подброс",
+            "focus": "замах ребром ракетки",
+        }
+    ]
+    result = build_coach_context(history, "ru").lower()
+    for token in ("поднос", "хват", "ребр", "континент"):
+        assert token not in result
+    assert "подброс низкий" in result
+    assert "выше подброс" in result
+
+    forehand = build_coach_context(
+        [
+            {
+                "created_at": "01 Oct 2026",
+                "stroke": "forehand",
+                "summary": "Восточная хватка. Контакт впереди.",
+                "top3": "",
+            }
+        ],
+        "ru",
+    )
+    assert "Восточная хватка" in forehand
+
+    foci = build_foci_block(
+        [
+            {"stroke": "serve", "focus": "континентальная хватка"},
+            {"stroke": "forehand", "focus": "восточная хватка"},
+            {"stroke": "serve", "focus": "подброс выше"},
+        ],
+        "ru",
+    )
+    assert "континенталь" not in foci.lower()
+    assert "восточная хватка" in foci
+    assert "подброс выше" in foci
+
+
 def test_correction_block_empty_without_delta():
     assert build_coach_correction_block([]) == ""
     assert build_coach_correction_block([{"draft_text": "x", "delta_text": ""}]) == ""

@@ -164,6 +164,25 @@ def test_focus_changes_only_after_improved(tmp_path):
         assert storage.get_player_focus(8, "forehand")["focus"] == "старый разворот"
 
 
+def test_serve_grip_focus_is_dropped(tmp_path):
+    with _tmp_db(tmp_path):
+        storage.set_player_focus(8, "континентальная хватка", "serve", days=7)
+        result = AnalysisResult(
+            text="## Краткое резюме\nok\n", usage=Usage(), model="m"
+        )
+        nxt = services.prepare_report(result, {"stroke": "serve"})
+        nxt.focus = "выше подброс"
+        nxt.focus_checks = [{"stroke": "serve", "status": "same"}]
+        services.save_analysis_session(8, nxt, "ru")
+        assert storage.get_player_focus(8, "serve")["focus"] == "выше подброс"
+
+        again = services.prepare_report(result, {"stroke": "serve"})
+        again.focus = "замах ребром ракетки"
+        again.focus_checks = [{"stroke": "serve", "status": "improved"}]
+        services.save_analysis_session(8, again, "ru")
+        assert storage.get_player_focus(8, "serve")["focus"] == "выше подброс"
+
+
 def test_prompt_lists_every_active_focus():
     text = build_system_prompt(
         "ru",

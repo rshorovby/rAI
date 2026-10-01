@@ -13,6 +13,20 @@ logger = logging.getLogger(__name__)
 TIMECODE_RE = re.compile(r"^\d{1,2}:\d{2}$")
 _TIMECODE_IN_TEXT_RE = re.compile(r"\d{1,2}:\d{2}")
 _AUTHORS = ("Николаев", "Джумок", "Feel Tennis")
+# «поднос» / waiter нельзя ни на каком ударе. Остальное — только подача:
+# модель называет хватку и открытую струнную поверхность, даже когда блок это запрещает.
+_PHRASE_RE = re.compile(r"поднос|waiter", re.IGNORECASE)
+_SERVE_RACKET_RE = re.compile(
+    r"(?:"
+    r"(?<![A-Za-zА-Яа-яЁё])(?:хват\w*|continental\w*|континенталь\w*)"
+    r"|струн\w*"
+    r"|ракет\w*\s+на\s+ребр\w*"
+    r"|на\s+ребр\w*"
+    r"|ребр\w*(?:\s+\w+){0,2}\s+ракет\w*"
+    r")",
+    re.IGNORECASE,
+)
+_SENTENCE_RE = re.compile(r"[^.!?\n]+(?:[.!?]+|\n|$)", re.DOTALL)
 
 # Оси, которые схема принимает, но для сегмента не отдаются в отчёт.
 ALLOWED_AXES = {
@@ -76,6 +90,8 @@ def apply_checks(
                 payload[key] = []
         return blocking, notes, payload
 
+    _drop_serve_racket_orientation(payload, notes)
+
     if not payload.get("findings"):
         blocking.append("findings пустой при теннисе")
     if not payload.get("observations"):
@@ -86,6 +102,102 @@ def apply_checks(
     _axes(payload, notes)
     _catalog(payload, set(drill_ids or []), notes)
     return blocking, notes, payload
+
+
+def racket_orientation_leak(text: str, *, serve: bool) -> bool:
+    """Хватка и открытая струнная поверхность. На подаче — целиком, иначе только «поднос»."""
+    if not text:
+        return False
+    if _PHRASE_RE.search(text):
+        return True
+    return bool(serve and _SERVE_RACKET_RE.search(text))
+
+
+def redact_racket_orientation(text: str, *, serve: bool) -> str:
+    """Убирает предложения про хватку и ориентацию. Остальной текст сохраняет."""
+    if not racket_orientation_leak(text, serve=serve):
+        return text
+    lines = []
+    for line in text.splitlines():
+        if not racket_orientation_leak(line, serve=serve):
+            lines.append(line)
+            continue
+        kept = "".join(
+            sentence
+            for sentence in _SENTENCE_RE.findall(line)
+            if sentence.strip() and not racket_orientation_leak(sentence, serve=serve)
+        ).strip()
+        if kept and not re.fullmatch(r"\d+\.?", kept):
+            lines.append(kept)
+    return "\n".join(lines).strip()
+
+
+def _drop_serve_racket_orientation(payload: dict, notes: list) -> None:
+    if payload.get("primary_segment") != "serve":
+        return
+    kept_obs = []
+    for item in payload.get("observations") or []:
+        if not isinstance(item, dict):
+            continue
+        seen = redact_racket_orientation(str(item.get("what_is_seen") or ""), serve=True)
+        if not seen:
+            notes.append("наблюдение подачи: ориентация ракетки снята")
+            continue
+        if seen != item.get("what_is_seen"):
+            notes.append("наблюдение подачи: ориентация ракетки снята")
+            item["what_is_seen"] = seen
+        kept_obs.append(item)
+    payload["observations"] = kept_obs
+
+    payload["remarks"] = _without_racket_items(
+        payload.get("remarks"),
+        ("observation", "why_it_matters", "recommendation"),
+        "замечание подачи",
+        notes,
+    )
+    payload["findings"] = _without_racket_items(
+        payload.get("findings"),
+        ("problem", "recommendation", "detail", "practice"),
+        "приоритет подачи",
+        notes,
+    )
+    payload["issue_tags"] = [
+        tag for tag in (payload.get("issue_tags") or []) if tag != "grip"
+    ]
+    for key in ("summary", "focus", "next_video"):
+        raw = str(payload.get(key) or "")
+        cleaned = redact_racket_orientation(raw, serve=True)
+        if cleaned != raw:
+            notes.append(f"{key}: ориентация ракетки снята")
+            payload[key] = cleaned
+    video = payload.get("video")
+    if isinstance(video, dict):
+        note = str(video.get("mismatch_note") or "")
+        cleaned = redact_racket_orientation(note, serve=True)
+        if cleaned != note:
+            video["mismatch_note"] = cleaned
+    for item in payload.get("focus_checks") or []:
+        if isinstance(item, dict):
+            item["evidence"] = redact_racket_orientation(
+                str(item.get("evidence") or ""), serve=True
+            )
+
+
+def _without_racket_items(items, fields: tuple, kind: str, notes: list) -> list:
+    kept = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        if any(
+            racket_orientation_leak(str(item.get(field) or ""), serve=True)
+            for field in fields
+        ):
+            notes.append(f"{kind}: ориентация ракетки снята")
+            continue
+        if "issue_tags" in item:
+            item["issue_tags"] = [tag for tag in item.get("issue_tags") or [] if tag != "grip"]
+        kept.append(item)
+    return kept
 
 
 def player_text_issues(markdown: str) -> dict:

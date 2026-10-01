@@ -9,7 +9,9 @@ from typing import Optional
 import billing
 import drills
 import storage
+from analysis_checks import racket_orientation_leak
 from analyzer import AnalysisResult, VideoAnalyzer
+from focus_strokes import stroke_key
 from report_parser import SEGMENT_KEYS, SKILL_KEYS, parse_report
 
 COVERAGE_SEGMENTS = SEGMENT_KEYS
@@ -269,11 +271,18 @@ def settle_focus(player_id: int, prepared: PreparedReport) -> None:
     current = storage.get_player_focus(player_id, stroke)
     current_text = ((current or {}).get("focus") or "").strip()
     proposed = (prepared.focus or "").strip()
+    serve = stroke_key(stroke) == "serve"
+    if serve and racket_orientation_leak(current_text, serve=True):
+        current_text = ""
+    if serve and racket_orientation_leak(proposed, serve=True):
+        proposed = ""
     if not current_text or status == "improved":
         chosen = proposed or current_text
         prepared.focus = chosen
         if chosen:
             storage.set_player_focus(player_id, chosen, stroke, FOCUS_TTL_DAYS)
+        elif serve:
+            storage.clear_player_focus(player_id, stroke)
         return
     prepared.focus = current_text
 

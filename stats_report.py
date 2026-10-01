@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CLI-отчёт аналитики RallyAI. Запуск: .venv/bin/python stats_report.py"""
+"""CLI-отчёт аналитики SwingSync.ai. Запуск: .venv/bin/python stats_report.py"""
 
 from analytics import format_analytics_report
 from storage import get_analytics_summary
