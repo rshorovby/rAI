@@ -88,3 +88,30 @@ def load_settings() -> Settings:
         coach_user_ids=coach_user_ids,
         coach_forum_chat_id=coach_forum_chat_id,
     )
+
+
+def analysis_temperature() -> float:
+    """Температура structured output. Старт 0.3, легаси-вызов её не читает."""
+    raw = os.getenv("ANALYSIS_TEMPERATURE", "0.3").strip()
+    try:
+        return float(raw)
+    except ValueError:
+        return 0.3
+
+
+def analysis_video_fps() -> Optional[float]:
+    """Частота кадров видео. Пусто или 0 — параметр не отправляется."""
+    raw = os.getenv("ANALYSIS_VIDEO_FPS", "").strip().lower()
+    if raw in ("", "0", "off", "false"):
+        return None
+    try:
+        value = float(raw)
+    except ValueError:
+        return None
+    return value if value > 0 else None
+
+
+def focus_evidence_required() -> bool:
+    """improved/worse без таймкода в evidence понижается до not_visible."""
+    raw = os.getenv("FOCUS_EVIDENCE_REQUIRED", "1").strip().lower()
+    return raw in ("1", "true", "yes", "on")

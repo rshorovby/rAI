@@ -1,0 +1,22 @@
+{
+  "video": {
+    "angles": [],
+    "visible_content": "not_tennis",
+    "stroke_repetitions": 0,
+    "mismatch_with_player_choice": false,
+    "mismatch_note": null,
+    "level_estimate": "unknown"
+  },
+  "observations": [],
+  "remarks": [],
+  "scores": [],
+  "focus_checks": [],
+  "findings": [],
+  "focus": "",
+  "issue_tags": [],
+  "drills": [],
+  "next_video": "",
+  "summary": "На ролике нет теннисного удара, поэтому разбор техники не делаю.",
+  "primary_segment": "none",
+  "detected_segments": []
+}

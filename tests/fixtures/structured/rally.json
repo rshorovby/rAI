@@ -1,0 +1,85 @@
+{
+  "video": {
+    "duration_sec_approx": 12,
+    "angles": [
+      "back_side"
+    ],
+    "visible_content": "rally",
+    "stroke_repetitions": 3,
+    "mismatch_with_player_choice": false,
+    "mismatch_note": null,
+    "level_estimate": "beginner"
+  },
+  "observations": [
+    {
+      "t": "0:03",
+      "segment": "rally",
+      "what_is_seen": "Два форхенда и бэкхенд."
+    }
+  ],
+  "remarks": [
+    {
+      "category": "technique",
+      "t": "0:03",
+      "observation": "Контакт близко к корпусу.",
+      "certainty": "seen",
+      "why_it_matters": "Мяч не выпускается вперёд.",
+      "severity": "important",
+      "recommendation": "Встречать мяч впереди."
+    },
+    {
+      "category": "movement",
+      "t": "0:01",
+      "observation": "Сплит-степ не виден.",
+      "certainty": "insufficient",
+      "why_it_matters": "По этому ракурсу шаг не оценить.",
+      "severity": null,
+      "recommendation": null
+    }
+  ],
+  "scores": [
+    {
+      "axis": "preparation",
+      "evidence": "0:03",
+      "value": 4
+    },
+    {
+      "axis": "contact",
+      "evidence": "0:03",
+      "value": 3
+    },
+    {
+      "axis": "footwork",
+      "evidence": "0:01",
+      "value": 4
+    },
+    {
+      "axis": "balance",
+      "evidence": "0:05",
+      "value": null
+    }
+  ],
+  "focus_checks": [],
+  "findings": [
+    {
+      "t": "0:03",
+      "problem": "Контакт слишком близко.",
+      "detail": "На 0:03 мяч у корпуса.",
+      "recommendation": "Встречать мяч впереди.",
+      "practice": "Корзина, пауза перед контактом.",
+      "drill_ids": []
+    }
+  ],
+  "focus": "Контакт впереди",
+  "issue_tags": [
+    "contact-point"
+  ],
+  "drills": [],
+  "next_video": "Снимите розыгрыш сбоку, 10–15 секунд.",
+  "summary": "В розыгрыше контакт близко к корпусу.",
+  "primary_segment": "rally",
+  "detected_segments": [
+    "rally",
+    "forehand"
+  ]
+}

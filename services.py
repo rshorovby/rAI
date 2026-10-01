@@ -306,6 +306,7 @@ def analyze_video(
         ctx["drills_catalog"],
         ctx["corrections"],
         ctx,
+        player_id=player_id,
     )
     return prepare_report(result, video_context)
 

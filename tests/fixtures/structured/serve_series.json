@@ -1,0 +1,104 @@
+{
+  "video": {
+    "duration_sec_approx": 8,
+    "angles": [
+      "side"
+    ],
+    "visible_content": "stroke_series",
+    "stroke_repetitions": 4,
+    "mismatch_with_player_choice": false,
+    "mismatch_note": null,
+    "level_estimate": "intermediate"
+  },
+  "observations": [
+    {
+      "t": "0:02",
+      "segment": "serve",
+      "what_is_seen": "Подброс уходит вправо."
+    },
+    {
+      "t": "0:06",
+      "segment": "serve",
+      "what_is_seen": "Вторая подача снова вправо."
+    }
+  ],
+  "remarks": [
+    {
+      "category": "technique",
+      "t": "0:02",
+      "observation": "Левая рука падает сразу после подброса.",
+      "certainty": "seen",
+      "why_it_matters": "Точка контакта плывёт.",
+      "severity": "critical",
+      "recommendation": "Держать левую руку выше до контакта."
+    },
+    {
+      "category": "technique",
+      "t": "0:04",
+      "observation": "Высота контакта, скорее всего, ниже нормы.",
+      "certainty": "likely",
+      "why_it_matters": "Мяч встречается не в верхней точке.",
+      "severity": "important",
+      "recommendation": "Тянуться вверх, а не вперёд."
+    }
+  ],
+  "scores": [
+    {
+      "axis": "toss",
+      "evidence": "0:02",
+      "value": 4
+    },
+    {
+      "axis": "preparation",
+      "evidence": "0:02",
+      "value": 5
+    },
+    {
+      "axis": "leg_drive",
+      "evidence": "0:03",
+      "value": 4
+    },
+    {
+      "axis": "contact",
+      "evidence": "0:04",
+      "value": 5
+    },
+    {
+      "axis": "follow_through",
+      "evidence": "0:05",
+      "value": 6
+    }
+  ],
+  "focus_checks": [
+    {
+      "stroke": "serve",
+      "evidence": "одна подача, 0:02",
+      "status": "not_visible"
+    }
+  ],
+  "findings": [
+    {
+      "t": "0:02",
+      "problem": "Левая рука падает сразу.",
+      "detail": "На 0:02 рука уходит вниз до контакта.",
+      "recommendation": "Оставлять левую руку вверху до удара.",
+      "practice": "Четыре подачи подряд, левая рука замирает.",
+      "drill_ids": [
+        "toss-spot"
+      ]
+    }
+  ],
+  "focus": "Держать левую руку вверху",
+  "issue_tags": [
+    "toss-placement"
+  ],
+  "drills": [
+    "toss-spot"
+  ],
+  "next_video": "Снимите 4–5 подач подряд сбоку.",
+  "summary": "Четыре подачи, подброс каждый раз вправо.",
+  "primary_segment": "serve",
+  "detected_segments": [
+    "serve"
+  ]
+}

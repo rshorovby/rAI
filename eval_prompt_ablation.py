@@ -304,7 +304,9 @@ def variant_patches(variant: str):
                 patch.object(
                     prompts,
                     "get_user_prompt_body",
-                    lambda language_code: strip_example(original(language_code)),
+                    lambda language_code, structured=False: strip_example(
+                        original(language_code, structured=structured)
+                    ),
                 )
             )
         yield

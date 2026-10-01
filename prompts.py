@@ -287,6 +287,8 @@ def _append_personal(
     active_focus: Optional[str],
     prompt_context: Optional[dict],
     include_status_rules: bool = True,
+    include_stroke_key: bool = False,
+    label_serve_leg_drive: bool = False,
 ) -> None:
     ctx = prompt_context or {}
     history = player_history or []
@@ -302,6 +304,7 @@ def _append_personal(
         ctx.get("foci") or [],
         language_code,
         include_status_rules=include_status_rules,
+        include_stroke_key=include_stroke_key,
     )
     parts.append(
         "Weekly focus is per stroke. If an active focus is provided, verify only that "
@@ -322,7 +325,11 @@ def _append_personal(
             )
         lines.append("Do not judge a different stroke against this focus.")
         parts.append("\n".join(lines))
-    scores_ctx = build_scores_block(history, language_code)
+    scores_ctx = build_scores_block(
+        history,
+        language_code,
+        label_serve_leg_drive=label_serve_leg_drive,
+    )
     if scores_ctx:
         parts.append(scores_ctx)
     practice_ctx = build_practice_block(ctx.get("practice") or [], language_code)
@@ -348,7 +355,7 @@ def build_system_prompt(
     prompt_context: Optional[dict] = None,
     experiment_v2: bool = False,
 ) -> str:
-    if experiment_v2 and use_structured_analysis_v2(language_code):
+    if use_structured_analysis_v2(language_code):
         return _build_system_prompt_v2(
             language_code,
             player_history,
@@ -433,6 +440,8 @@ def _build_system_prompt_v2(
         active_focus,
         ctx,
         include_status_rules=False,
+        include_stroke_key=True,
+        label_serve_leg_drive=True,
     )
     return "\n\n".join(parts)
 
@@ -466,8 +475,20 @@ def build_follow_up_system_prompt(
     return "\n\n".join(parts)
 
 
-def get_user_prompt_body(language_code: str) -> str:
+USER_PROMPT_V2_RU = """\
+Проанализируй прикреплённое видео теннисиста и подготовь структурированный отчёт.
+Пиши как AI-помощник, не от лица тренера. Тренер — человек и главный; ты готовишь черновик.
+
+Ответ — только JSON по схеме. Свободный текст вне JSON не пиши.
+
+Если на видео нет теннисных действий или контент не подходит для разбора — вежливо объясни это в summary и оставь остальные массивы пустыми.
+"""
+
+
+def get_user_prompt_body(language_code: str, structured: bool = False) -> str:
     base = normalize_language_code(language_code)
+    if structured and base == "ru":
+        return USER_PROMPT_V2_RU
     if base in _USER_PROMPTS:
         return _USER_PROMPTS[base]
     extra = language_instruction(language_code)
@@ -619,7 +640,7 @@ def build_video_context_block(
     lines.append("")
 
     rubric_key = intake_keys[0] if len(intake_keys) == 1 else (stroke or "")
-    v2 = experiment_v2 and use_structured_analysis_v2(language_code)
+    v2 = use_structured_analysis_v2(language_code) and not experiment_v2
     rubric = _STROKE_RUBRICS.get(rubric_key or "")
     if v2 and rubric_key == "serve":
         rubric = None
@@ -659,7 +680,8 @@ def build_analysis_prompt(
         )
         parts.append(f'{comment_label}:\n"{user_comment.strip()}"')
 
-    parts.append(get_user_prompt_body(language_code))
+    structured = use_structured_analysis_v2(language_code) and not experiment_v2
+    parts.append(get_user_prompt_body(language_code, structured=structured))
     return "\n\n".join(parts)
 
 
@@ -997,7 +1019,9 @@ def build_coach_context(
     return "\n".join(lines)
 
 
-def build_scores_block(history: list, language_code: str = "en") -> str:
+def build_scores_block(
+    history: list, language_code: str = "en", label_serve_leg_drive: bool = False
+) -> str:
     grouped: dict = {}
     order: list = []
     for session in history or []:
@@ -1030,15 +1054,35 @@ def build_scores_block(history: list, language_code: str = "en") -> str:
     for stroke in order:
         lines.append(_stroke_label(language_code, stroke) + ":")
         for created_at, scores in grouped[stroke]:
-            lines.append(f"- {created_at}: {scores}")
+            lines.append(
+                f"- {created_at}: {_scores_for_prompt(stroke, scores, label_serve_leg_drive)}"
+            )
     lines.append("")
     lines.extend(rules)
     lines.append("─────────────────────────────────────────")
     return "\n".join(lines)
 
 
+def _scores_for_prompt(stroke: str, scores: dict, label_serve_leg_drive: bool) -> dict:
+    """Для подачи в истории leg_drive лежит в footwork. В промпт v2 показываем leg_drive."""
+    from focus_strokes import stroke_key
+
+    shown = dict(scores)
+    if (
+        label_serve_leg_drive
+        and stroke_key(stroke) == "serve"
+        and "footwork" in shown
+        and "leg_drive" not in shown
+    ):
+        shown["leg_drive"] = shown.pop("footwork")
+    return shown
+
+
 def build_foci_block(
-    foci: list, language_code: str = "en", include_status_rules: bool = True
+    foci: list,
+    language_code: str = "en",
+    include_status_rules: bool = True,
+    include_stroke_key: bool = False,
 ) -> str:
     rows = []
     for item in foci or []:
@@ -1071,6 +1115,12 @@ def build_foci_block(
     lines = ["─────────────────────────────────────────", header, ""]
     for stroke, text in rows:
         lines.append(f'- {_stroke_label(language_code, stroke)}: "{text}"')
+        if include_stroke_key:
+            from focus_strokes import stroke_key
+
+            key = stroke_key(stroke)
+            if key:
+                lines.append(f"  ключ: {key}")
     lines.append("")
     lines.extend(rules)
     lines.append("─────────────────────────────────────────")

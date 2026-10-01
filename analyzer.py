@@ -7,13 +7,17 @@ from typing import Optional
 from google import genai
 from google.genai import types
 
+from analysis_schema import build_response_schema, drill_ids_from_catalog, to_sdk_schema
+from config import analysis_temperature, analysis_video_fps, focus_evidence_required
 from i18n import DEFAULT_LANG, normalize_language_code, t
 from pricing import Usage, usage_from_response
 from prompts import (
     build_analysis_prompt,
     build_follow_up_system_prompt,
     build_system_prompt,
+    use_structured_analysis_v2,
 )
+from structured_pipeline import run_structured, video_duration_sec, write_run_log
 from video_mute import strip_audio_for_upload
 
 MAX_CHAT_TURNS = 10
@@ -39,9 +43,25 @@ _TRANSIENT_MARKERS = (
 _NO_AFC = types.AutomaticFunctionCallingConfig(disable=True)
 
 
+def _video_fps_metadata(fps: Optional[float]):
+    """SDK 1.10 принимает у видео только start/end. fps не отправляется, пока поля нет."""
+    if not fps:
+        return None
+    if "fps" not in getattr(types.VideoMetadata, "model_fields", {}):
+        logger.info(
+            "ANALYSIS_VIDEO_FPS=%s задан, текущий google-genai не принимает fps",
+            fps,
+        )
+        return None
+    return types.VideoMetadata(fps=fps)
+
+
 def _is_transient_error(exc: Exception) -> bool:
     msg = str(exc).lower()
     return any(marker in msg for marker in _TRANSIENT_MARKERS)
+
+
+RUN_LOG_DIR = Path(__file__).resolve().parent / "logs" / "analysis-runs"
 
 
 @dataclass(frozen=True)
@@ -49,6 +69,8 @@ class AnalysisResult:
     text: str
     usage: Usage
     model: str
+    raw_json: Optional[dict] = None
+    run_log: Optional[dict] = None
 
 
 class VideoAnalyzer:
@@ -73,6 +95,8 @@ class VideoAnalyzer:
         coach_corrections: Optional[list] = None,
         prompt_context: Optional[dict] = None,
         experiment_v2: bool = False,
+        player_id: Optional[int] = None,
+        run_log_dir: Optional[Path] = RUN_LOG_DIR,
     ) -> AnalysisResult:
         use_model = model or self._model
         upload_path, mute_tmp = strip_audio_for_upload(video_path)
@@ -84,6 +108,86 @@ class VideoAnalyzer:
             uploaded = self._client.files.upload(file=str(upload_path))
             uploaded = self._wait_until_active(uploaded)
             logger.info("Gemini generate start model=%s", use_model)
+            system_prompt = build_system_prompt(
+                language_code,
+                player_history,
+                player_profile,
+                stroke=(video_context or {}).get("stroke"),
+                active_focus=active_focus,
+                drills_catalog=drills_catalog,
+                coach_corrections=coach_corrections,
+                strokes=(video_context or {}).get("strokes"),
+                prompt_context=prompt_context,
+                experiment_v2=experiment_v2,
+            )
+            user_prompt = build_analysis_prompt(
+                language_code,
+                user_comment,
+                video_context,
+                experiment_v2=experiment_v2,
+            )
+            video_part = types.Part.from_uri(
+                file_uri=uploaded.uri,
+                mime_type=uploaded.mime_type,
+            )
+            structured = use_structured_analysis_v2(language_code) and not experiment_v2
+            if structured:
+                fps_meta = _video_fps_metadata(analysis_video_fps())
+                if fps_meta is not None:
+                    video_part.video_metadata = fps_meta
+                drill_ids = drill_ids_from_catalog(drills_catalog)
+                schema = build_response_schema(drill_ids)
+                sdk_schema = to_sdk_schema(schema)
+                started = time.perf_counter()
+
+                def generate():
+                    response = self._generate_with_retry(
+                        model=use_model,
+                        contents=[
+                            types.Content(
+                                role="user",
+                                parts=[
+                                    video_part,
+                                    types.Part.from_text(text=user_prompt),
+                                ],
+                            )
+                        ],
+                        config=types.GenerateContentConfig(
+                            system_instruction=system_prompt,
+                            temperature=analysis_temperature(),
+                            response_mime_type="application/json",
+                            response_schema=sdk_schema,
+                            automatic_function_calling=_NO_AFC,
+                        ),
+                    )
+                    return (
+                        self._extract_text(response),
+                        usage_from_response(response, use_model),
+                    )
+
+                outcome = run_structured(
+                    generate,
+                    schema=schema,
+                    drill_ids=drill_ids,
+                    duration_sec=video_duration_sec(video_path),
+                    downgrade_missing_evidence=focus_evidence_required(),
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    model=use_model,
+                    player_id=player_id,
+                )
+                outcome["run_log"]["latency_sec"] = round(
+                    time.perf_counter() - started, 3
+                )
+                if run_log_dir is not None:
+                    write_run_log(run_log_dir, outcome["run_log"])
+                return AnalysisResult(
+                    text=outcome["text"],
+                    usage=outcome["usage"],
+                    model=use_model,
+                    raw_json=outcome["raw_json"],
+                    run_log=outcome["run_log"],
+                )
 
             response = self._generate_with_retry(
                 model=use_model,
@@ -91,34 +195,13 @@ class VideoAnalyzer:
                     types.Content(
                         role="user",
                         parts=[
-                            types.Part.from_uri(
-                                file_uri=uploaded.uri,
-                                mime_type=uploaded.mime_type,
-                            ),
-                            types.Part.from_text(
-                                text=build_analysis_prompt(
-                                    language_code,
-                                    user_comment,
-                                    video_context,
-                                    experiment_v2=experiment_v2,
-                                )
-                            ),
+                            video_part,
+                            types.Part.from_text(text=user_prompt),
                         ],
                     )
                 ],
                 config=types.GenerateContentConfig(
-                    system_instruction=build_system_prompt(
-                        language_code,
-                        player_history,
-                        player_profile,
-                        stroke=(video_context or {}).get("stroke"),
-                        active_focus=active_focus,
-                        drills_catalog=drills_catalog,
-                        coach_corrections=coach_corrections,
-                        strokes=(video_context or {}).get("strokes"),
-                        prompt_context=prompt_context,
-                        experiment_v2=experiment_v2,
-                    ),
+                    system_instruction=system_prompt,
                     temperature=0.4,
                     automatic_function_calling=_NO_AFC,
                 ),

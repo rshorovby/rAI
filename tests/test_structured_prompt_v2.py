@@ -27,12 +27,11 @@ def _v2_on(monkeypatch):
 
 
 def _joined(stroke="serve", **kwargs):
-    system = build_system_prompt("ru", stroke=stroke, experiment_v2=True, **kwargs)
+    system = build_system_prompt("ru", stroke=stroke, **kwargs)
     user = build_analysis_prompt(
         "ru",
         "вторая подача, снимал сбоку",
         {"stroke": stroke, "look": "technique"},
-        experiment_v2=True,
     )
     return system + "\n\n" + user
 
@@ -43,6 +42,7 @@ def test_serve_prompt_scopes_out_grip_without_trigger_phrases():
     assert "поднос" not in text
     assert "waiter" not in text
     assert "grip cues if visible" not in text
+    assert "формат ответа" not in text
 
 
 def test_english_stays_on_the_old_path():
@@ -60,12 +60,24 @@ def test_flag_off_keeps_the_old_prompt(monkeypatch):
     assert "## ПОДАЧА" not in system
 
 
-def test_env_flag_alone_does_not_switch_production_prompt():
+def test_flag_on_uses_structured_prompt_not_hybrid():
     system = build_system_prompt("ru", stroke="serve")
     user = build_analysis_prompt("ru", None, {"stroke": "serve", "look": "technique"})
-    assert "поднос официанта" in system
-    assert "## ПОДАЧА" not in system
-    assert "grip cues if visible" in user.lower() or "Rubric:" in user
+    assert "## ПОДАЧА" in system
+    assert "Формат ответа" not in user
+    assert "```json" not in user
+
+
+def test_experiment_keeps_legacy_user_prompt():
+    system = build_system_prompt("ru", stroke="serve", experiment_v2=True)
+    user = build_analysis_prompt(
+        "ru",
+        None,
+        {"stroke": "serve", "look": "technique"},
+        experiment_v2=True,
+    )
+    assert "## ПОДАЧА" in system
+    assert "Формат ответа" in user
 
 
 def test_block_order_is_fixed_when_player_picks_forehand():

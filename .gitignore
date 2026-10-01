@@ -25,6 +25,7 @@ data/
 *.webm
 tmp/
 eval_out/
+logs/
 
 # IDE / ОС
 .DS_Store
