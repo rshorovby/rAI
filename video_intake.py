@@ -1,4 +1,4 @@
-"""Уточнение перед разбором: что на видео и на чём сфокусироваться."""
+"""Уточнение перед разбором: какой удар на видео."""
 
 from typing import Any, Optional
 
@@ -9,7 +9,7 @@ from i18n import t
 INTAKE_KEY = "video_intake"
 INTAKE_ANSWERS_KEY = "video_intake_answers"
 
-STEPS = ("stroke", "look")
+STEPS = ("stroke",)
 
 STROKE_KEYS = (
     "forehand",
@@ -19,16 +19,9 @@ STROKE_KEYS = (
     "footwork",
     "rally",
 )
-LOOK_KEYS = (
-    "technique",
-    "footwork",
-    "contact",
-    "general",
-)
 
 _STEP_OPTIONS = {
     "stroke": STROKE_KEYS,
-    "look": LOOK_KEYS,
 }
 
 
@@ -107,17 +100,6 @@ def intake_keyboard(lang: str, step: str) -> ReplyKeyboardMarkup:
             [
                 KeyboardButton(intake_option_label(lang, step, STROKE_KEYS[4])),
                 KeyboardButton(intake_option_label(lang, step, STROKE_KEYS[5])),
-            ],
-        ]
-    elif step == "look":
-        rows = [
-            [
-                KeyboardButton(intake_option_label(lang, step, LOOK_KEYS[0])),
-                KeyboardButton(intake_option_label(lang, step, LOOK_KEYS[1])),
-            ],
-            [
-                KeyboardButton(intake_option_label(lang, step, LOOK_KEYS[2])),
-                KeyboardButton(intake_option_label(lang, step, LOOK_KEYS[3])),
             ],
         ]
 

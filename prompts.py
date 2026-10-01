@@ -589,7 +589,6 @@ def build_video_context_block(
             "Если на видео явно другой удар или формат, чем указал игрок — в разделе «Что происходит на видео» явно напиши: что видно на самом деле; что указал игрок; что расхождение есть. Не разбирай указанный удар, если его нет на видео — строй анализ по факту.",
             "Если игрок указал «серия ударов / розыгрыш», а на ролике один удар — назови реальный удар и разбери его.",
             "Если игрок указал один удар, а на ролике розыгрыш — назови это и разбери розыгрыш (или главный удар в серии).",
-            "В «Топ-3» пункт №1 — по тому, что реально на видео, с учётом выбранного фокуса (техника / ноги / контакт).",
         ]
     else:
         header = "PLAYER CLARIFICATION BEFORE ANALYSIS:"
@@ -608,8 +607,20 @@ def build_video_context_block(
             "stroke and analyze it.",
             "If the player selected one stroke but a rally is visible — say so and analyze the rally "
             "(or the main stroke in the sequence).",
-            "Top-3 item #1 must reflect what is actually on the video, weighted by the chosen focus.",
         ]
+
+    if look:
+        rules.append(
+            "В «Топ-3» пункт №1 — по тому, что реально на видео, с учётом выбранного акцента."
+            if base == "ru"
+            else "Top-3 item #1 must reflect what is actually on the video, weighted by the chosen focus."
+        )
+    else:
+        rules.append(
+            "Акцент игрок не выбирал. Разбери все видимые составные части выбранного удара, не сужай разбор до одной темы."
+            if base == "ru"
+            else "The player did not pick a focus. Cover every visible part of the selected stroke; do not narrow the review to one theme."
+        )
 
     from video_intake import intake_value_label
 

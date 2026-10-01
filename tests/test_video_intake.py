@@ -11,7 +11,7 @@ from video_intake import (
 )
 
 
-def test_intake_flow_stroke_then_look():
+def test_intake_flow_asks_only_stroke():
     data: dict = {}
     start_intake_state(data)
     assert is_intake_active(data)
@@ -19,14 +19,10 @@ def test_intake_flow_stroke_then_look():
 
     assert match_intake_answer("ru", "stroke", "🎾 Форхенд") == "forehand"
     get_intake_answers(data)["stroke"] = "forehand"
-    assert advance_intake_step(data) == "look"
-
-    assert match_intake_answer("ru", "look", "Техника удара") == "technique"
-    get_intake_answers(data)["look"] = "technique"
     assert advance_intake_step(data) is None
 
     ctx = build_video_context(get_intake_answers(data))
-    assert ctx == {"stroke": "forehand", "look": "technique"}
+    assert ctx == {"stroke": "forehand", "look": None}
 
 
 def test_intake_skip_text():

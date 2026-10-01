@@ -94,6 +94,12 @@ def test_legacy_serve_prompt_still_names_the_trigger_phrase(monkeypatch):
     assert "поднос официанта" in result
 
 
+def test_stroke_without_look_covers_every_part():
+    result = build_analysis_prompt("ru", video_context={"stroke": "forehand"})
+    assert "все видимые составные части" in result
+    assert "Player priority" not in result
+
+
 def test_video_context_block_empty_without_answers():
     assert build_video_context_block(None) == ""
     assert build_video_context_block({}) == ""
