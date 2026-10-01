@@ -162,6 +162,25 @@ def test_error_card_and_index():
     assert "2 из 3" in card2
 
 
+def test_summary_drops_error_and_deep_dive_buttons():
+    from analysis_dialog import keyboard_after_video, keyboard_summary, keyboard_top3
+
+    hidden = {"d:errors", "d:cats"}
+    for markup in (keyboard_summary("ru"), keyboard_after_video("ru")):
+        callbacks = {
+            button.callback_data for row in markup.inline_keyboard for button in row
+        }
+        assert hidden.isdisjoint(callbacks)
+        assert "d:top3" in callbacks
+
+    tips = keyboard_top3("ru", {"sections": {"top3_items": ["один", "два"]}})
+    assert [button.callback_data for row in tips.inline_keyboard for button in row] == [
+        "d:drills",
+        "d:next",
+        "d:summary",
+    ]
+
+
 def test_start_and_clear_dialog():
     user_data: dict = {}
     state = start_dialog(user_data, SAMPLE, "ru")

@@ -148,26 +148,16 @@ def _with_summary_row(
 def keyboard_summary(lang: str) -> InlineKeyboardMarkup:
     rows = [
         [_btn(lang, "dialog_btn_video", "d:video")],
-        [_btn(lang, "dialog_btn_errors", "d:errors")],
-        [
-            _btn(lang, "dialog_btn_cats", "d:cats"),
-            _btn(lang, "dialog_btn_top3", "d:top3"),
-        ],
+        [_btn(lang, "dialog_btn_top3", "d:top3")],
+        [_btn(lang, "dialog_btn_finish", "d:finish")],
     ]
-    rows.append([_btn(lang, "dialog_btn_finish", "d:finish")])
     return InlineKeyboardMarkup(rows)
 
 
 def keyboard_after_video(lang: str) -> InlineKeyboardMarkup:
     return _with_summary_row(
         lang,
-        [
-            [_btn(lang, "dialog_btn_errors", "d:errors")],
-            [
-                _btn(lang, "dialog_btn_cats", "d:cats"),
-                _btn(lang, "dialog_btn_top3", "d:top3"),
-            ],
-        ],
+        [[_btn(lang, "dialog_btn_top3", "d:top3")]],
     )
 
 
@@ -212,22 +202,14 @@ def keyboard_after_error_deep(lang: str, state: dict) -> InlineKeyboardMarkup:
     return _with_summary_row(lang, rows)
 
 
-def keyboard_top3(lang: str, state: dict) -> InlineKeyboardMarkup:
-    rows: list[list[InlineKeyboardButton]] = []
-    items = state["sections"].get("top3_items") or []
-    for i, item in enumerate(items, start=1):
-        label = f"{i}. {item.splitlines()[0]}"
-        if len(label) > 60:
-            label = label[:57] + "…"
-        rows.append([InlineKeyboardButton(label, callback_data=f"d:prio:{i}")])
-    rows.append(
+def keyboard_top3(lang: str, _state: dict) -> InlineKeyboardMarkup:
+    return _with_summary_row(
+        lang,
         [
-            _btn(lang, "dialog_btn_drills", "d:drills"),
-            _btn(lang, "dialog_btn_next", "d:next"),
-        ]
+            [_btn(lang, "dialog_btn_drills", "d:drills")],
+            [_btn(lang, "dialog_btn_next", "d:next")],
+        ],
     )
-    rows.append([_btn(lang, "dialog_btn_finish", "d:finish")])
-    return _with_summary_row(lang, rows)
 
 
 def keyboard_after_prio(lang: str) -> InlineKeyboardMarkup:
