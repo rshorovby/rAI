@@ -40,6 +40,7 @@ from analysis_dialog import (
     DIALOG_KEY,
     clear_dialog,
     current_error_text,
+    current_remark_kind,
     format_error_card,
     format_section_title,
     format_summary_message,
@@ -51,6 +52,7 @@ from analysis_dialog import (
     keyboard_categories,
     keyboard_error,
     keyboard_finish,
+    keyboard_remark,
     keyboard_summary,
     keyboard_top3,
 )
@@ -1557,24 +1559,41 @@ async def _handle_dialog_action(
         )
         return
 
-    if action == "err:deep":
+    if action == "err:deep" or action.startswith("err:deep:"):
+        if action.startswith("err:deep:"):
+            try:
+                state["error_index"] = int(action.rsplit(":", 1)[-1])
+            except ValueError:
+                state["error_index"] = 0
         item = current_error_text(state)
         if not item:
             await context.bot.send_message(
                 chat_id=chat_id, text=t(lang, "dialog_no_errors")
             )
             return
-        if lang == "ru":
+        kind = current_remark_kind(state)
+        if lang == "ru" and kind == "strength":
             prompt = (
-                "Это одна ошибка из разбора техники (по приоритету). "
-                "Дай короткую рекомендацию: что изменить на тренировке и одно "
-                f"конкретное упражнение (пока без ссылки на видео):\n{item}"
+                "Это сильная сторона из разбора. Коротко: как удержать это "
+                "на тренировке и одно конкретное упражнение "
+                f"(пока без ссылки на видео):\n{item}"
+            )
+        elif lang == "ru":
+            prompt = (
+                "Это одно замечание из разбора. Дай короткую рекомендацию: "
+                "что изменить на тренировке и одно конкретное упражнение "
+                f"(пока без ссылки на видео):\n{item}"
+            )
+        elif kind == "strength":
+            prompt = (
+                "This is a strength from the analysis. Briefly: how to keep it "
+                f"in practice and one specific drill (no video link yet):\n{item}"
             )
         else:
             prompt = (
-                "This is one technique error from the analysis (by priority). "
-                "Give a short tip: what to change in practice and one specific "
-                f"drill (no video link yet):\n{item}"
+                "This is one note from the analysis. Give a short tip: what to "
+                "change in practice and one specific drill "
+                f"(no video link yet):\n{item}"
             )
         try:
             await _process_followup(
@@ -2143,16 +2162,17 @@ async def _present_analysis_to_player(
         keyboard_summary(lang),
     )
 
-    if drill_id or drill_text:
-        picked = []
-        if drill_id:
-            picked = await asyncio.to_thread(drills.pick_drills, [drill_id], None, 1)
-        for drill in picked:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=drills.format_drill_message(drill, lang),
-                parse_mode=ParseMode.MARKDOWN,
-            )
+    remarks = state["sections"].get("remarks") or []
+    for index in range(len(remarks)):
+        state["error_index"] = index
+        await _reply_dialog(
+            context,
+            chat_id,
+            format_error_card(lang, state),
+            keyboard_remark(lang, index),
+        )
+    state["error_index"] = 0
+
     if create_practice:
         await asyncio.to_thread(
             storage.create_practice_plan,
@@ -2160,12 +2180,6 @@ async def _present_analysis_to_player(
             focus_text,
             drill_text,
             drill_id,
-        )
-    if offer_coach_button:
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=t(lang, "review_coach_hint"),
-            reply_markup=review.keyboard_message_coach(lang),
         )
 
 

@@ -92,6 +92,63 @@ def test_top3_item_keeps_why_line():
     assert sections["errors"][0] == sections["top3_items"][0]
 
 
+STRUCTURED = """\
+## Краткое резюме
+Две подачи, подброс за голову.
+
+## Разбор по категориям
+### Техника удара
+00:03
+**Наблюдение:** Подброс уходит за голову.
+**Проблема / плюс:** Блокирует перенос веса.
+**Критичность:** 🟠 Важно
+**Рекомендация:** Сместить точку подброса вперед.
+
+00:03
+**Наблюдение:** Глубокое сгибание коленей.
+**Проблема / плюс:** Потенциал мощности от опоры.
+**Критичность:** 🟢 Сильная сторона
+
+### Передвижение и работа ног
+В этом разборе не в приоритете
+
+### Позиционирование и баланс
+00:04
+**Наблюдение:** Приземление почти на месте.
+**Проблема / плюс:** Энергия уходит только вверх.
+**Критичность:** 🟠 Важно
+**Рекомендация:** Приземляться левой ногой внутри корта.
+
+## Топ-3 приоритета для тренировки
+1. **Действие:** Сместите точку подброса.
+**Зачем:** Подброс уходит за голову.
+"""
+
+
+def test_structured_remarks_skip_empty_and_hide_recommendation():
+    from analysis_dialog import format_error_card, keyboard_remark, start_dialog
+
+    user_data: dict = {}
+    state = start_dialog(user_data, STRUCTURED, "ru")
+    remarks = state["sections"]["remarks"]
+    assert len(remarks) == 3
+    assert remarks[0]["kind"] == "remark"
+    assert remarks[1]["kind"] == "strength"
+    assert "Рекомендация" not in remarks[0]["card"]
+    assert "Сместить точку подброса" in remarks[0]["full"]
+    state["error_index"] = 0
+    first = format_error_card("ru", state)
+    assert "Замечание 1 из 3" in first
+    assert "Ошибка" not in first
+    assert "Рекомендация" not in first
+    state["error_index"] = 1
+    second = format_error_card("ru", state)
+    assert "Сильная сторона 2 из 3" in second
+    assert (
+        keyboard_remark("ru", 1).inline_keyboard[0][0].callback_data == "d:err:deep:1"
+    )
+
+
 def test_error_card_and_index():
     from analysis_dialog import format_error_card, start_dialog
 

@@ -258,6 +258,9 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "dialog_title_top3": "📋 *Советы на тренировку*",
         "dialog_title_prio": "📌 *Совет {n}*",
         "dialog_title_error": ("🔴 *Ошибка {n} из {total}*\n\n{text}"),
+        "dialog_label_remark": "Замечание",
+        "dialog_label_strength": "Сильная сторона",
+        "dialog_note_title": "{badge}*{label} {n} из {total}*\n\n{text}",
         "dialog_title_finish": (
             "✅ *Завершить разбор*\n\n"
             "Можете взять задание на следующее видео или оценить разбор."
@@ -801,6 +804,9 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "dialog_title_top3": "📋 *Practice tips*",
         "dialog_title_prio": "📌 *Tip {n}*",
         "dialog_title_error": "🔴 *Error {n} of {total}*\n\n{text}",
+        "dialog_label_remark": "Note",
+        "dialog_label_strength": "Strength",
+        "dialog_note_title": "{badge}*{label} {n} of {total}*\n\n{text}",
         "dialog_title_finish": (
             "✅ *Finish analysis*\n\n" "Get a next-video task or rate this analysis."
         ),

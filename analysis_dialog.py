@@ -9,6 +9,15 @@ from i18n import report_section_headers, t
 
 DIALOG_KEY = "analysis_dialog"
 
+_NOT_PRIORITY = {
+    "в этом разборе не в приоритете",
+    "not a priority in this review",
+}
+_RECOMMENDATION_LINE = re.compile(
+    r"^\*\*(?:Рекомендация|Recommendation):\*\*.*$",
+    re.MULTILINE,
+)
+
 _CATEGORY_ALIASES = {
     "техника удара": "stroke",
     "stroke technique": "stroke",
@@ -81,7 +90,8 @@ def parse_report(report: str, language_code: str = "ru") -> dict[str, Any]:
 
     categories = _parse_categories(categories_body)
     top3_items = _parse_top3_items(top3_body)
-    # Ошибки для режима «разбор ошибок» — в порядке приоритета (топ-3).
+    remarks = _remarks_from_categories(categories)
+    # Старый отчёт без блоков «Наблюдение» по-прежнему ведёт карусель из топ-3.
     errors = list(top3_items)
 
     return {
@@ -91,6 +101,7 @@ def parse_report(report: str, language_code: str = "ru") -> dict[str, Any]:
         "top3": top3_body,
         "top3_items": top3_items,
         "errors": errors,
+        "remarks": remarks,
         "next_video": next_video,
         "limitations": limitations,
     }
@@ -277,19 +288,110 @@ def format_section_title(lang: str, title_key: str, body: str) -> str:
     return f"{title}\n\n{body}"
 
 
+def _remarks_from_categories(categories: list) -> list:
+    remarks = []
+    for category in categories:
+        chunks = re.split(r"\n\s*\n", (category.get("body") or "").strip())
+        for chunk in chunks:
+            text = chunk.strip()
+            if not text or text.lower() in _NOT_PRIORITY:
+                continue
+            if not _is_structured_remark(text):
+                continue
+            remarks.append(
+                {
+                    "kind": _remark_kind(text),
+                    "card": _RECOMMENDATION_LINE.sub("", text).strip(),
+                    "full": text,
+                }
+            )
+    return remarks
+
+
+def _is_structured_remark(text: str) -> bool:
+    lowered = text.lower()
+    return (
+        "**наблюдение:**" in lowered
+        or "**критичность:**" in lowered
+        or "недостаточно данных" in lowered
+        or "**observation:**" in lowered
+        or "insufficient data" in lowered
+    )
+
+
+def _remark_kind(text: str) -> str:
+    lowered = text.lower()
+    if "недостаточно данных" in lowered or "insufficient data" in lowered:
+        return "insufficient"
+    if "🟢" in text or "сильная сторона" in lowered or "strength" in lowered:
+        return "strength"
+    return "remark"
+
+
+def _severity_emoji(text: str) -> str:
+    for emoji in ("🔴", "🟠", "🟡", "🟢"):
+        if emoji in text:
+            return emoji
+    return ""
+
+
+def keyboard_remark(lang: str, index: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [[_btn(lang, "dialog_btn_err_deep", f"d:err:deep:{index}")]]
+    )
+
+
 def format_error_card(lang: str, state: dict) -> str:
-    errors = state["sections"].get("errors") or []
+    remarks = state["sections"].get("remarks") or []
     idx = int(state.get("error_index") or 0)
+    if remarks:
+        if idx < 0 or idx >= len(remarks):
+            return t(lang, "dialog_no_errors")
+        remark = remarks[idx]
+        label_key = (
+            "dialog_label_strength"
+            if remark["kind"] == "strength"
+            else "dialog_label_remark"
+        )
+        emoji = _severity_emoji(remark["card"])
+        badge = f"{emoji} " if emoji else ""
+        return t(
+            lang,
+            "dialog_note_title",
+            badge=badge,
+            label=t(lang, label_key),
+            n=idx + 1,
+            total=len(remarks),
+            text=remark["card"],
+        )
+    errors = state["sections"].get("errors") or []
     if not errors or idx < 0 or idx >= len(errors):
         return t(lang, "dialog_no_errors")
-    n = idx + 1
-    total = len(errors)
-    return t(lang, "dialog_title_error", n=n, total=total, text=errors[idx])
+    return t(
+        lang,
+        "dialog_title_error",
+        n=idx + 1,
+        total=len(errors),
+        text=errors[idx],
+    )
 
 
 def current_error_text(state: dict) -> str:
-    errors = state["sections"].get("errors") or []
+    remarks = state["sections"].get("remarks") or []
     idx = int(state.get("error_index") or 0)
+    if remarks:
+        if idx < 0 or idx >= len(remarks):
+            return ""
+        return remarks[idx]["full"]
+    errors = state["sections"].get("errors") or []
     if not errors or idx < 0 or idx >= len(errors):
         return ""
     return errors[idx]
+
+
+def current_remark_kind(state: dict) -> str:
+    remarks = state["sections"].get("remarks") or []
+    idx = int(state.get("error_index") or 0)
+    if remarks and 0 <= idx < len(remarks):
+        return remarks[idx]["kind"]
+    return "error"
