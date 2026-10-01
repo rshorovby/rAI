@@ -2943,7 +2943,9 @@ def save_job_elaboration(job_id: int, lane: str, item_key: str, body: str) -> st
             """
             INSERT INTO job_elaborations (job_id, lane, item_key, body, created_at)
             VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(job_id, lane, item_key) DO NOTHING
+            ON CONFLICT(job_id, lane, item_key) DO UPDATE SET
+                body = excluded.body,
+                created_at = excluded.created_at
             """,
             (int(job_id), lane, item_key, body, created_at),
         )

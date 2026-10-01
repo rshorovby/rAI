@@ -557,7 +557,10 @@ def test_elaboration_is_saved_on_the_job(tmp_path):
 
     def fake(player_id, report, prompt, language_code, stroke):
         calls.append(prompt)
-        return "Держите левую руку дольше."
+        return (
+            '```json\n{"why":"Рука уходит рано.","ideal":"Держать до контакта.",'
+            '"steps":[{"title":"Имитация","detail":"Левая рука указывает на мяч."}]}\n```'
+        )
 
     with _tmp_db(tmp_path):
         client = TestClient(
@@ -581,9 +584,11 @@ def test_elaboration_is_saved_on_the_job(tmp_path):
             f"/v1/jobs/{job_id}/elaborations", json=body, headers=headers
         )
         assert first.status_code == 200
-        assert first.json()["text"] == "Держите левую руку дольше."
+        assert "```" not in first.json()["text"]
+        assert "Рука уходит рано." in first.json()["text"]
         assert len(calls) == 1
         assert "одно замечание" in calls[0]
+        assert "JSON" in calls[0]
         second = client.post(
             f"/v1/jobs/{job_id}/elaborations", json=body, headers=headers
         )
@@ -595,7 +600,7 @@ def test_elaboration_is_saved_on_the_job(tmp_path):
             {
                 "lane": "observation",
                 "key": "Левая рука слишком рано уходит вниз.",
-                "text": "Держите левую руку дольше.",
+                "text": first.json()["text"],
             }
         ]
         missing = client.post(

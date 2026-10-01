@@ -487,7 +487,10 @@ def create_app(
             return JSONResponse({"error": "unknown item"}, status_code=400)
         saved = storage.get_job_elaboration(job_id, lane, key)
         if saved:
-            return JSONResponse({"text": saved})
+            try:
+                return JSONResponse({"text": services.normalize_elaboration(saved)})
+            except ValueError:
+                saved = None
         block = services.elaboration_block(report, key)
         prompt = services.elaboration_prompt(lane, block, job.get("language_code") or "ru")
         runner = elaborate or services.elaborate_report
@@ -500,12 +503,12 @@ def create_app(
                 job.get("language_code") or "ru",
                 job.get("stroke") or "",
             )
+            text = services.normalize_elaboration(text)
+        except ValueError:
+            return JSONResponse({"error": "invalid elaboration"}, status_code=502)
         except Exception:
             logger.exception("elaboration failed job=%s", job_id)
             return JSONResponse({"error": "elaboration failed"}, status_code=502)
-        text = (text or "").strip()
-        if not text:
-            return JSONResponse({"error": "empty elaboration"}, status_code=502)
         stored = storage.save_job_elaboration(job_id, lane, key, text)
         return JSONResponse({"text": stored})
 

@@ -701,6 +701,25 @@ def elaboration_block(report: str, key: str) -> str:
     return key
 
 
+_ELABORATION_JSON_RU = (
+    "Ответь только JSON, без markdown и без текста вокруг:\n"
+    '{"why":"...","ideal":"...","steps":[{"title":"...","detail":"..."}]}\n'
+    "why — 2–4 предложения.\n"
+    "ideal — 2–4 предложения, как движение должно выглядеть.\n"
+    "steps — от 1 до 3. title — короткое имя упражнения, detail — что делать на корте.\n"
+    "В строках не используй символы * и заголовки. Ссылок на видео не давай.\n"
+)
+
+_ELABORATION_JSON_EN = (
+    "Reply with JSON only, no markdown and no text around it:\n"
+    '{"why":"...","ideal":"...","steps":[{"title":"...","detail":"..."}]}\n'
+    "why — 2–4 sentences.\n"
+    "ideal — 2–4 sentences on how the movement should look.\n"
+    "steps — 1 to 3. title is a short drill name, detail is what to do on court.\n"
+    "Do not use * or headings inside the strings. No video links.\n"
+)
+
+
 def elaboration_prompt(lane: str, block: str, language_code: str) -> str:
     from i18n import resolve_ui_lang
 
@@ -711,40 +730,65 @@ def elaboration_prompt(lane: str, block: str, language_code: str) -> str:
         or "сильная сторона" in lowered
         or "strength" in lowered
     )
+    schema = _ELABORATION_JSON_RU if ru else _ELABORATION_JSON_EN
     if lane == "priority":
-        if ru:
-            return (
-                "Сделай подробный разбор этого приоритета из анализа "
-                "(что именно не так и как исправить на тренировке):\n"
-                f"{block}"
-            )
-        return (
-            "Give a detailed breakdown of this training priority from the analysis "
-            "(what's wrong and how to fix it):\n"
-            f"{block}"
+        task = (
+            "Это приоритет из разбора. why — в чём дело и как это портит удар. "
+            "ideal — как должно быть. steps — как исправить на тренировке."
+            if ru
+            else "This is a training priority. why — what is wrong and how it hurts the stroke. "
+            "ideal — how it should look. steps — how to fix it in practice."
         )
-    if strength:
-        if ru:
-            return (
-                "Это сильная сторона из разбора. Коротко: как удержать это "
-                "на тренировке и одно конкретное упражнение "
-                f"(пока без ссылки на видео):\n{block}"
-            )
-        return (
-            "This is a strength from the analysis. Briefly: how to keep it "
-            "in practice and one specific drill (no video link yet):\n"
-            f"{block}"
+    elif strength:
+        task = (
+            "Это сильная сторона из разбора, не ошибка. why — почему это помогает удару. "
+            "ideal — что сохранять. steps — как удержать это на тренировке."
+            if ru
+            else "This is a strength, not a mistake. why — why it helps the stroke. "
+            "ideal — what to keep. steps — how to hold it in practice."
         )
-    if ru:
-        return (
-            "Это одно замечание из разбора. Дай короткую рекомендацию: "
-            "что изменить на тренировке и одно конкретное упражнение "
-            f"(пока без ссылки на видео):\n{block}"
+    else:
+        task = (
+            "Это одно замечание из разбора. why — в чём дело и как это влияет на удар. "
+            "ideal — как должно быть. steps — что изменить на тренировке."
+            if ru
+            else "This is one note from the analysis. why — what is wrong and how it affects the stroke. "
+            "ideal — how it should look. steps — what to change in practice."
         )
-    return (
-        "This is one note from the analysis. Give a short tip: what to "
-        "change in practice and one specific drill "
-        f"(no video link yet):\n{block}"
+    return f"{task}\n\n{schema}\n{block}"
+
+
+def normalize_elaboration(text: str) -> str:
+    raw = (text or "").strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[-1]
+        if raw.endswith("```"):
+            raw = raw[: raw.rfind("```")]
+        raw = raw.strip()
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start == -1 or end <= start:
+        raise ValueError("elaboration is not json")
+    data = json.loads(raw[start : end + 1])
+    if not isinstance(data, dict):
+        raise ValueError("elaboration is not an object")
+    why = str(data.get("why") or "").strip()
+    ideal = str(data.get("ideal") or "").strip()
+    steps = []
+    incoming = data.get("steps")
+    if isinstance(incoming, list):
+        for item in incoming[:3]:
+            if not isinstance(item, dict):
+                continue
+            title = str(item.get("title") or "").strip()
+            detail = str(item.get("detail") or "").strip()
+            if title or detail:
+                steps.append({"title": title, "detail": detail})
+    if not why or not ideal or not steps:
+        raise ValueError("elaboration is incomplete")
+    return json.dumps(
+        {"why": why, "ideal": ideal, "steps": steps},
+        ensure_ascii=False,
     )
 
 
