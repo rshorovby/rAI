@@ -13,7 +13,7 @@ from analysis_schema import (
     schema_errors,
     to_sdk_schema,
 )
-from analyzer import _video_fps_metadata
+from analyzer import STRUCTURED_TEMPERATURE, STRUCTURED_VIDEO_FPS, _prepare_structured_video
 from focus_strokes import stroke_key
 from pricing import Usage
 from prompts import build_foci_block, build_scores_block
@@ -308,9 +308,17 @@ def test_sdk_schema_keeps_field_order_and_drops_long_enums():
     assert wide.properties["drills"].items.enum is None
 
 
-def test_video_fps_is_not_sent_on_this_sdk():
-    assert _video_fps_metadata(None) is None
-    assert _video_fps_metadata(5) is None
+def test_structured_video_is_8fps_high_resolution():
+    from google.genai import types
+
+    part = types.Part.from_uri(file_uri="u", mime_type="video/mp4")
+    _prepare_structured_video(part)
+    assert part.video_metadata.fps == STRUCTURED_VIDEO_FPS == 8
+    assert (
+        part.media_resolution.level
+        == types.PartMediaResolutionLevel.MEDIA_RESOLUTION_HIGH
+    )
+    assert STRUCTURED_TEMPERATURE == 0.3
 
 
 def test_analyze_structured_uses_schema_and_writes_log(tmp_path, monkeypatch):
@@ -349,8 +357,18 @@ def test_analyze_structured_uses_schema_and_writes_log(tmp_path, monkeypatch):
     assert isinstance(result, AnalysisResult)
     assert result.raw_json["primary_segment"] == "serve"
     assert "## Краткое резюме" in result.text
+    from google.genai import types
+
     config = gen.call_args.kwargs["config"]
+    video = gen.call_args.kwargs["contents"][0].parts[0]
     assert config.response_mime_type == "application/json"
     assert config.temperature == 0.3
+    assert config.thinking_config is None
+    assert config.media_resolution == types.MediaResolution.MEDIA_RESOLUTION_HIGH
+    assert video.video_metadata.fps == 8
+    assert (
+        video.media_resolution.level
+        == types.PartMediaResolutionLevel.MEDIA_RESOLUTION_HIGH
+    )
     assert list(tmp_path.glob("*.json"))
     assert result.run_log["retries"] == 0

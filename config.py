@@ -91,24 +91,12 @@ def load_settings() -> Settings:
 
 
 def analysis_temperature() -> float:
-    """Температура structured output. Старт 0.3, легаси-вызов её не читает."""
+    """Температура для лаборатории. Боевой разбор v2 её не читает и всегда шлёт 0.3."""
     raw = os.getenv("ANALYSIS_TEMPERATURE", "0.3").strip()
     try:
         return float(raw)
     except ValueError:
         return 0.3
-
-
-def analysis_video_fps() -> Optional[float]:
-    """Частота кадров видео. Пусто или 0 — параметр не отправляется."""
-    raw = os.getenv("ANALYSIS_VIDEO_FPS", "").strip().lower()
-    if raw in ("", "0", "off", "false"):
-        return None
-    try:
-        value = float(raw)
-    except ValueError:
-        return None
-    return value if value > 0 else None
 
 
 def focus_evidence_required() -> bool:

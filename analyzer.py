@@ -8,7 +8,7 @@ from google import genai
 from google.genai import types
 
 from analysis_schema import build_response_schema, drill_ids_from_catalog, to_sdk_schema
-from config import analysis_temperature, analysis_video_fps, focus_evidence_required
+from config import focus_evidence_required
 from i18n import DEFAULT_LANG, normalize_language_code, t
 from pricing import Usage, usage_from_response
 from prompts import (
@@ -43,17 +43,18 @@ _TRANSIENT_MARKERS = (
 _NO_AFC = types.AutomaticFunctionCallingConfig(disable=True)
 
 
-def _video_fps_metadata(fps: Optional[float]):
-    """SDK 1.10 принимает у видео только start/end. fps не отправляется, пока поля нет."""
-    if not fps:
-        return None
+STRUCTURED_VIDEO_FPS = 8.0
+STRUCTURED_TEMPERATURE = 0.3
+
+
+def _prepare_structured_video(part) -> None:
+    """Разбор v2 всегда смотрит 8 кадров/с в высоком разрешении. Thinking не задаём."""
     if "fps" not in getattr(types.VideoMetadata, "model_fields", {}):
-        logger.info(
-            "ANALYSIS_VIDEO_FPS=%s задан, текущий google-genai не принимает fps",
-            fps,
-        )
-        return None
-    return types.VideoMetadata(fps=fps)
+        raise RuntimeError("Нужен google-genai с VideoMetadata.fps.")
+    part.video_metadata = types.VideoMetadata(fps=STRUCTURED_VIDEO_FPS)
+    part.media_resolution = types.PartMediaResolution(
+        level=types.PartMediaResolutionLevel.MEDIA_RESOLUTION_HIGH
+    )
 
 
 def _is_transient_error(exc: Exception) -> bool:
@@ -132,9 +133,7 @@ class VideoAnalyzer:
             )
             structured = use_structured_analysis_v2(language_code) and not experiment_v2
             if structured:
-                fps_meta = _video_fps_metadata(analysis_video_fps())
-                if fps_meta is not None:
-                    video_part.video_metadata = fps_meta
+                _prepare_structured_video(video_part)
                 drill_ids = drill_ids_from_catalog(drills_catalog)
                 schema = build_response_schema(drill_ids)
                 sdk_schema = to_sdk_schema(schema)
@@ -154,9 +153,10 @@ class VideoAnalyzer:
                         ],
                         config=types.GenerateContentConfig(
                             system_instruction=system_prompt,
-                            temperature=analysis_temperature(),
+                            temperature=STRUCTURED_TEMPERATURE,
                             response_mime_type="application/json",
                             response_schema=sdk_schema,
+                            media_resolution=types.MediaResolution.MEDIA_RESOLUTION_HIGH,
                             automatic_function_calling=_NO_AFC,
                         ),
                     )
