@@ -131,6 +131,7 @@ def _init_db(conn: sqlite3.Connection) -> None:
             user_id     INTEGER PRIMARY KEY,
             level       TEXT,
             hand        TEXT,
+            backhand    TEXT,
             frequency   TEXT,
             experience  TEXT,
             coaching    TEXT,
@@ -382,6 +383,7 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
         if column not in cols:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {typedef}")
+    _migrate_profile_full_eval(conn)
     _migrate_player_focus_per_segment(conn)
     for table, column, typedef in (
         ("player_focus", "previous_focus", "TEXT"),
@@ -400,6 +402,22 @@ def _table_names(conn: sqlite3.Connection) -> set:
         row[0]
         for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
     }
+
+
+def _migrate_profile_full_eval(conn: sqlite3.Connection) -> None:
+    if "player_profiles" not in _table_names(conn):
+        return
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(player_profiles)")}
+    if "backhand" in cols:
+        return
+    conn.execute("ALTER TABLE player_profiles ADD COLUMN backhand TEXT")
+    conn.execute(
+        """
+        UPDATE player_profiles
+        SET focus = 'all'
+        WHERE focus IS NOT NULL AND focus != 'all'
+        """
+    )
 
 
 def _migrate_player_focus_per_segment(conn: sqlite3.Connection) -> None:
@@ -1399,7 +1417,7 @@ def get_player_profile(user_id: int) -> Optional[dict]:
         _init_db(conn)
         row = conn.execute(
             """
-            SELECT level, hand, frequency, experience, coaching, focus,
+            SELECT level, hand, backhand, frequency, experience, coaching, focus,
                    injuries, skipped, updated_at
             FROM player_profiles
             WHERE user_id = ?
@@ -1411,6 +1429,7 @@ def get_player_profile(user_id: int) -> Optional[dict]:
     return {
         "level": row["level"],
         "hand": row["hand"],
+        "backhand": row["backhand"],
         "frequency": row["frequency"],
         "experience": row["experience"],
         "coaching": row["coaching"],
@@ -1428,12 +1447,13 @@ def save_player_profile(user_id: int, profile: dict) -> None:
         conn.execute(
             """
             INSERT INTO player_profiles
-                (user_id, level, hand, frequency, experience, coaching,
+                (user_id, level, hand, backhand, frequency, experience, coaching,
                  focus, injuries, skipped, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id) DO UPDATE SET
                 level = excluded.level,
                 hand = excluded.hand,
+                backhand = excluded.backhand,
                 frequency = excluded.frequency,
                 experience = excluded.experience,
                 coaching = excluded.coaching,
@@ -1446,6 +1466,7 @@ def save_player_profile(user_id: int, profile: dict) -> None:
                 user_id,
                 profile.get("level"),
                 profile.get("hand"),
+                profile.get("backhand"),
                 profile.get("frequency"),
                 profile.get("experience"),
                 profile.get("coaching"),
@@ -1464,6 +1485,7 @@ def mark_profile_skipped(user_id: int) -> None:
         {
             "level": None,
             "hand": None,
+            "backhand": None,
             "frequency": None,
             "experience": None,
             "coaching": None,
@@ -1493,6 +1515,7 @@ def carry_profile_on_telegram_link(from_player_id: int, to_player_id: int) -> No
             {
                 "level": source.get("level"),
                 "hand": source.get("hand"),
+                "backhand": source.get("backhand"),
                 "frequency": source.get("frequency"),
                 "experience": source.get("experience"),
                 "coaching": source.get("coaching"),
@@ -1822,12 +1845,12 @@ def format_profile_for_user(user_id: int, lang: str) -> str:
         "profile_view",
         level=profile_value_label(ui_lang, "level", profile.get("level")),
         hand=profile_value_label(ui_lang, "hand", profile.get("hand")),
+        backhand=profile_value_label(ui_lang, "backhand", profile.get("backhand")),
         frequency=profile_value_label(ui_lang, "frequency", profile.get("frequency")),
         experience=profile_value_label(
             ui_lang, "experience", profile.get("experience")
         ),
         coaching=profile_value_label(ui_lang, "coaching", profile.get("coaching")),
-        focus=profile_value_label(ui_lang, "focus", profile.get("focus")),
         injuries=injuries_text,
         updated_at=profile.get("updated_at", "—"),
         language=language,

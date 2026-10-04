@@ -10,6 +10,7 @@ def test_profile_included_in_system_prompt():
     profile = {
         "level": "recreational",
         "hand": "right",
+        "backhand": "two_handed",
         "frequency": "3_4",
         "experience": "y1_3",
         "coaching": "individual",
@@ -23,10 +24,19 @@ def test_profile_included_in_system_prompt():
     assert "3–4 раза в неделю" in ctx
     assert "1–3 года" in ctx
     assert "Индивидуально" in ctx
-    assert "Техника" in ctx
+    assert "Двуручный" in ctx
+    assert "Всё понемногу" in ctx
+    assert "Техника" not in ctx
     assert "Главная цель" in ctx
+    assert "не смешивай чеклисты" in ctx
     assert "частоту игры и стаж" in ctx
 
     system = build_system_prompt("ru", player_profile=profile)
     assert "ПРОФИЛЬ ИГРОКА" in system
     assert "доверяй видео" in system
+
+
+def test_missing_backhand_is_identified_from_video():
+    ctx = build_player_context({"level": "beginner", "skipped": False}, "en")
+    assert "A bit of everything" in ctx
+    assert "not in the profile" in ctx

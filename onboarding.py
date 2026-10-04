@@ -13,27 +13,29 @@ PROFILE_RESET_PENDING_KEY = "profile_reset_pending"
 STEPS = (
     "level",
     "hand",
+    "backhand",
     "frequency",
     "experience",
     "coaching",
-    "focus",
     "injuries",
 )
 
 LEVEL_KEYS = ("beginner", "recreational", "advanced", "competitive")
 HAND_KEYS = ("right", "left")
+BACKHAND_KEYS = ("one_handed", "two_handed")
 FREQUENCY_KEYS = ("1", "2", "3_4", "5_plus")
 EXPERIENCE_KEYS = ("under_1", "y1_3", "y3_7", "y7_15", "y15_plus")
 COACHING_KEYS = ("individual", "group", "both", "none")
 FOCUS_KEYS = ("stability", "power", "technique", "footwork", "serve", "all")
+FULL_EVAL_FOCUS = "all"
 
 _STEP_OPTIONS = {
     "level": LEVEL_KEYS,
     "hand": HAND_KEYS,
+    "backhand": BACKHAND_KEYS,
     "frequency": FREQUENCY_KEYS,
     "experience": EXPERIENCE_KEYS,
     "coaching": COACHING_KEYS,
-    "focus": FOCUS_KEYS,
 }
 
 
@@ -224,10 +226,11 @@ def build_profile_dict(answers: dict[str, Any], *, skipped: bool = False) -> dic
     return {
         "level": answers.get("level"),
         "hand": answers.get("hand"),
+        "backhand": answers.get("backhand"),
         "frequency": answers.get("frequency"),
         "experience": answers.get("experience"),
         "coaching": answers.get("coaching"),
-        "focus": answers.get("focus"),
+        "focus": FULL_EVAL_FOCUS,
         "injuries": answers.get("injuries", ""),
         "skipped": skipped,
     }

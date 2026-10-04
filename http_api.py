@@ -20,6 +20,7 @@ import services
 import storage
 from i18n import resolve_ui_lang
 from onboarding import (
+    BACKHAND_KEYS,
     COACHING_KEYS,
     EXPERIENCE_KEYS,
     FOCUS_KEYS,
@@ -157,6 +158,7 @@ def _profile_public(profile: Optional[dict]) -> Optional[dict]:
     return {
         "level": profile.get("level"),
         "hand": profile.get("hand"),
+        "backhand": profile.get("backhand"),
         "frequency": profile.get("frequency"),
         "experience": profile.get("experience"),
         "coaching": profile.get("coaching"),
@@ -220,6 +222,10 @@ def _parse_profile_body(body: dict) -> Optional[dict]:
     if injuries.lower() == "none":
         injuries = ""
     answers["injuries"] = injuries
+    backhand = body.get("backhand")
+    if backhand is not None and backhand not in BACKHAND_KEYS:
+        return None
+    answers["backhand"] = backhand
     return build_profile_dict(answers)
 
 
@@ -254,8 +260,12 @@ def create_app(
             logger.exception("apple token verify failed")
             return JSONResponse({"error": "invalid apple token"}, status_code=401)
         player_id = storage.get_or_create_apple_player(sub)
-        given = body.get("given_name") if isinstance(body.get("given_name"), str) else ""
-        family = body.get("family_name") if isinstance(body.get("family_name"), str) else ""
+        given = (
+            body.get("given_name") if isinstance(body.get("given_name"), str) else ""
+        )
+        family = (
+            body.get("family_name") if isinstance(body.get("family_name"), str) else ""
+        )
         storage.seed_display_name_if_unset(player_id, given, family)
         session = storage.create_api_session(player_id)
         payload = _me_json(player_id, language_code)
@@ -492,7 +502,9 @@ def create_app(
             except ValueError:
                 saved = None
         block = services.elaboration_block(report, key)
-        prompt = services.elaboration_prompt(lane, block, job.get("language_code") or "ru")
+        prompt = services.elaboration_prompt(
+            lane, block, job.get("language_code") or "ru"
+        )
         runner = elaborate or services.elaborate_report
         try:
             text = await asyncio.to_thread(

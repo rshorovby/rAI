@@ -545,6 +545,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "ob_progress": "Вопрос {n} из {total}:",
         "ob_question_level": "Какой у вас уровень игры?",
         "ob_question_hand": "Какая у вас ведущая рука?",
+        "ob_question_backhand": "Какой у вас бэкхенд?",
         "ob_question_frequency": "Как часто вы играете в теннис?",
         "ob_question_experience": "Сколько лет вы в теннисе?",
         "ob_question_coaching": "Занимаетесь ли с тренером?",
@@ -562,7 +563,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         ),
         "ob_complete": (
             "✅ *Профиль сохранён!*\n\n"
-            "Теперь разборы будут точнее — с учётом вашего уровня и целей.\n\n"
+            "Теперь разборы будут точнее — с учётом вашего уровня и бэкхенда.\n\n"
             "👇 *Отправьте первое видео* (10–30 сек, лучше сбоку или сзади)."
         ),
         "ob_injuries_none": "Нет",
@@ -571,7 +572,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "profile_reset_confirm_prompt": (
             "⚠️ *Сбросить профиль и все разборы?*\n\n"
             "Будут удалены:\n"
-            "• ваш профиль (уровень, цели, травмы)\n"
+            "• ваш профиль (уровень, бэкхенд, травмы)\n"
             "• история всех прошлых разборов\n"
             "• текущий активный разбор\n\n"
             "После сброса вы пройдёте настройку заново — как при первом входе.\n\n"
@@ -600,10 +601,10 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "• Язык бота и ИИ: {language}\n"
             "• Уровень: {level}\n"
             "• Ведущая рука: {hand}\n"
+            "• Бэкхенд: {backhand}\n"
             "• Частота игры: {frequency}\n"
             "• Стаж: {experience}\n"
             "• Тренер: {coaching}\n"
-            "• Главная цель: {focus}\n"
             "• Травмы/ограничения: {injuries}\n"
             "• Обновлён: {updated_at}\n\n"
             "«Изменить профиль» — обновить данные.\n"
@@ -623,6 +624,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "ob_opt_level_competitive": "🏆 Pro",
         "ob_opt_hand_right": "Правая",
         "ob_opt_hand_left": "Левая",
+        "ob_opt_backhand_one_handed": "Одноручный",
+        "ob_opt_backhand_two_handed": "Двуручный",
         "ob_opt_frequency_1": "1 раз в неделю",
         "ob_opt_frequency_2": "2 раза в неделю",
         "ob_opt_frequency_3_4": "3–4 раза в неделю",
@@ -648,6 +651,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "ob_val_level_competitive": "Pro",
         "ob_val_hand_right": "Правая",
         "ob_val_hand_left": "Левая",
+        "ob_val_backhand_one_handed": "Одноручный",
+        "ob_val_backhand_two_handed": "Двуручный",
         "ob_val_frequency_1": "1 раз в неделю",
         "ob_val_frequency_2": "2 раза в неделю",
         "ob_val_frequency_3_4": "3–4 раза в неделю",
@@ -1099,6 +1104,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "ob_progress": "Question {n} of {total}:",
         "ob_question_level": "What's your skill level?",
         "ob_question_hand": "What's your dominant hand?",
+        "ob_question_backhand": "What's your backhand?",
         "ob_question_frequency": "How often do you play tennis?",
         "ob_question_experience": "How many years have you played tennis?",
         "ob_question_coaching": "Do you train with a coach?",
@@ -1115,7 +1121,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         ),
         "ob_complete": (
             "✅ *Profile saved!*\n\n"
-            "Analyses will now be more accurate — tailored to your level and goals.\n\n"
+            "Analyses will now be more accurate — tailored to your level and backhand.\n\n"
             "👇 *Send your first video* (10–30 sec, side or rear angle works best)."
         ),
         "ob_injuries_none": "No",
@@ -1124,7 +1130,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "profile_reset_confirm_prompt": (
             "⚠️ *Reset profile and all analyses?*\n\n"
             "This will delete:\n"
-            "• your profile (level, goals, injuries)\n"
+            "• your profile (level, backhand, injuries)\n"
             "• history of all past analyses\n"
             "• the current active analysis\n\n"
             "After reset you'll go through setup again — like your first visit.\n\n"
@@ -1153,10 +1159,10 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "• Bot and AI language: {language}\n"
             "• Level: {level}\n"
             "• Dominant hand: {hand}\n"
+            "• Backhand: {backhand}\n"
             "• Play frequency: {frequency}\n"
             "• Experience: {experience}\n"
             "• Coaching: {coaching}\n"
-            "• Primary goal: {focus}\n"
             "• Injuries/limitations: {injuries}\n"
             "• Updated: {updated_at}\n\n"
             "Edit profile — update your details.\n"
@@ -1176,6 +1182,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "ob_opt_level_competitive": "🏆 Pro",
         "ob_opt_hand_right": "Right",
         "ob_opt_hand_left": "Left",
+        "ob_opt_backhand_one_handed": "One-handed",
+        "ob_opt_backhand_two_handed": "Two-handed",
         "ob_opt_frequency_1": "Once a week",
         "ob_opt_frequency_2": "Twice a week",
         "ob_opt_frequency_3_4": "3–4 times a week",
@@ -1201,6 +1209,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "ob_val_level_competitive": "Pro",
         "ob_val_hand_right": "Right",
         "ob_val_hand_left": "Left",
+        "ob_val_backhand_one_handed": "One-handed",
+        "ob_val_backhand_two_handed": "Two-handed",
         "ob_val_frequency_1": "Once a week",
         "ob_val_frequency_2": "Twice a week",
         "ob_val_frequency_3_4": "3–4 times a week",

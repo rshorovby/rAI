@@ -114,6 +114,45 @@ def test_preferred_language_overrides_device(tmp_path):
     assert "Русский" in text
 
 
+def test_legacy_profile_focus_becomes_full_eval(tmp_path):
+    import sqlite3
+
+    db = tmp_path / "legacy.db"
+    conn = sqlite3.connect(db)
+    conn.execute(
+        """
+        CREATE TABLE player_profiles (
+            user_id     INTEGER PRIMARY KEY,
+            level       TEXT,
+            hand        TEXT,
+            frequency   TEXT,
+            experience  TEXT,
+            coaching    TEXT,
+            focus       TEXT,
+            injuries    TEXT    NOT NULL DEFAULT '',
+            skipped     INTEGER NOT NULL DEFAULT 0,
+            updated_at  TEXT    NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO player_profiles
+            (user_id, level, hand, focus, injuries, skipped, updated_at)
+        VALUES (1, 'beginner', 'left', 'power', '', 0, 'now')
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    with patch.object(storage, "DB_PATH", db):
+        profile = storage.get_player_profile(1)
+
+    assert profile["focus"] == "all"
+    assert profile["backhand"] is None
+    assert profile["hand"] == "left"
+
+
 def test_format_profile_complete(tmp_path):
     with _tmp_db(tmp_path):
         storage.save_player_profile(
@@ -121,16 +160,18 @@ def test_format_profile_complete(tmp_path):
             {
                 "level": "beginner",
                 "hand": "right",
+                "backhand": "one_handed",
                 "frequency": "3_4",
                 "experience": "y1_3",
                 "coaching": "individual",
-                "focus": "footwork",
+                "focus": "all",
                 "injuries": "",
                 "skipped": False,
             },
         )
         text = storage.format_profile_for_user(2, "ru")
     assert "Начинающий" in text
-    assert "Ноги" in text
+    assert "Одноручный" in text
+    assert "Главная цель" not in text
     assert "3–4 раза в неделю" in text
     assert "Индивидуально" in text

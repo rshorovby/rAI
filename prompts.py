@@ -206,6 +206,36 @@ _USER_PROMPTS = {
 }
 
 
+def _backhand_rule(language_code: str, backhand: Optional[str]) -> str:
+    from onboarding import profile_value_label
+
+    ui_lang = "ru" if normalize_language_code(language_code) == "ru" else "en"
+    label = profile_value_label(ui_lang, "backhand", backhand)
+    if backhand in ("one_handed", "two_handed"):
+        if ui_lang == "ru":
+            return (
+                f"Бэкхенд игрока — {label}. Удар слева с отскока разбирай только "
+                "по этому варианту и не смешивай чеклисты одноручного и двуручного. "
+                "Резаный удар слева оценивай как slice. Если на видео явно другой "
+                "вариант — доверяй видео и отметь расхождение."
+            )
+        return (
+            f"The player's backhand is {label}. Review the drive against that "
+            "variant only and do not mix one-handed and two-handed checklists. "
+            "Review a slice as a slice. If the video clearly shows the other "
+            "variant, trust the video and note the mismatch."
+        )
+    if ui_lang == "ru":
+        return (
+            "Вариант бэкхенда в профиле не указан: определи одноручный или "
+            "двуручный по видео и разбирай удар слева с отскока по нему."
+        )
+    return (
+        "Backhand variant is not in the profile: identify one-handed or "
+        "two-handed from the video and review the drive against that variant."
+    )
+
+
 def build_player_context(profile: Optional[dict], language_code: str = "en") -> str:
     if not profile or profile.get("skipped"):
         return ""
@@ -219,14 +249,17 @@ def build_player_context(profile: Optional[dict], language_code: str = "en") -> 
         experience_l = "Стаж"
         coaching_l = "Занятия с тренером"
         focus_l = "Главная цель"
+        backhand_l = "Бэкхенд"
         injuries_l = "Травмы/ограничения"
         none_l = "нет"
         rules = [
             "Используй профиль для приоритизации разбора и рекомендаций.",
+            "Главная цель всегда «Всё понемногу»: полноценная оценка всех видимых частей техники, без сужения до одной темы.",
             "Учитывай частоту игры и стаж: подстраивай глубину критики и объём домашних заданий.",
             "Учитывай формат занятий с тренером в тоне и характере рекомендаций.",
             "Если видео противоречит профилю — доверяй видео, но отметь расхождение.",
             "Учитывай травмы: не рекомендуй упражнения, которые могут усугубить дискомфорт.",
+            _backhand_rule("ru", profile.get("backhand")),
         ]
     else:
         header = "PLAYER PROFILE (self-reported):"
@@ -236,14 +269,17 @@ def build_player_context(profile: Optional[dict], language_code: str = "en") -> 
         experience_l = "Experience"
         coaching_l = "Coaching"
         focus_l = "Primary goal"
+        backhand_l = "Backhand"
         injuries_l = "Injuries/limitations"
         none_l = "none"
         rules = [
             "Use the profile to prioritize the analysis and recommendations.",
+            "The primary goal is always a full review: assess every visible part of the technique and do not narrow it to one theme.",
             "Factor in play frequency and experience when setting critique depth and homework volume.",
             "Adjust recommendation tone to the player's coaching setup.",
             "If the video contradicts the profile — trust the video, but note the mismatch.",
             "Respect injuries: do not recommend drills that may worsen discomfort.",
+            _backhand_rule("en", profile.get("backhand")),
         ]
 
     from onboarding import profile_value_label
@@ -257,10 +293,11 @@ def build_player_context(profile: Optional[dict], language_code: str = "en") -> 
         "",
         f"• {level_l}: {profile_value_label(ui_lang, 'level', profile.get('level'))}",
         f"• {hand_l}: {profile_value_label(ui_lang, 'hand', profile.get('hand'))}",
+        f"• {backhand_l}: {profile_value_label(ui_lang, 'backhand', profile.get('backhand'))}",
         f"• {frequency_l}: {profile_value_label(ui_lang, 'frequency', profile.get('frequency'))}",
         f"• {experience_l}: {profile_value_label(ui_lang, 'experience', profile.get('experience'))}",
         f"• {coaching_l}: {profile_value_label(ui_lang, 'coaching', profile.get('coaching'))}",
-        f"• {focus_l}: {profile_value_label(ui_lang, 'focus', profile.get('focus'))}",
+        f"• {focus_l}: {profile_value_label(ui_lang, 'focus', 'all')}",
         f"• {injuries_l}: {injuries}",
         "",
     ]
@@ -503,7 +540,11 @@ _STROKE_RUBRICS = {
         "non-hitting arm and balance."
     ),
     "backhand": (
-        "Backhand checklist: identify 1HBH vs 2HBH from video. "
+        "Backhand checklist: use the player's backhand from the profile when set "
+        "(one-handed or two-handed). Review the drive against that variant only; "
+        "do not mix 1HBH and 2HBH checklists. Review a slice as a slice. "
+        "If the video clearly shows the other variant, trust the video and note "
+        "the mismatch. If the profile has no variant, identify it from the video. "
         "1H: unit turn, contact ahead, stable wrist, no flick. "
         "2H: unit turn without big arm pull; non-dom as motor; hip rotation; "
         "compact path; Eastern top grip default (SW top ok if already working). "

@@ -26,10 +26,10 @@ def test_steps_order():
     assert STEPS == (
         "level",
         "hand",
+        "backhand",
         "frequency",
         "experience",
         "coaching",
-        "focus",
         "injuries",
     )
 
@@ -67,10 +67,14 @@ def test_match_new_steps():
         == "individual"
     )
     assert (
-        match_step_answer("en", "focus", t("en", "ob_opt_focus_stability"))
-        == "stability"
+        match_step_answer("ru", "backhand", t("ru", "ob_opt_backhand_one_handed"))
+        == "one_handed"
     )
-    assert match_step_answer("en", "focus", t("en", "ob_opt_focus_serve")) == "serve"
+    assert (
+        match_step_answer("en", "backhand", t("en", "ob_opt_backhand_two_handed"))
+        == "two_handed"
+    )
+    assert match_step_answer("en", "backhand", t("en", "ob_opt_focus_serve")) is None
 
 
 def test_build_profile_dict_includes_new_fields():
@@ -78,6 +82,7 @@ def test_build_profile_dict_includes_new_fields():
         {
             "level": "advanced",
             "hand": "right",
+            "backhand": "two_handed",
             "frequency": "2",
             "experience": "y3_7",
             "coaching": "group",
@@ -88,7 +93,8 @@ def test_build_profile_dict_includes_new_fields():
     assert profile["frequency"] == "2"
     assert profile["experience"] == "y3_7"
     assert profile["coaching"] == "group"
-    assert profile["focus"] == "power"
+    assert profile["backhand"] == "two_handed"
+    assert profile["focus"] == "all"
     assert profile["skipped"] is False
 
 
