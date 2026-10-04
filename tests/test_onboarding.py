@@ -7,6 +7,21 @@ from onboarding import (
 )
 
 
+def test_language_choice_ru_en():
+    from onboarding import language_choice, profile_actions_keyboard
+
+    assert language_choice("🇷🇺 Русский") == "ru"
+    assert language_choice("🇬🇧 English") == "en"
+    assert language_choice("🇷🇺 Русский ✓") == "ru"
+    assert language_choice("изменить") is None
+
+    labels = [
+        btn.text for row in profile_actions_keyboard("en", "en").keyboard for btn in row
+    ]
+    assert "🇬🇧 English ✓" in labels
+    assert "🇷🇺 Русский" in labels
+
+
 def test_steps_order():
     assert STEPS == (
         "level",

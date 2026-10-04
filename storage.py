@@ -370,6 +370,7 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         ("players", "ntrp_locked", "INTEGER NOT NULL DEFAULT 0"),
         ("players", "acquisition_source", "TEXT"),
         ("drills", "url", "TEXT NOT NULL DEFAULT ''"),
+        ("users", "preferred_language", "TEXT"),
     )
     for table, column, typedef in migrations:
         tables = {
@@ -1548,7 +1549,11 @@ def upsert_user(
                     username = ?,
                     first_name = ?,
                     last_name = ?,
-                    language_code = ?,
+                    language_code = CASE
+                        WHEN preferred_language IN ('ru', 'en')
+                        THEN preferred_language
+                        ELSE ?
+                    END,
                     last_seen_at = ?,
                     reminder_sent_at = NULL
                 WHERE user_id = ?
@@ -1800,12 +1805,13 @@ def format_profile_for_user(user_id: int, lang: str) -> str:
     from onboarding import profile_value_label
 
     ui_lang = lang if lang in ("ru", "en") else DEFAULT_LANG
+    language = _profile_language_label(user_id, ui_lang)
     profile = get_player_profile(user_id)
     if not profile:
-        return t(ui_lang, "profile_not_set")
+        return t(ui_lang, "profile_not_set", language=language)
 
     if profile.get("skipped"):
-        return t(ui_lang, "profile_skipped")
+        return t(ui_lang, "profile_skipped", language=language)
 
     injuries = profile.get("injuries") or ""
     injuries_text = (
@@ -1824,6 +1830,7 @@ def format_profile_for_user(user_id: int, lang: str) -> str:
         focus=profile_value_label(ui_lang, "focus", profile.get("focus")),
         injuries=injuries_text,
         updated_at=profile.get("updated_at", "—"),
+        language=language,
     )
 
 
@@ -2806,14 +2813,58 @@ def get_player_by_forum_thread(
     return dict(row) if row else None
 
 
+def get_preferred_language(user_id: int) -> str:
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            "SELECT preferred_language FROM users WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+    code = (row["preferred_language"] if row else "") or ""
+    return code if code in ("ru", "en") else ""
+
+
+def set_preferred_language(user_id: int, lang: str) -> None:
+    if lang not in ("ru", "en"):
+        raise ValueError(f"unsupported language: {lang}")
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            """
+            UPDATE users
+            SET preferred_language = ?, language_code = ?
+            WHERE user_id = ?
+            """,
+            (lang, lang, user_id),
+        )
+        conn.commit()
+
+
+def _profile_language_label(user_id: int, ui_lang: str) -> str:
+    preferred = get_preferred_language(user_id)
+    if preferred == "ru":
+        return t(ui_lang, "profile_lang_name_ru")
+    if preferred == "en":
+        return t(ui_lang, "profile_lang_name_en")
+    return t(ui_lang, "profile_lang_device")
+
+
 def get_user_language_code(user_id: int) -> str:
     with _connect() as conn:
         _init_db(conn)
         row = conn.execute(
-            "SELECT language_code FROM users WHERE user_id = ?",
+            """
+            SELECT preferred_language, language_code
+            FROM users WHERE user_id = ?
+            """,
             (user_id,),
         ).fetchone()
-    return (row["language_code"] if row else "") or ""
+    if not row:
+        return ""
+    preferred = row["preferred_language"] or ""
+    if preferred in ("ru", "en"):
+        return preferred
+    return row["language_code"] or ""
 
 
 def save_player_forum_topic(

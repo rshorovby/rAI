@@ -586,15 +586,18 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "ob_invalid_answer": "Выберите вариант на кнопках или нажмите «Пропустить настройку».",
         "profile_not_set": (
             "Профиль ещё не настроен.\n\n"
-            "Нажмите «Изменить профиль», чтобы пройти короткую настройку."
+            "Нажмите «Изменить профиль», чтобы пройти короткую настройку.\n\n"
+            "• Язык бота и ИИ: {language}"
         ),
         "profile_skipped": (
             "Профиль не заполнен (настройка была пропущена).\n\n"
             "Разборы идут в общем режиме. Нажмите «Изменить профиль», "
-            "чтобы сделать их точнее."
+            "чтобы сделать их точнее.\n\n"
+            "• Язык бота и ИИ: {language}"
         ),
         "profile_view": (
             "👤 *Ваш профиль*\n\n"
+            "• Язык бота и ИИ: {language}\n"
             "• Уровень: {level}\n"
             "• Ведущая рука: {hand}\n"
             "• Частота игры: {frequency}\n"
@@ -604,8 +607,15 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "• Травмы/ограничения: {injuries}\n"
             "• Обновлён: {updated_at}\n\n"
             "«Изменить профиль» — обновить данные.\n"
-            "«Начать с нуля» — удалить профиль и историю и пройти настройку заново."
+            "«Начать с нуля» — удалить профиль и историю и пройти настройку заново.\n"
+            "«Русский» / «English» — язык бота и ответов ИИ."
         ),
+        "profile_lang_name_ru": "Русский",
+        "profile_lang_name_en": "English",
+        "profile_lang_device": "как в Telegram",
+        "profile_btn_lang_ru": "🇷🇺 Русский",
+        "profile_btn_lang_en": "🇬🇧 English",
+        "profile_lang_saved": "✅ Язык бота и ответов ИИ: {language}.",
         "profile_edit_prompt": "Давайте обновим профиль.",
         "ob_opt_level_beginner": "🌱 Начинающий",
         "ob_opt_level_recreational": "🎾 Любитель",
@@ -1128,14 +1138,19 @@ _MESSAGES: dict[str, dict[str, str]] = {
         ),
         "ob_invalid_answer": "Pick an option from the buttons or tap Skip setup.",
         "profile_not_set": (
-            "Profile not set up yet.\n\n" "Tap Edit profile to complete a short setup."
+            "Profile not set up yet.\n\n"
+            "Tap Edit profile to complete a short setup.\n\n"
+            "• Bot and AI language: {language}"
         ),
         "profile_skipped": (
             "Profile not filled in (setup was skipped).\n\n"
-            "Analyses run in generic mode. Tap Edit profile to make them more accurate."
+            "Analyses run in generic mode. Tap Edit profile "
+            "to make them more accurate.\n\n"
+            "• Bot and AI language: {language}"
         ),
         "profile_view": (
             "👤 *Your profile*\n\n"
+            "• Bot and AI language: {language}\n"
             "• Level: {level}\n"
             "• Dominant hand: {hand}\n"
             "• Play frequency: {frequency}\n"
@@ -1145,8 +1160,15 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "• Injuries/limitations: {injuries}\n"
             "• Updated: {updated_at}\n\n"
             "Edit profile — update your details.\n"
-            "Start over — delete profile and history and set up again."
+            "Start over — delete profile and history and set up again.\n"
+            "Russian / English — language of the bot and AI replies."
         ),
+        "profile_lang_name_ru": "Russian",
+        "profile_lang_name_en": "English",
+        "profile_lang_device": "Telegram language",
+        "profile_btn_lang_ru": "🇷🇺 Русский",
+        "profile_btn_lang_en": "🇬🇧 English",
+        "profile_lang_saved": "✅ Bot and AI language: {language}.",
         "profile_edit_prompt": "Let's update your profile.",
         "ob_opt_level_beginner": "🌱 Beginner",
         "ob_opt_level_recreational": "🎾 Recreational",

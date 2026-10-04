@@ -101,6 +101,19 @@ def test_reset_player_data(tmp_path):
         assert profile is None
 
 
+def test_preferred_language_overrides_device(tmp_path):
+    with _tmp_db(tmp_path):
+        storage.upsert_user(1, "alice", "Alice", None, "en")
+        storage.set_preferred_language(1, "ru")
+        storage.upsert_user(1, "alice", "Alice", None, "de")
+
+        assert storage.get_preferred_language(1) == "ru"
+        assert storage.get_user_language_code(1) == "ru"
+        text = storage.format_profile_for_user(1, "ru")
+
+    assert "Русский" in text
+
+
 def test_format_profile_complete(tmp_path):
     with _tmp_db(tmp_path):
         storage.save_player_profile(

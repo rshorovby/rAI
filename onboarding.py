@@ -133,11 +133,23 @@ def onboarding_keyboard(lang: str, step: str) -> ReplyKeyboardMarkup:
     return _step_keyboard(lang, step)
 
 
-def profile_actions_keyboard(lang: str) -> ReplyKeyboardMarkup:
+def profile_actions_keyboard(
+    lang: str, current: Optional[str] = None
+) -> ReplyKeyboardMarkup:
+    def _lang_button(code: str, key: str) -> KeyboardButton:
+        label = t(lang, key)
+        if current == code:
+            label = f"{label} ✓"
+        return KeyboardButton(label)
+
     return ReplyKeyboardMarkup(
         [
             [KeyboardButton(t(lang, "ob_edit_profile"))],
             [KeyboardButton(t(lang, "ob_reset_profile"))],
+            [
+                _lang_button("ru", "profile_btn_lang_ru"),
+                _lang_button("en", "profile_btn_lang_en"),
+            ],
         ],
         resize_keyboard=True,
     )
@@ -196,6 +208,16 @@ def is_reset_confirm_no(text: str) -> bool:
         if text == t(lang, "profile_reset_confirm_no"):
             return True
     return False
+
+
+def language_choice(text: str) -> Optional[str]:
+    cleaned = text.replace(" ✓", "").strip()
+    for lang in UI_LANGS:
+        if cleaned == t(lang, "profile_btn_lang_ru"):
+            return "ru"
+        if cleaned == t(lang, "profile_btn_lang_en"):
+            return "en"
+    return None
 
 
 def build_profile_dict(answers: dict[str, Any], *, skipped: bool = False) -> dict:

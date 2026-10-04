@@ -614,3 +614,56 @@ def test_post_ios_review_forum_fail_still_ai_sent(tmp_path):
         assert job["status"] == review.STATUS_AI_SENT
         application.bot.send_message.assert_not_awaited()
         assert not Path(video).exists()
+
+
+def test_profile_language_button_sets_bot_and_ai_lang(tmp_path):
+    from bot import _lang_from_update, handle_text
+
+    with patch.object(storage, "DB_PATH", tmp_path / "t.db"):
+        storage.upsert_user(7, "ann", "Ann", None, "en")
+        user = MagicMock()
+        user.id = 7
+        user.username = "ann"
+        user.first_name = "Ann"
+        user.last_name = None
+        user.language_code = "de"
+        update = MagicMock()
+        update.message = MagicMock()
+        update.message.text = "🇷🇺 Русский"
+        update.message.from_user = user
+        update.message.chat.id = 7
+        update.message.reply_text = AsyncMock()
+        update.effective_user = user
+        context = MagicMock()
+        context.user_data = {}
+        context.bot.set_my_commands = AsyncMock()
+
+        async def _run():
+            with (
+                patch(
+                    "bot._handle_survey_other_text",
+                    new=AsyncMock(return_value=False),
+                ),
+                patch(
+                    "bot._handle_coach_forum_message",
+                    new=AsyncMock(return_value=False),
+                ),
+                patch(
+                    "bot._handle_player_coach_message",
+                    new=AsyncMock(return_value=False),
+                ),
+            ):
+                await handle_text(update, context)
+
+        asyncio.run(_run())
+        assert storage.get_preferred_language(7) == "ru"
+        assert storage.get_user_language_code(7) == "ru"
+        assert context.user_data["lang"] == "ru"
+        assert context.user_data["language_code"] == "ru"
+
+        followup = MagicMock()
+        followup.effective_user = user
+        fresh = MagicMock()
+        fresh.user_data = {}
+        assert _lang_from_update(followup, fresh) == "ru"
+        assert fresh.user_data["language_code"] == "ru"

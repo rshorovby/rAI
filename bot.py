@@ -7,6 +7,7 @@ from typing import Callable, Optional
 
 from telegram import (
     BotCommand,
+    BotCommandScopeChat,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     KeyboardButton,
@@ -111,6 +112,7 @@ from onboarding import (
     is_reset_pending,
     is_reset_profile_text,
     is_skip_text,
+    language_choice,
     match_step_answer,
     onboarding_keyboard,
     profile_actions_keyboard,
@@ -269,10 +271,11 @@ async def _show_profile(
     user_id: int,
 ) -> None:
     text = await asyncio.to_thread(storage.format_profile_for_user, user_id, lang)
+    preferred = await asyncio.to_thread(storage.get_preferred_language, user_id)
     await message.reply_text(
         text,
         parse_mode=ParseMode.MARKDOWN,
-        reply_markup=profile_actions_keyboard(lang),
+        reply_markup=profile_actions_keyboard(lang, preferred or None),
     )
 
 
@@ -287,9 +290,23 @@ async def _begin_onboarding(
         await _log_event(user_id, EVENT_ONBOARDING_STARTED)
 
 
+def _manual_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> str:
+    user = update.effective_user
+    if not user:
+        return ""
+    player_id = context.user_data.get("player_id")
+    if not player_id:
+        player_id = storage.player_id_for_telegram(user.id)
+    if not player_id:
+        return ""
+    return storage.get_preferred_language(player_id)
+
+
 def _lang_from_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> str:
-    code = update.effective_user.language_code if update.effective_user else None
-    return sync_user_lang(context.user_data, code)
+    device = update.effective_user.language_code if update.effective_user else None
+    return sync_user_lang(
+        context.user_data, _manual_language(update, context) or device
+    )
 
 
 def _language_code_from_context(context: ContextTypes.DEFAULT_TYPE) -> str:
@@ -829,13 +846,53 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     )
 
 
+async def _apply_chat_commands(
+    context: ContextTypes.DEFAULT_TYPE, chat_id: int, lang: str
+) -> None:
+    try:
+        await context.bot.set_my_commands(
+            _bot_commands(lang),
+            scope=BotCommandScopeChat(chat_id),
+        )
+    except Exception:
+        logger.exception("Не удалось обновить команды чата chat_id=%s", chat_id)
+
+
+async def _apply_language(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    choice: str,
+) -> None:
+    message = update.message
+    if not message:
+        return
+    player_id = context.user_data.get("player_id")
+    if player_id is None:
+        player_id = await _touch_user(update, context)
+    if player_id is None:
+        return
+    await asyncio.to_thread(storage.set_preferred_language, player_id, choice)
+    sync_user_lang(context.user_data, choice)
+    clear_reset_pending(context.user_data)
+    if message.chat:
+        await _apply_chat_commands(context, message.chat.id, choice)
+    language = t(choice, f"profile_lang_name_{choice}")
+    await message.reply_text(t(choice, "profile_lang_saved", language=language))
+    if is_onboarding_active(context.user_data):
+        step = get_onboarding_step(context.user_data)
+        if step:
+            await _send_onboarding_question(message, choice, step)
+            return
+    await _show_profile(message, choice, player_id)
+
+
 async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     lang = _lang_from_update(update, context)
-    user_id = update.message.from_user.id
-    context.user_data["user_id"] = user_id
     clear_reset_pending(context.user_data)
-    await _touch_user(update, context)
-    await _show_profile(update.message, lang, user_id)
+    player_id = await _touch_user(update, context)
+    if player_id is None or not update.message:
+        return
+    await _show_profile(update.message, lang, player_id)
 
 
 def _admin_gate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[str]:
@@ -1365,7 +1422,7 @@ async def handle_survey(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if not query or not query.data:
         return
 
-    lang = sync_user_lang(context.user_data, query.from_user.language_code)
+    lang = _lang_from_update(update, context)
     user_id = query.from_user.id
     context.user_data["user_id"] = user_id
     await _touch_user(update, context)
@@ -1460,7 +1517,7 @@ async def handle_dialog(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     await query.answer()
-    lang = sync_user_lang(context.user_data, query.from_user.language_code)
+    lang = _lang_from_update(update, context)
     language_code = _language_code_from_context(context)
     chat_id = query.message.chat_id
     user_id = query.from_user.id
@@ -2643,7 +2700,7 @@ async def handle_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     await query.answer()
 
-    lang = sync_user_lang(context.user_data, query.from_user.language_code)
+    lang = _lang_from_update(update, context)
     key = query.data.removeprefix("fb:")
     event_type = _FEEDBACK_EVENTS.get(key)
     if not event_type:
@@ -2672,7 +2729,7 @@ async def handle_retry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
     await query.answer()
 
-    lang = sync_user_lang(context.user_data, query.from_user.language_code)
+    lang = _lang_from_update(update, context)
     language_code = _language_code_from_context(context)
 
     player_id = await _touch_user(update, context)
@@ -2719,7 +2776,7 @@ async def handle_practice(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
     await query.answer()
 
-    lang = sync_user_lang(context.user_data, query.from_user.language_code)
+    lang = _lang_from_update(update, context)
     user_id = query.from_user.id
     chat_id = query.message.chat_id
     context.user_data["user_id"] = user_id
@@ -2906,7 +2963,7 @@ async def handle_quick_question(
 
     await query.answer()
 
-    lang = sync_user_lang(context.user_data, query.from_user.language_code)
+    lang = _lang_from_update(update, context)
     language_code = _language_code_from_context(context)
     prompts = _QUICK_PROMPTS.get(lang, _QUICK_PROMPTS["en"])
 
@@ -2960,7 +3017,7 @@ async def handle_review_callback(
 
     # Игрок: написать тренеру (через тему кабинета, без привязки к open job)
     if query.data == "rvp:msg":
-        lang = sync_user_lang(context.user_data, query.from_user.language_code)
+        lang = _lang_from_update(update, context)
         forum_chat_id = settings.coach_forum_chat_id if settings else None
         topic = None
         if forum_chat_id:
@@ -3307,6 +3364,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await menu_handler(update, context)
         return
 
+    chosen_lang = language_choice(user_text)
+    if chosen_lang:
+        await _apply_language(update, context, chosen_lang)
+        return
+
     if is_reset_pending(context.user_data):
         user_id = message.from_user.id
         context.user_data["user_id"] = user_id
@@ -3546,7 +3608,7 @@ async def handle_pay_callback(
     if not query:
         return
     await query.answer()
-    lang = sync_user_lang(context.user_data, query.from_user.language_code)
+    lang = _lang_from_update(update, context)
     user_id = query.from_user.id
     context.user_data["user_id"] = user_id
     await _touch_user(update, context)
