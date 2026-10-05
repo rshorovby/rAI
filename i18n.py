@@ -151,8 +151,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "После видео вы сначала получаете AI-разбор, а опытный тренер может "
             "дополнить его отдельным сообщением. Вопросы пишите обычным текстом — "
             "бот отвечает в контексте последнего видео. Новое видео начинает новый диалог.\n\n"
-            "/new — сбросить переписку текущего разбора. Если она есть, "
-            "бот сначала спросит подтверждение.\n"
+            "/new — сбросить текущий диалог без отправки видео\n"
             "/link — код привязки к приложению iOS"
         ),
         "btn_help": "📋 Справка",
@@ -242,6 +241,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         ),
         "new_confirm_yes": "Сбросить",
         "new_confirm_no": "Оставить",
+        "new_reset_legacy": "Диалог сброшен. Отправьте новое видео для разбора.",
         "new_reset": "Переписка сброшена. Отправьте видео для разбора.",
         "new_send_video": "Отправьте видео для разбора.",
         "new_kept": "Продолжаем этот разбор.",
@@ -728,8 +728,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "After you send a video you get an AI review first; an experienced coach "
             "may add a separate comment. Send text questions anytime — the bot replies "
             "in context of the last video. A new video starts a new dialog.\n\n"
-            "/new — reset the chat of the current analysis. If one is open, "
-            "the bot asks for confirmation first.\n"
+            "/new — reset the current dialog without sending a video\n"
             "/link — code to link the iOS app"
         ),
         "btn_help": "📋 Help",
@@ -816,6 +815,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         ),
         "new_confirm_yes": "Reset",
         "new_confirm_no": "Keep",
+        "new_reset_legacy": "Dialog reset. Send a new video for analysis.",
         "new_reset": "Chat reset. Send a video for analysis.",
         "new_send_video": "Send a video for analysis.",
         "new_kept": "Continuing this analysis.",

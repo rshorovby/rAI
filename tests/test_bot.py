@@ -91,6 +91,7 @@ def test_off_topic_reply_is_fixed_and_not_saved_as_note(tmp_path):
     from pricing import Usage
 
     with patch.object(storage, "DB_PATH", tmp_path / "notes.db"):
+        storage.set_followup_scope(True)
         player_id = storage.upsert_user(7, "ann", "Ann", None, "ru")
         storage.save_active_session(
             player_id,
@@ -144,6 +145,7 @@ def test_new_analysis_asks_before_reset_and_keep_leaves_the_chat(tmp_path):
     from bot import NEW_CONFIRM_PENDING_KEY, handle_text, new_command
 
     with patch.object(storage, "DB_PATH", tmp_path / "new.db"):
+        storage.set_followup_scope(True)
         player_id = storage.upsert_user(7, "ann", "Ann", None, "ru")
         storage.save_active_session(
             player_id,
@@ -198,6 +200,7 @@ def test_new_analysis_reset_clears_only_the_chat(tmp_path):
     from bot import NEW_CONFIRM_PENDING_KEY, handle_text, new_command
 
     with patch.object(storage, "DB_PATH", tmp_path / "reset.db"):
+        storage.set_followup_scope(True)
         player_id = storage.upsert_user(7, "ann", "Ann", None, "ru")
         storage.save_active_session(player_id, {"analysis": "отчёт", "history": []})
         update = _player_update("/new")
@@ -232,6 +235,7 @@ def test_new_without_analysis_asks_for_a_video(tmp_path):
     from bot import new_command
 
     with patch.object(storage, "DB_PATH", tmp_path / "empty.db"):
+        storage.set_followup_scope(True)
         storage.upsert_user(7, "ann", "Ann", None, "ru")
         update = _player_update("/new")
         context = MagicMock()
@@ -246,6 +250,96 @@ def test_new_without_analysis_asks_for_a_video(tmp_path):
             update.message.reply_text.await_args.args[0]
             == "Отправьте видео для разбора."
         )
+
+
+def test_scope_off_keeps_the_old_new_analysis_flow(tmp_path):
+    from bot import NEW_CONFIRM_PENDING_KEY, new_command
+
+    with patch.object(storage, "DB_PATH", tmp_path / "off.db"):
+        player_id = storage.upsert_user(7, "ann", "Ann", None, "ru")
+        storage.save_active_session(player_id, {"analysis": "отчёт", "history": []})
+        update = _player_update("/new")
+        context = MagicMock()
+        context.user_data = {}
+        context.application.bot_data = {"admin_user_ids": ()}
+
+        async def _run():
+            await new_command(update, context)
+
+        asyncio.run(_run())
+        assert NEW_CONFIRM_PENDING_KEY not in context.user_data
+        assert storage.load_active_session(player_id) is None
+        assert (
+            update.message.reply_text.await_args.args[0]
+            == "Диалог сброшен. Отправьте новое видео для разбора."
+        )
+
+
+def test_admin_sees_new_flow_while_scope_is_off(tmp_path):
+    from bot import NEW_CONFIRM_PENDING_KEY, new_command
+
+    with patch.object(storage, "DB_PATH", tmp_path / "admin.db"):
+        player_id = storage.upsert_user(7, "ann", "Ann", None, "ru")
+        storage.save_active_session(player_id, {"analysis": "отчёт", "history": []})
+        update = _player_update("/new")
+        context = MagicMock()
+        context.user_data = {}
+        context.application.bot_data = {"admin_user_ids": (7,)}
+
+        async def _run():
+            await new_command(update, context)
+
+        asyncio.run(_run())
+        assert context.user_data[NEW_CONFIRM_PENDING_KEY] is True
+        assert storage.load_active_session(player_id)["analysis"] == "отчёт"
+
+
+def test_scope_off_keeps_model_text_and_saves_the_note(tmp_path):
+    from analyzer import AnalysisResult
+    from bot import _process_followup
+    from pricing import Usage
+
+    with patch.object(storage, "DB_PATH", tmp_path / "chat-off.db"):
+        player_id = storage.upsert_user(7, "ann", "Ann", None, "ru")
+        storage.save_active_session(player_id, {"analysis": "отчёт", "history": []})
+        context = MagicMock()
+        context.user_data = {"user_id": player_id}
+        context.bot.send_chat_action = AsyncMock()
+        context.application.bot_data = {
+            "analyzer": MagicMock(_model="m"),
+            "admin_user_ids": (),
+            "settings": None,
+        }
+        context.application.bot_data["analyzer"].chat.return_value = AnalysisResult(
+            text="OUT_OF_SCOPE",
+            usage=Usage(),
+            model="m",
+        )
+        sent = []
+
+        async def _send(_ctx, _chat_id, text, reply_markup=None):
+            sent.append(text)
+
+        async def _run():
+            with (
+                patch("bot.services.load_analysis_context", return_value={}),
+                patch("bot._cabinet_notify", new=AsyncMock()),
+                patch("bot.storage.log_usage"),
+                patch("bot._send_formatted", new=_send),
+            ):
+                await _process_followup(
+                    context,
+                    context.user_data,
+                    7,
+                    "напиши стих",
+                    lang="ru",
+                    language_code="ru",
+                )
+
+        asyncio.run(_run())
+        assert sent == ["OUT_OF_SCOPE"]
+        notes = storage.recent_player_notes(player_id)
+        assert [item["text"] for item in notes] == ["напиши стих"]
 
 
 def test_coach_forum_text_goes_to_player():

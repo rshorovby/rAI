@@ -188,7 +188,21 @@ Important: if the video shows no tennis actions or content is unsuitable — say
 
 FOLLOW_UP_OUT_OF_SCOPE = "OUT_OF_SCOPE"
 
-FOLLOW_UP_SYSTEM_PROMPT_BASE = f"""\
+FOLLOW_UP_SYSTEM_PROMPT_BASE = """\
+You are the same AI tennis-technique assistant who prepared the draft \
+the player already received. A human staff coach is in charge. Never speak as \
+the player's coach and never write in first person as a coach. The user is asking \
+follow-up questions in chat.
+
+Rules:
+1. Answer in the context of the given analysis. The video is not available now — rely on the report and tennis knowledge.
+2. If the question concerns a detail not in the analysis, say so honestly and give a cautious hypothesis or ask for another angle.
+3. If the report has no "Next video" / "Следующее видео" section — on the first follow-up, suggest what to film (stroke, angle, 10–20 sec).
+4. Explain terms in plain language, suggest specific drills and training focuses.
+5. Be concise: 1–4 paragraphs, without repeating the entire report.
+"""
+
+FOLLOW_UP_SYSTEM_PROMPT_SCOPED = f"""\
 You are the same AI tennis-technique assistant who prepared the draft \
 the player already received. A human staff coach is in charge. Never speak as \
 the player's coach and never write in first person as a coach. The user is asking \
@@ -405,6 +419,10 @@ def _append_personal(
     practice_ctx = build_practice_block(ctx.get("practice") or [], language_code)
     if practice_ctx:
         parts.append(practice_ctx)
+    if not ctx.get("omit_chat_notes"):
+        notes_ctx = build_notes_block(ctx.get("notes") or [], language_code)
+        if notes_ctx:
+            parts.append(notes_ctx)
     path_ctx = build_path_block(ctx.get("path"), language_code)
     if path_ctx:
         parts.append(path_ctx)
@@ -521,10 +539,13 @@ def build_follow_up_system_prompt(
     coach_corrections: Optional[list] = None,
     strokes: Optional[list] = None,
     prompt_context: Optional[dict] = None,
+    scoped: bool = False,
 ) -> str:
     from wiki_context import build_knowledge_block
 
-    ctx = prompt_context or {}
+    ctx = dict(prompt_context or {})
+    if scoped:
+        ctx["omit_chat_notes"] = True
     player_ctx = build_player_context(player_profile, language_code)
     knowledge_ctx = build_knowledge_block(
         stroke,
@@ -533,7 +554,8 @@ def build_follow_up_system_prompt(
         chronic_tags=ctx.get("chronic_tags"),
     )
     lang_rule = language_instruction(language_code)
-    parts = [FOLLOW_UP_SYSTEM_PROMPT_BASE.strip(), lang_rule]
+    base = FOLLOW_UP_SYSTEM_PROMPT_SCOPED if scoped else FOLLOW_UP_SYSTEM_PROMPT_BASE
+    parts = [base.strip(), lang_rule]
     if player_ctx:
         parts.append(player_ctx)
     if knowledge_ctx:
@@ -1257,6 +1279,28 @@ def build_practice_block(plans: list, language_code: str = "en") -> str:
             lines.append(f'- {answer}: focus "{focus}"; drill {drill}')
     lines.append("")
     lines.extend(rules)
+    lines.append("─────────────────────────────────────────")
+    return "\n".join(lines)
+
+
+def build_notes_block(notes: list, language_code: str = "en") -> str:
+    rows = [item for item in (notes or []) if (item.get("text") or "").strip()]
+    if not rows:
+        return ""
+    ui = _ui_lang(language_code)
+    header = "ИГРОК ПИСАЛ:" if ui == "ru" else "THE PLAYER WROTE:"
+    rule = (
+        "Учитывай жалобы, ограничения и то, что игрок не понял. "
+        "Не выдумывай, чего в заметках нет."
+        if ui == "ru"
+        else "Use complaints, limits, and what the player did not understand. "
+        "Do not invent beyond the notes."
+    )
+    lines = ["─────────────────────────────────────────", header, ""]
+    for item in rows:
+        lines.append(f"- {item.get('created_at') or '?'}: {item['text'].strip()}")
+    lines.append("")
+    lines.append(rule)
     lines.append("─────────────────────────────────────────")
     return "\n".join(lines)
 

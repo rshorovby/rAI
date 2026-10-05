@@ -303,6 +303,8 @@ def analyze_video(
         stroke = (video_context.get("stroke") or "") or ""
         intake = video_context.get("strokes")
     ctx = load_analysis_context(player_id, stroke, intake)
+    if storage.followup_scope_enabled():
+        ctx["omit_chat_notes"] = True
     result = analyzer.analyze(
         video_path,
         user_comment,
@@ -734,11 +736,7 @@ def elaboration_prompt(lane: str, block: str, language_code: str) -> str:
 
     ru = resolve_ui_lang(language_code) == "ru"
     lowered = block.lower()
-    strength = (
-        "🟢" in block
-        or "сильная сторона" in lowered
-        or "strength" in lowered
-    )
+    strength = "🟢" in block or "сильная сторона" in lowered or "strength" in lowered
     schema = _ELABORATION_JSON_RU if ru else _ELABORATION_JSON_EN
     if lane == "priority":
         task = (

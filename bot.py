@@ -636,6 +636,24 @@ async def _send_formatted(
         await context.bot.send_message(chat_id=chat_id, text=text, **kwargs)
 
 
+def _remember_free_question(
+    user_id, user_text: str, question_label: Optional[str]
+) -> None:
+    if not user_id or question_label:
+        return
+    storage.add_player_note(user_id, user_text)
+
+
+async def _followup_scope_on(
+    context: ContextTypes.DEFAULT_TYPE, user_data: dict
+) -> bool:
+    if await asyncio.to_thread(storage.followup_scope_enabled):
+        return True
+    admin_ids = context.application.bot_data.get("admin_user_ids") or ()
+    telegram_id = user_data.get("telegram_id")
+    return telegram_id in admin_ids
+
+
 def _new_confirm_pending(user_data: dict) -> bool:
     return bool(user_data.get(NEW_CONFIRM_PENDING_KEY))
 
@@ -721,6 +739,10 @@ async def _process_followup(
             ),
         )
 
+    scoped = await _followup_scope_on(context, user_data)
+    if scoped and analysis_ctx:
+        analysis_ctx = dict(analysis_ctx)
+        analysis_ctx["omit_chat_notes"] = True
     result = await asyncio.to_thread(
         analyzer.chat,
         analysis,
@@ -733,8 +755,15 @@ async def _process_followup(
         use_model,
         coach_corrections,
         analysis_ctx or None,
+        scoped,
     )
-    reply = follow_up_player_text(result.text, t(ui_lang, "followup_out_of_scope"))
+    if scoped:
+        reply = follow_up_player_text(result.text, t(ui_lang, "followup_out_of_scope"))
+    else:
+        await asyncio.to_thread(
+            _remember_free_question, user_id, user_text, question_label
+        )
+        reply = result.text
     logger.info("Ответ ИИ получен (%s символов)", len(reply))
     if user_id:
         await asyncio.to_thread(
@@ -846,16 +875,23 @@ async def new_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     lang = _lang_from_update(update, context)
     await _touch_user(update, context)
     session = _get_session(context.user_data)
-    if session.get("analysis"):
-        _set_new_confirm_pending(context.user_data)
+    if await _followup_scope_on(context, context.user_data):
+        if session.get("analysis"):
+            _set_new_confirm_pending(context.user_data)
+            await update.message.reply_text(
+                t(lang, "new_confirm_prompt"),
+                reply_markup=_new_confirm_keyboard(lang),
+            )
+            return
+        _reset_chat_state(context.user_data)
         await update.message.reply_text(
-            t(lang, "new_confirm_prompt"),
-            reply_markup=_new_confirm_keyboard(lang),
+            t(lang, "new_send_video"),
+            reply_markup=_main_menu_keyboard(lang),
         )
         return
     _reset_chat_state(context.user_data)
     await update.message.reply_text(
-        t(lang, "new_send_video"),
+        t(lang, "new_reset_legacy"),
         reply_markup=_main_menu_keyboard(lang),
     )
 
@@ -981,6 +1017,38 @@ async def daly_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     data = await asyncio.to_thread(storage.get_daly_summary)
     await update.message.reply_text(format_daly_report(data))
+
+
+async def followup_scope_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    denied = _admin_gate(update, context)
+    if denied:
+        await update.message.reply_text(denied)
+        return
+    args = [part.lower() for part in (context.args or [])]
+    if not args:
+        enabled = await asyncio.to_thread(storage.followup_scope_enabled)
+        state = "включён для всех" if enabled else "выключен"
+        await update.message.reply_text(
+            f"Follow-up scope: {state}.\n"
+            "Пока выключен, у игроков прежний диалог. "
+            "Админ видит новый флоу и так.\n"
+            "Включить для всех: /followup on\n"
+            "Выключить: /followup off"
+        )
+        return
+    if args[0] not in ("on", "off"):
+        await update.message.reply_text("Использование: /followup on | off")
+        return
+    enabled = args[0] == "on"
+    await asyncio.to_thread(storage.set_followup_scope, enabled)
+    if enabled:
+        await update.message.reply_text("Follow-up scope включён для всех.")
+        return
+    await update.message.reply_text(
+        "Follow-up scope выключен. У игроков снова прежний диалог."
+    )
 
 
 async def grant_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -2428,6 +2496,8 @@ async def _run_video_analysis(
         analysis_ctx = await asyncio.to_thread(
             services.load_analysis_context, user_id, stroke, intake_strokes
         )
+        if await _followup_scope_on(context, context.user_data):
+            analysis_ctx["omit_chat_notes"] = True
         player_history = analysis_ctx["history"]
         player_profile = analysis_ctx["profile"]
         coach_corrections = analysis_ctx["corrections"]
@@ -3472,8 +3542,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     if _new_confirm_pending(context.user_data):
-        await _confirm_new_analysis(message, context, lang, user_text)
-        return
+        if await _followup_scope_on(context, context.user_data):
+            await _confirm_new_analysis(message, context, lang, user_text)
+            return
+        _clear_new_confirm_pending(context.user_data)
 
     session = _get_session(context.user_data)
     analysis = session.get("analysis")
@@ -3763,6 +3835,7 @@ def build_application(settings: Settings) -> Application:
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(CommandHandler("daly", daly_command))
     app.add_handler(CommandHandler("grant", grant_command))
+    app.add_handler(CommandHandler("followup", followup_scope_command))
     app.add_handler(CallbackQueryHandler(handle_feedback, pattern=r"^fb:"))
     app.add_handler(CallbackQueryHandler(handle_practice, pattern=r"^p:"))
     app.add_handler(CallbackQueryHandler(handle_review_callback, pattern=r"^rv"))

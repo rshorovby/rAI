@@ -127,6 +127,11 @@ def _init_db(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_notes_user
             ON player_notes (user_id, id DESC);
 
+        CREATE TABLE IF NOT EXISTS app_flags (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS player_profiles (
             user_id     INTEGER PRIMARY KEY,
             level       TEXT,
@@ -1359,6 +1364,39 @@ def recent_practice_answers(user_id: int, limit: int = PRACTICE_PROMPT_LIMIT) ->
             (user_id, n),
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+FOLLOWUP_SCOPE_FLAG = "followup_scope"
+
+
+def get_app_flag(key: str) -> str:
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            "SELECT value FROM app_flags WHERE key = ?", (key,)
+        ).fetchone()
+    return row[0] if row else ""
+
+
+def set_app_flag(key: str, value: str) -> None:
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            """
+            INSERT INTO app_flags (key, value) VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (key, value),
+        )
+        conn.commit()
+
+
+def followup_scope_enabled() -> bool:
+    return get_app_flag(FOLLOWUP_SCOPE_FLAG) == "1"
+
+
+def set_followup_scope(enabled: bool) -> None:
+    set_app_flag(FOLLOWUP_SCOPE_FLAG, "1" if enabled else "0")
 
 
 def add_player_note(user_id: int, text: str, source: str = "chat") -> None:

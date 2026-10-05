@@ -270,6 +270,7 @@ class VideoAnalyzer:
         model: Optional[str] = None,
         coach_corrections: Optional[list] = None,
         prompt_context: Optional[dict] = None,
+        scoped: bool = False,
     ) -> AnalysisResult:
         use_model = model or self._model
         ui_lang = "ru" if normalize_language_code(language_code) == "ru" else "en"
@@ -322,6 +323,7 @@ class VideoAnalyzer:
                     stroke=stroke,
                     coach_corrections=coach_corrections,
                     prompt_context=prompt_context,
+                    scoped=scoped,
                 ),
                 temperature=0.5,
                 automatic_function_calling=_NO_AFC,
