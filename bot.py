@@ -15,7 +15,7 @@ from telegram import (
     ReplyKeyboardMarkup,
     Update,
 )
-from telegram.constants import ChatAction, ParseMode
+from telegram.constants import ChatAction, ChatType, ParseMode
 from telegram.error import BadRequest
 from telegram.ext import (
     Application,
@@ -29,6 +29,7 @@ from telegram.ext import (
 
 import acquisition
 import billing
+import broadcast
 import cabinet
 import drills
 import identity
@@ -1048,6 +1049,154 @@ async def followup_scope_command(
         return
     await update.message.reply_text(
         "Follow-up scope выключен. У игроков снова прежний диалог."
+    )
+
+
+def _is_admin_id(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> bool:
+    admin_ids = context.application.bot_data.get("admin_user_ids") or ()
+    return user_id in admin_ids
+
+
+async def _send_broadcast_message(bot, chat_id: int, text: str, entities) -> None:
+    kwargs = {"chat_id": chat_id, "text": text}
+    if entities:
+        kwargs["entities"] = entities
+    await bot.send_message(**kwargs)
+
+
+async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Админ: /broadcast — черновик сообщения всем пользователям с Telegram."""
+    denied = _admin_gate(update, context)
+    if denied:
+        await update.message.reply_text(denied)
+        return
+    if update.message.chat.type != ChatType.PRIVATE:
+        await update.message.reply_text("Рассылка запускается в личном чате с ботом.")
+        return
+
+    args = [part.lower() for part in (context.args or [])]
+    if args[:1] == ["cancel"]:
+        broadcast.clear_state(context.user_data)
+        await update.message.reply_text("Рассылка отменена.")
+        return
+
+    had_draft = broadcast.AWAITING_KEY in context.user_data or (
+        broadcast.DRAFT_KEY in context.user_data
+    )
+    context.user_data[broadcast.AWAITING_KEY] = True
+    context.user_data.pop(broadcast.DRAFT_KEY, None)
+    prefix = "Предыдущий черновик сброшен.\n" if had_draft else ""
+    await update.message.reply_text(
+        prefix + "Пришли текст рассылки следующим сообщением.\n"
+        "Форматирование Telegram сохранится.\n"
+        "Отмена: /broadcast cancel"
+    )
+
+
+async def _consume_broadcast_text(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> bool:
+    if not context.user_data.get(broadcast.AWAITING_KEY):
+        return False
+    message = update.message
+    if not message or not _is_admin_id(context, message.from_user.id):
+        context.user_data.pop(broadcast.AWAITING_KEY, None)
+        return False
+    text = message.text or ""
+    if len(text) > broadcast.TEXT_LIMIT:
+        await message.reply_text(
+            "Сообщение длиннее 4096 символов. Сократи и пришли ещё раз."
+        )
+        return True
+    entities = tuple(message.entities or ())
+    context.user_data[broadcast.DRAFT_KEY] = {"text": text, "entities": entities}
+    context.user_data.pop(broadcast.AWAITING_KEY, None)
+    chat_ids = await asyncio.to_thread(storage.list_broadcast_chat_ids)
+    await message.reply_text(
+        broadcast.confirm_text(len(chat_ids), text),
+        reply_markup=broadcast.keyboard(),
+    )
+    return True
+
+
+async def handle_broadcast_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    query = update.callback_query
+    if not query:
+        return
+    await query.answer()
+    if not _is_admin_id(context, query.from_user.id):
+        return
+
+    action = (query.data or "").split(":", 1)[-1]
+    draft = context.user_data.get(broadcast.DRAFT_KEY)
+    if action == "cancel":
+        if not draft or draft.get("sending"):
+            return
+        broadcast.clear_state(context.user_data)
+        await query.edit_message_text("Рассылка отменена.")
+        return
+    if not draft or not draft.get("text"):
+        return
+    if draft.get("sending") or broadcast.busy():
+        return
+
+    text = draft["text"]
+    entities = draft.get("entities") or None
+    if action == "me":
+        try:
+            await _send_broadcast_message(
+                context.bot, query.from_user.id, text, entities
+            )
+        except Exception:
+            logger.exception("Не удалось отправить копию рассылки админу")
+            await query.message.reply_text("Не удалось отправить копию.")
+            return
+        await query.message.reply_text(
+            "Копия отправлена тебе. Кнопки выше всё ещё работают."
+        )
+        return
+    if action != "send":
+        return
+
+    draft["sending"] = True
+    await query.edit_message_text("Отправляю…")
+    chat_ids = await asyncio.to_thread(storage.list_broadcast_chat_ids)
+    try:
+        result = await broadcast.deliver(
+            lambda chat_id, body, ents: _send_broadcast_message(
+                context.bot, chat_id, body, ents
+            ),
+            chat_ids,
+            text,
+            entities,
+        )
+    except broadcast.BroadcastInProgress:
+        draft["sending"] = False
+        await query.edit_message_text("Рассылка уже идёт.")
+        return
+    except Exception:
+        draft["sending"] = False
+        logger.exception("Рассылка прервалась")
+        await query.edit_message_text(
+            "Рассылка прервалась. Черновик на месте: повторная отправка "
+            "придёт и тем, кому уже ушло."
+        )
+        return
+
+    context.user_data.pop(broadcast.DRAFT_KEY, None)
+    context.user_data.pop(broadcast.AWAITING_KEY, None)
+    await asyncio.to_thread(
+        storage.record_broadcast,
+        query.from_user.id,
+        text,
+        result["sent"],
+        result["blocked"],
+        result["failed"],
+    )
+    await query.edit_message_text(
+        broadcast.report_text(result["sent"], result["blocked"], result["failed"])
     )
 
 
@@ -3483,6 +3632,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
     if await _handle_coach_forum_message(update, context):
         return
+    if await _consume_broadcast_text(update, context):
+        return
     if await _handle_player_coach_message(update, context, user_text):
         return
 
@@ -3810,7 +3961,9 @@ def build_application(settings: Settings) -> Application:
     app.bot_data["settings"] = settings
     app.bot_data["admin_user_ids"] = settings.admin_user_ids
     if not settings.admin_user_ids:
-        logger.warning("ADMIN_USER_IDS не задан — команды /stats и /grant недоступны")
+        logger.warning(
+            "ADMIN_USER_IDS не задан — команды /stats, /grant и /broadcast недоступны"
+        )
     if not settings.coach_forum_chat_id:
         logger.warning(
             "COACH_FORUM_CHAT_ID не задан — заявки в кабинет тренера не попадут"
@@ -3836,6 +3989,8 @@ def build_application(settings: Settings) -> Application:
     app.add_handler(CommandHandler("daly", daly_command))
     app.add_handler(CommandHandler("grant", grant_command))
     app.add_handler(CommandHandler("followup", followup_scope_command))
+    app.add_handler(CommandHandler("broadcast", broadcast_command))
+    app.add_handler(CallbackQueryHandler(handle_broadcast_callback, pattern=r"^bc:"))
     app.add_handler(CallbackQueryHandler(handle_feedback, pattern=r"^fb:"))
     app.add_handler(CallbackQueryHandler(handle_practice, pattern=r"^p:"))
     app.add_handler(CallbackQueryHandler(handle_review_callback, pattern=r"^rv"))

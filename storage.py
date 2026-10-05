@@ -341,6 +341,17 @@ def _init_db(conn: sqlite3.Connection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_coach_eval_rating
             ON coach_evaluations (rating, updated_at DESC);
+
+        CREATE TABLE IF NOT EXISTS broadcasts (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            admin_id      INTEGER NOT NULL,
+            body          TEXT    NOT NULL,
+            audience      TEXT    NOT NULL,
+            sent_count    INTEGER NOT NULL,
+            blocked_count INTEGER NOT NULL,
+            failed_count  INTEGER NOT NULL,
+            created_at    TEXT    NOT NULL
+        );
     """
     )
     _migrate_schema(conn)
@@ -2579,6 +2590,53 @@ def get_users_for_digest() -> list[dict]:
             """
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def list_broadcast_chat_ids() -> list[int]:
+    """Telegram chat id всех пользователей с привязкой Telegram."""
+    with _connect() as conn:
+        _init_db(conn)
+        rows = conn.execute(
+            """
+            SELECT i.subject
+            FROM identities i
+            JOIN users u ON u.user_id = i.player_id
+            WHERE i.provider = ?
+            ORDER BY u.user_id
+            """,
+            (PROVIDER_TELEGRAM,),
+        ).fetchall()
+    chat_ids = []
+    for row in rows:
+        try:
+            chat_ids.append(int(row["subject"]))
+        except (TypeError, ValueError):
+            continue
+    return chat_ids
+
+
+def record_broadcast(
+    admin_id: int,
+    body: str,
+    sent: int,
+    blocked: int,
+    failed: int,
+    audience: str = "all_telegram",
+) -> int:
+    created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with _connect() as conn:
+        _init_db(conn)
+        cursor = conn.execute(
+            """
+            INSERT INTO broadcasts
+                (admin_id, body, audience, sent_count, blocked_count,
+                 failed_count, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (admin_id, body, audience, sent, blocked, failed, created_at),
+        )
+        conn.commit()
+        return int(cursor.lastrowid)
 
 
 def mark_digest_sent(user_id: int, had_analysis: bool) -> None:
