@@ -186,19 +186,52 @@ Example:
 Important: if the video shows no tennis actions or content is unsuitable — say so politely instead of inventing an analysis.
 """
 
-FOLLOW_UP_SYSTEM_PROMPT_BASE = """\
+FOLLOW_UP_OUT_OF_SCOPE = "OUT_OF_SCOPE"
+
+FOLLOW_UP_SYSTEM_PROMPT_BASE = f"""\
 You are the same AI tennis-technique assistant who prepared the draft \
 the player already received. A human staff coach is in charge. Never speak as \
 the player's coach and never write in first person as a coach. The user is asking \
 follow-up questions in chat.
 
 Rules:
-1. Answer in the context of the given analysis. The video is not available now — rely on the report and tennis knowledge.
-2. If the question concerns a detail not in the analysis, say so honestly and give a cautious hypothesis or ask for another angle.
-3. If the report has no "Next video" / "Следующее видео" section — on the first follow-up, suggest what to film (stroke, angle, 10–20 sec).
-4. Explain terms in plain language, suggest specific drills and training focuses.
-5. Be concise: 1–4 paragraphs, without repeating the entire report.
+1. The video is not available. Rely on the report, this chat, and tennis knowledge. \
+Past reports in the prompt stay available. This chat is only about the current analysis.
+2. In scope: this analysis, and tennis in general — technique, tactics, rules, \
+equipment, drills, and terminology.
+3. Out of scope: any other topic, another sport as the main subject, betting, and \
+medical diagnosis or treatment. If the message has no in-scope part, reply with \
+exactly {FOLLOW_UP_OUT_OF_SCOPE} and nothing else.
+4. If the message mixes an in-scope part with something else, answer only the \
+in-scope part. Do not develop the rest. Do not use {FOLLOW_UP_OUT_OF_SCOPE} when \
+an in-scope part exists.
+5. A general tennis question gets a direct answer. Mention this report only when \
+the link is obvious: the same stroke or the same error. Do not retell the report.
+6. Short acknowledgements such as "ok" or "thanks" get a short reply that invites \
+a question about this analysis. Do not answer them with {FOLLOW_UP_OUT_OF_SCOPE}.
+7. Pain or injury: no diagnosis and no treatment plan. One sentence to see a doctor. \
+Technical changes that reduce load on that stroke are in scope.
+8. Suggest what to film next (stroke, angle, 10–20 sec) only on the first follow-up \
+that is about this analysis, and only if the report has no "Next video" / \
+"Следующее видео" section. Do not add that suggestion to a general tennis answer, \
+an acknowledgement, or an out-of-scope reply.
+9. If the question concerns a detail not in the analysis, say so honestly and give \
+a cautious hypothesis or ask for another angle.
+10. Explain terms in plain language. Suggest specific drills and training focuses \
+when that helps.
+11. Be concise: 1–4 paragraphs, without repeating the entire report.
 """
+
+
+def follow_up_player_text(model_text: str, refusal: str) -> str:
+    raw = (model_text or "").strip()
+    if FOLLOW_UP_OUT_OF_SCOPE not in raw:
+        return raw
+    remainder = raw.replace(FOLLOW_UP_OUT_OF_SCOPE, "").strip(" \t\n.!?…")
+    if not remainder:
+        return refusal
+    return raw.replace(FOLLOW_UP_OUT_OF_SCOPE, "").strip()
+
 
 _USER_PROMPTS = {
     "ru": USER_PROMPT_RU,
@@ -372,9 +405,6 @@ def _append_personal(
     practice_ctx = build_practice_block(ctx.get("practice") or [], language_code)
     if practice_ctx:
         parts.append(practice_ctx)
-    notes_ctx = build_notes_block(ctx.get("notes") or [], language_code)
-    if notes_ctx:
-        parts.append(notes_ctx)
     path_ctx = build_path_block(ctx.get("path"), language_code)
     if path_ctx:
         parts.append(path_ctx)
@@ -1227,26 +1257,6 @@ def build_practice_block(plans: list, language_code: str = "en") -> str:
             lines.append(f'- {answer}: focus "{focus}"; drill {drill}')
     lines.append("")
     lines.extend(rules)
-    lines.append("─────────────────────────────────────────")
-    return "\n".join(lines)
-
-
-def build_notes_block(notes: list, language_code: str = "en") -> str:
-    rows = [item for item in (notes or []) if (item.get("text") or "").strip()]
-    if not rows:
-        return ""
-    ui = _ui_lang(language_code)
-    header = "ИГРОК ПИСАЛ:" if ui == "ru" else "THE PLAYER WROTE:"
-    rule = (
-        "Учитывай жалобы, ограничения и то, что игрок не понял. Не выдумывай, чего в заметках нет."
-        if ui == "ru"
-        else "Use complaints, limits, and what the player did not understand. Do not invent beyond the notes."
-    )
-    lines = ["─────────────────────────────────────────", header, ""]
-    for item in rows:
-        lines.append(f"- {item.get('created_at') or '?'}: {item['text'].strip()}")
-    lines.append("")
-    lines.append(rule)
     lines.append("─────────────────────────────────────────")
     return "\n".join(lines)
 

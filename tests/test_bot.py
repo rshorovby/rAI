@@ -68,16 +68,184 @@ def _make_coach_context(settings: Settings):
     return context
 
 
-def test_free_question_is_remembered_button_is_not(tmp_path):
-    from bot import _remember_free_question
+def _player_update(text: str, user_id: int = 7):
+    user = MagicMock()
+    user.id = user_id
+    user.username = "ann"
+    user.first_name = "Ann"
+    user.last_name = None
+    user.language_code = "ru"
+    update = MagicMock()
+    update.message = MagicMock()
+    update.message.text = text
+    update.message.from_user = user
+    update.message.chat.id = user_id
+    update.message.reply_text = AsyncMock()
+    update.effective_user = user
+    return update
+
+
+def test_off_topic_reply_is_fixed_and_not_saved_as_note(tmp_path):
+    from analyzer import AnalysisResult
+    from bot import SESSION_KEY, _process_followup
+    from pricing import Usage
 
     with patch.object(storage, "DB_PATH", tmp_path / "notes.db"):
-        _remember_free_question(3, "болит локоть на бэкхенде", None)
-        _remember_free_question(3, "что с ногами", "Топ-3")
-        _remember_free_question(3, "   ", None)
-        notes = storage.recent_player_notes(3)
-    assert len(notes) == 1
-    assert "локоть" in notes[0]["text"]
+        player_id = storage.upsert_user(7, "ann", "Ann", None, "ru")
+        storage.save_active_session(
+            player_id,
+            {"analysis": "отчёт", "history": [], "stroke": "forehand"},
+        )
+        context = MagicMock()
+        context.user_data = {"user_id": player_id}
+        context.bot.send_chat_action = AsyncMock()
+        analyzer = MagicMock()
+        analyzer._model = "m"
+        analyzer.chat.return_value = AnalysisResult(
+            text="OUT_OF_SCOPE",
+            usage=Usage(),
+            model="m",
+        )
+        context.application.bot_data = {"analyzer": analyzer, "settings": None}
+        sent = []
+
+        async def _send(_ctx, _chat_id, text, reply_markup=None):
+            sent.append(text)
+
+        async def _run():
+            with (
+                patch("bot.services.load_analysis_context", return_value={}),
+                patch("bot._cabinet_notify", new=AsyncMock()),
+                patch("bot.storage.log_usage"),
+                patch("bot._send_formatted", new=_send),
+            ):
+                await _process_followup(
+                    context,
+                    context.user_data,
+                    7,
+                    "напиши стих",
+                    lang="ru",
+                    language_code="ru",
+                )
+
+        asyncio.run(_run())
+
+        assert sent == [
+            "Могу отвечать только по этому разбору и по теннису. "
+            "По другим темам помочь не могу."
+        ]
+        history = context.user_data[SESSION_KEY]["history"]
+        assert history[-1]["user"] == "напиши стих"
+        assert history[-1]["assistant"] == sent[0]
+        assert storage.recent_player_notes(player_id) == []
+
+
+def test_new_analysis_asks_before_reset_and_keep_leaves_the_chat(tmp_path):
+    from bot import NEW_CONFIRM_PENDING_KEY, handle_text, new_command
+
+    with patch.object(storage, "DB_PATH", tmp_path / "new.db"):
+        player_id = storage.upsert_user(7, "ann", "Ann", None, "ru")
+        storage.save_active_session(
+            player_id,
+            {"analysis": "отчёт", "history": [{"user": "q", "assistant": "a"}]},
+        )
+        update = _player_update("🔄 Новый разбор")
+        context = MagicMock()
+        context.user_data = {}
+        context.application.bot_data = {}
+
+        async def _ask():
+            await new_command(update, context)
+
+        asyncio.run(_ask())
+        assert context.user_data[NEW_CONFIRM_PENDING_KEY] is True
+        assert storage.load_active_session(player_id)["analysis"] == "отчёт"
+        prompt = update.message.reply_text.await_args.args[0]
+        assert "сбросится" in prompt
+
+        update.message.text = "какой курс доллара"
+        update.message.reply_text = AsyncMock()
+
+        async def _stray():
+            with patch(
+                "bot._handle_coach_forum_message",
+                new=AsyncMock(return_value=False),
+            ):
+                await handle_text(update, context)
+
+        asyncio.run(_stray())
+        assert context.user_data[NEW_CONFIRM_PENDING_KEY] is True
+        assert "сбросится" in update.message.reply_text.await_args.args[0]
+        assert storage.load_active_session(player_id)["analysis"] == "отчёт"
+
+        update.message.text = "Оставить"
+        update.message.reply_text = AsyncMock()
+
+        async def _keep():
+            with patch(
+                "bot._handle_coach_forum_message",
+                new=AsyncMock(return_value=False),
+            ):
+                await handle_text(update, context)
+
+        asyncio.run(_keep())
+        assert NEW_CONFIRM_PENDING_KEY not in context.user_data
+        assert storage.load_active_session(player_id)["history"][0]["user"] == "q"
+        assert update.message.reply_text.await_args.args[0] == "Продолжаем этот разбор."
+
+
+def test_new_analysis_reset_clears_only_the_chat(tmp_path):
+    from bot import NEW_CONFIRM_PENDING_KEY, handle_text, new_command
+
+    with patch.object(storage, "DB_PATH", tmp_path / "reset.db"):
+        player_id = storage.upsert_user(7, "ann", "Ann", None, "ru")
+        storage.save_active_session(player_id, {"analysis": "отчёт", "history": []})
+        update = _player_update("/new")
+        context = MagicMock()
+        context.user_data = {}
+        context.application.bot_data = {}
+
+        async def _ask():
+            await new_command(update, context)
+
+        asyncio.run(_ask())
+        update.message.text = "Сбросить"
+        update.message.reply_text = AsyncMock()
+
+        async def _reset():
+            with patch(
+                "bot._handle_coach_forum_message",
+                new=AsyncMock(return_value=False),
+            ):
+                await handle_text(update, context)
+
+        asyncio.run(_reset())
+        assert NEW_CONFIRM_PENDING_KEY not in context.user_data
+        assert storage.load_active_session(player_id) is None
+        assert (
+            update.message.reply_text.await_args.args[0]
+            == "Переписка сброшена. Отправьте видео для разбора."
+        )
+
+
+def test_new_without_analysis_asks_for_a_video(tmp_path):
+    from bot import new_command
+
+    with patch.object(storage, "DB_PATH", tmp_path / "empty.db"):
+        storage.upsert_user(7, "ann", "Ann", None, "ru")
+        update = _player_update("/new")
+        context = MagicMock()
+        context.user_data = {}
+        context.application.bot_data = {}
+
+        async def _run():
+            await new_command(update, context)
+
+        asyncio.run(_run())
+        assert (
+            update.message.reply_text.await_args.args[0]
+            == "Отправьте видео для разбора."
+        )
 
 
 def test_coach_forum_text_goes_to_player():

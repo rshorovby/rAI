@@ -1,11 +1,44 @@
 from prompts import (
+    FOLLOW_UP_OUT_OF_SCOPE,
     FOLLOW_UP_SYSTEM_PROMPT_BASE,
     SYSTEM_PROMPT_BASE,
     USER_PROMPT_EN,
     USER_PROMPT_RU,
     build_analysis_prompt,
+    build_system_prompt,
     build_video_context_block,
+    follow_up_player_text,
 )
+
+
+def test_follow_up_scope_and_marker():
+    text = FOLLOW_UP_SYSTEM_PROMPT_BASE
+    assert FOLLOW_UP_OUT_OF_SCOPE in text
+    assert "another sport as the main subject" in text
+    assert "no diagnosis and no treatment plan" in text
+    assert "only on the first follow-up" in text
+    assert "Do not retell the report" in text
+
+
+def test_follow_up_player_text_replaces_only_a_bare_marker():
+    refusal = "нет"
+    assert follow_up_player_text("OUT_OF_SCOPE", refusal) == refusal
+    assert follow_up_player_text("  OUT_OF_SCOPE.  ", refusal) == refusal
+    assert follow_up_player_text("OUT_OF_SCOPE\nКонтакт впереди.", refusal) == (
+        "Контакт впереди."
+    )
+    assert follow_up_player_text("Хват continental.", refusal) == "Хват continental."
+
+
+def test_chat_notes_are_not_injected_into_the_prompt():
+    text = build_system_prompt(
+        "ru",
+        prompt_context={
+            "notes": [{"created_at": "1", "text": "напиши стих"}],
+        },
+    )
+    assert "напиши стих" not in text
+    assert "ИГРОК ПИСАЛ" not in text
 
 
 def test_prompts_assistant_not_coach_persona():

@@ -122,6 +122,7 @@ from onboarding import (
     step_progress,
 )
 from pricing import cost_for_usage
+from prompts import follow_up_player_text
 from report_parser import format_scores_line, sparkline
 from video_intake import (
     STROKE_KEYS,
@@ -150,6 +151,7 @@ SUPPORTED_MIME_TYPES = {
 }
 
 SESSION_KEY = "rally_session"
+NEW_CONFIRM_PENDING_KEY = "new_analysis_confirm"
 MAX_HISTORY_TURNS = 10
 
 # callback_data → ключи i18n (подпись кнопки, промпт для модели)
@@ -634,13 +636,39 @@ async def _send_formatted(
         await context.bot.send_message(chat_id=chat_id, text=text, **kwargs)
 
 
-def _remember_free_question(
-    user_id, user_text: str, question_label: Optional[str]
-) -> None:
-    """Свободный вопрос игрока остаётся в памяти следующего разбора. Кнопки — нет."""
-    if not user_id or question_label:
-        return
-    storage.add_player_note(user_id, user_text)
+def _new_confirm_pending(user_data: dict) -> bool:
+    return bool(user_data.get(NEW_CONFIRM_PENDING_KEY))
+
+
+def _set_new_confirm_pending(user_data: dict) -> None:
+    user_data[NEW_CONFIRM_PENDING_KEY] = True
+
+
+def _clear_new_confirm_pending(user_data: dict) -> None:
+    user_data.pop(NEW_CONFIRM_PENDING_KEY, None)
+
+
+def _new_confirm_keyboard(lang: str) -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        [
+            [KeyboardButton(t(lang, "new_confirm_yes"))],
+            [KeyboardButton(t(lang, "new_confirm_no"))],
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+    )
+
+
+def _is_new_confirm_choice(text: str, key: str) -> bool:
+    return any(text == t(lang, key) for lang in UI_LANGS)
+
+
+def _reset_chat_state(user_data: dict) -> None:
+    _clear_new_confirm_pending(user_data)
+    clear_intake_state(user_data)
+    clear_dialog(user_data)
+    user_data.pop("pending_video", None)
+    _clear_session(user_data)
 
 
 async def _process_followup(
@@ -706,8 +734,7 @@ async def _process_followup(
         coach_corrections,
         analysis_ctx or None,
     )
-    await asyncio.to_thread(_remember_free_question, user_id, user_text, question_label)
-    reply = result.text
+    reply = follow_up_player_text(result.text, t(ui_lang, "followup_out_of_scope"))
     logger.info("Ответ ИИ получен (%s символов)", len(reply))
     if user_id:
         await asyncio.to_thread(
@@ -817,13 +844,42 @@ async def link_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 async def new_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     lang = _lang_from_update(update, context)
-    _clear_session(context.user_data)
-    clear_intake_state(context.user_data)
-    clear_dialog(context.user_data)
-    context.user_data.pop("pending_video", None)
+    await _touch_user(update, context)
+    session = _get_session(context.user_data)
+    if session.get("analysis"):
+        _set_new_confirm_pending(context.user_data)
+        await update.message.reply_text(
+            t(lang, "new_confirm_prompt"),
+            reply_markup=_new_confirm_keyboard(lang),
+        )
+        return
+    _reset_chat_state(context.user_data)
     await update.message.reply_text(
-        t(lang, "new_reset"),
+        t(lang, "new_send_video"),
         reply_markup=_main_menu_keyboard(lang),
+    )
+
+
+async def _confirm_new_analysis(
+    message, context: ContextTypes.DEFAULT_TYPE, lang: str, user_text: str
+) -> None:
+    if _is_new_confirm_choice(user_text, "new_confirm_yes"):
+        _reset_chat_state(context.user_data)
+        await message.reply_text(
+            t(lang, "new_reset"),
+            reply_markup=_main_menu_keyboard(lang),
+        )
+        return
+    if _is_new_confirm_choice(user_text, "new_confirm_no"):
+        _clear_new_confirm_pending(context.user_data)
+        await message.reply_text(
+            t(lang, "new_kept"),
+            reply_markup=_main_menu_keyboard(lang),
+        )
+        return
+    await message.reply_text(
+        t(lang, "new_confirm_prompt"),
+        reply_markup=_new_confirm_keyboard(lang),
     )
 
 
@@ -1048,6 +1104,7 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     user_comment = message.caption
+    _clear_new_confirm_pending(context.user_data)
     context.user_data["pending_video"] = {
         "file_id": video.file_id,
         "mime_type": mime_type,
@@ -3412,6 +3469,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     if is_intake_active(context.user_data):
         await _handle_video_intake_text(update, context, lang, language_code, user_text)
+        return
+
+    if _new_confirm_pending(context.user_data):
+        await _confirm_new_analysis(message, context, lang, user_text)
         return
 
     session = _get_session(context.user_data)

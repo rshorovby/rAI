@@ -151,7 +151,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "После видео вы сначала получаете AI-разбор, а опытный тренер может "
             "дополнить его отдельным сообщением. Вопросы пишите обычным текстом — "
             "бот отвечает в контексте последнего видео. Новое видео начинает новый диалог.\n\n"
-            "/new — сбросить текущий диалог без отправки видео\n"
+            "/new — сбросить переписку текущего разбора. Если она есть, "
+            "бот сначала спросит подтверждение.\n"
             "/link — код привязки к приложению iOS"
         ),
         "btn_help": "📋 Справка",
@@ -235,7 +236,19 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "Разборов за неделю: {analyses}\n\n"
             "Снимите короткое видео и проверим прогресс."
         ),
-        "new_reset": "Диалог сброшен. Отправьте новое видео для разбора.",
+        "new_confirm_prompt": (
+            "Переписка этого разбора сбросится. Профиль и прошлые отчёты останутся. "
+            "Что учесть в новом видео — напишите в подписи к ролику."
+        ),
+        "new_confirm_yes": "Сбросить",
+        "new_confirm_no": "Оставить",
+        "new_reset": "Переписка сброшена. Отправьте видео для разбора.",
+        "new_send_video": "Отправьте видео для разбора.",
+        "new_kept": "Продолжаем этот разбор.",
+        "followup_out_of_scope": (
+            "Могу отвечать только по этому разбору и по теннису. "
+            "По другим темам помочь не могу."
+        ),
         "history_empty": (
             "У вас пока нет сохранённых разборов. Отправьте видео — и я его запомню."
         ),
@@ -715,7 +728,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "After you send a video you get an AI review first; an experienced coach "
             "may add a separate comment. Send text questions anytime — the bot replies "
             "in context of the last video. A new video starts a new dialog.\n\n"
-            "/new — reset the current dialog without sending a video\n"
+            "/new — reset the chat of the current analysis. If one is open, "
+            "the bot asks for confirmation first.\n"
             "/link — code to link the iOS app"
         ),
         "btn_help": "📋 Help",
@@ -796,7 +810,19 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "Analyses this week: {analyses}\n\n"
             "Film a short clip and we'll check your progress."
         ),
-        "new_reset": "Dialog reset. Send a new video for analysis.",
+        "new_confirm_prompt": (
+            "This analysis chat will be reset. Your profile and past reports stay. "
+            "Put anything the new video should take into account in the video caption."
+        ),
+        "new_confirm_yes": "Reset",
+        "new_confirm_no": "Keep",
+        "new_reset": "Chat reset. Send a video for analysis.",
+        "new_send_video": "Send a video for analysis.",
+        "new_kept": "Continuing this analysis.",
+        "followup_out_of_scope": (
+            "I can only answer about this analysis and about tennis. "
+            "I can't help with other topics."
+        ),
         "history_empty": (
             "You don't have any saved analyses yet. Send a video — I'll remember it."
         ),
