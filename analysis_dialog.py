@@ -191,15 +191,8 @@ def keyboard_error(lang: str, state: dict) -> InlineKeyboardMarkup:
 
 
 def keyboard_after_error_deep(lang: str, state: dict) -> InlineKeyboardMarkup:
-    errors = state["sections"].get("errors") or []
     idx = int(state.get("error_index") or 0)
-    rows: list[list[InlineKeyboardButton]] = []
-    if idx + 1 < len(errors):
-        rows.append([_btn(lang, "dialog_btn_err_next", "d:err:next")])
-    else:
-        rows.append([_btn(lang, "dialog_btn_err_done", "d:err:done")])
-    rows.append([_btn(lang, "dialog_btn_finish", "d:finish")])
-    return _with_summary_row(lang, rows)
+    return keyboard_observation(lang, state, idx, include_deep=False)
 
 
 def keyboard_top3(lang: str, _state: dict) -> InlineKeyboardMarkup:
@@ -317,10 +310,60 @@ def _severity_emoji(text: str) -> str:
     return ""
 
 
+def observation_total(state: dict) -> int:
+    sections = state.get("sections") or {}
+    remarks = sections.get("remarks") or []
+    if remarks:
+        return len(remarks)
+    return len(sections.get("errors") or [])
+
+
+def keyboard_closing(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [_btn(lang, "dialog_btn_focus", "d:focus")],
+            [_btn(lang, "dialog_btn_finish", "d:finish")],
+        ]
+    )
+
+
+def keyboard_after_focus(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[_btn(lang, "dialog_btn_finish", "d:finish")]])
+
+
+def keyboard_observation(
+    lang: str,
+    state: dict,
+    index: int,
+    *,
+    include_deep: bool = True,
+) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    if include_deep:
+        rows.append([_btn(lang, "dialog_btn_err_deep", f"d:err:deep:{index}")])
+    if index + 1 < observation_total(state):
+        rows.append([_btn(lang, "dialog_btn_obs_next", f"d:obs:next:{index}")])
+    else:
+        rows.append([_btn(lang, "dialog_btn_focus", "d:focus")])
+        rows.append([_btn(lang, "dialog_btn_finish", "d:finish")])
+    return InlineKeyboardMarkup(rows)
+
+
 def keyboard_remark(lang: str, index: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [[_btn(lang, "dialog_btn_err_deep", f"d:err:deep:{index}")]]
     )
+
+
+def format_focus_message(lang: str, focus: str, drill: str = "") -> str:
+    focus = (focus or "").strip()
+    drill = (drill or "").strip()
+    if not focus:
+        return t(lang, "dialog_focus_empty")
+    text = t(lang, "dialog_focus_ready", focus=focus)
+    if drill:
+        text += "\n\n" + t(lang, "dialog_focus_drill", drill=drill)
+    return text
 
 
 def format_error_card(lang: str, state: dict) -> str:
@@ -330,18 +373,13 @@ def format_error_card(lang: str, state: dict) -> str:
         if idx < 0 or idx >= len(remarks):
             return t(lang, "dialog_no_errors")
         remark = remarks[idx]
-        label_key = (
-            "dialog_label_strength"
-            if remark["kind"] == "strength"
-            else "dialog_label_remark"
-        )
         emoji = _severity_emoji(remark["card"])
         badge = f"{emoji} " if emoji else ""
         return t(
             lang,
             "dialog_note_title",
             badge=badge,
-            label=t(lang, label_key),
+            label=t(lang, "dialog_label_observation"),
             n=idx + 1,
             total=len(remarks),
             text=remark["card"],

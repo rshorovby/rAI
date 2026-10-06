@@ -101,6 +101,11 @@ def test_format_practice_post_and_followup():
     assert "Вопрос" in q
     assert "ракетку" in q
     assert "Хват" in q
+    answer = cabinet.format_followup_reply(3, reply="Кисть впереди.", label="Хват")
+    assert "Ответ бота" in answer
+    assert "Кисть впереди." in answer
+    assert "Хват" in answer
+    assert cabinet.format_followup_reply(3, reply="  ") == ""
 
 
 def test_format_error_retry_same_focus_reset():

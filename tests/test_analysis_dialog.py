@@ -138,12 +138,12 @@ def test_structured_remarks_skip_empty_and_hide_recommendation():
     assert "Сместить точку подброса" in remarks[0]["full"]
     state["error_index"] = 0
     first = format_error_card("ru", state)
-    assert "Замечание 1 из 3" in first
+    assert "Наблюдение 1 из 3" in first
     assert "Ошибка" not in first
     assert "Рекомендация" not in first
     state["error_index"] = 1
     second = format_error_card("ru", state)
-    assert "Сильная сторона 2 из 3" in second
+    assert "Наблюдение 2 из 3" in second
     assert (
         keyboard_remark("ru", 1).inline_keyboard[0][0].callback_data == "d:err:deep:1"
     )
@@ -179,6 +179,38 @@ def test_summary_drops_error_and_deep_dive_buttons():
         "d:next",
         "d:summary",
     ]
+
+
+def test_observation_keyboard_next_then_closing():
+    from analysis_dialog import (
+        format_summary_message,
+        keyboard_observation,
+        start_dialog,
+    )
+
+    state = start_dialog({}, STRUCTURED, "ru")
+    first = keyboard_observation("ru", state, 0)
+    assert [
+        button.callback_data for row in first.inline_keyboard for button in row
+    ] == [
+        "d:err:deep:0",
+        "d:obs:next:0",
+    ]
+    assert "Углубиться" in first.inline_keyboard[0][0].text
+    assert "следующему наблюдению" in first.inline_keyboard[1][0].text
+
+    last = keyboard_observation("ru", state, 2)
+    assert [button.callback_data for row in last.inline_keyboard for button in row] == [
+        "d:err:deep:2",
+        "d:focus",
+        "d:finish",
+    ]
+    assert "Сформировать фокус" in last.inline_keyboard[1][0].text
+    assert "Завершить разбор" in last.inline_keyboard[2][0].text
+
+    summary = format_summary_message("ru", state)
+    assert summary.startswith("*Кратко по видео*")
+    assert "Готово" not in summary
 
 
 def test_start_and_clear_dialog():

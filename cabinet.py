@@ -353,6 +353,21 @@ def format_followup(
     return f"{head}\nid: {user_id}\n\n{q}"
 
 
+def format_followup_reply(
+    user_id: int,
+    *,
+    reply: str,
+    label: str = "",
+) -> str:
+    body = (reply or "").strip()
+    if not body:
+        return ""
+    head = "🤖 Ответ бота"
+    if label:
+        head = f"{head} ({label})"
+    return f"{head}\nid: {user_id}\n\n{body}"
+
+
 def format_analysis_failed(
     user_id: int,
     *,

@@ -44,19 +44,24 @@ from analysis_dialog import (
     current_error_text,
     current_remark_kind,
     format_error_card,
+    format_focus_message,
     format_section_title,
     format_summary_message,
     get_dialog,
     keyboard_after_drills,
     keyboard_after_error_deep,
+    keyboard_after_focus,
     keyboard_after_prio,
     keyboard_after_video,
     keyboard_categories,
+    keyboard_closing,
     keyboard_error,
     keyboard_finish,
+    keyboard_observation,
     keyboard_remark,
     keyboard_summary,
     keyboard_top3,
+    observation_total,
 )
 from analysis_dialog import (
     parse_report as parse_dialog_sections,
@@ -152,6 +157,7 @@ SUPPORTED_MIME_TYPES = {
 }
 
 SESSION_KEY = "rally_session"
+_CLEANUP_KEY = "analysis_cleanup_ids"
 NEW_CONFIRM_PENDING_KEY = "new_analysis_confirm"
 MAX_HISTORY_TURNS = 10
 
@@ -778,6 +784,13 @@ async def _process_followup(
             None,
             cost_for_usage(result.usage, result.model),
         )
+        await _cabinet_notify(
+            context,
+            user_id,
+            cabinet.format_followup_reply(
+                user_id, reply=reply, label=question_label or ""
+            ),
+        )
     history.append({"user": user_text, "assistant": reply})
     session["history"] = history[-MAX_HISTORY_TURNS:]
     _persist_session(user_data)
@@ -1331,6 +1344,7 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     }
     clear_intake_state(context.user_data)
     start_intake_state(context.user_data)
+    context.user_data[_CLEANUP_KEY] = []
     await _log_event(player_id, EVENT_VIDEO_SENT)
     await _cabinet_notify(
         context,
@@ -1341,10 +1355,11 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         user=message.from_user,
     )
 
-    await message.reply_text(
+    prompt = await message.reply_text(
         f"{t(lang, 'vi_got_video')}\n{t(lang, 'vi_question_stroke')}",
         reply_markup=intake_keyboard(lang, "stroke"),
     )
+    _remember_cleanup(context.user_data, prompt.message_id)
 
 
 async def _begin_analysis_after_intake(
@@ -1376,11 +1391,12 @@ async def _begin_analysis_after_intake(
         pending["cabinet_video_sent"] = sent
     clear_intake_state(context.user_data)
 
-    await message.reply_text(
+    _remember_cleanup(context.user_data, message.message_id)
+    status_message = await message.reply_text(
         t(lang, "review_ack"),
         reply_markup=_main_menu_keyboard(lang),
     )
-    status_message = await message.reply_text(t(lang, "review_preparing"))
+    _remember_cleanup(context.user_data, status_message.message_id)
     await _run_video_analysis(
         context, message.chat_id, player_id, status_message, lang, language_code
     )
@@ -1397,13 +1413,15 @@ async def _handle_video_intake_text(
     step = get_intake_step(context.user_data)
     if not step:
         return
+    _remember_cleanup(context.user_data, message.message_id)
 
     if not context.user_data.get("pending_video"):
         clear_intake_state(context.user_data)
-        await message.reply_text(
+        sent = await message.reply_text(
             t(lang, "video_not_found"),
             reply_markup=_main_menu_keyboard(lang),
         )
+        _remember_cleanup(context.user_data, sent.message_id)
         return
 
     if is_intake_skip_text(lang, user_text):
@@ -1412,19 +1430,21 @@ async def _handle_video_intake_text(
 
     value = match_intake_answer(lang, step, user_text)
     if not value:
-        await message.reply_text(
+        sent = await message.reply_text(
             t(lang, "vi_invalid"),
             reply_markup=intake_keyboard(lang, step),
         )
+        _remember_cleanup(context.user_data, sent.message_id)
         return
 
     get_intake_answers(context.user_data)[step] = value
     next_step = advance_intake_step(context.user_data)
     if next_step:
-        await message.reply_text(
+        sent = await message.reply_text(
             t(lang, f"vi_question_{next_step}"),
             reply_markup=intake_keyboard(lang, next_step),
         )
+        _remember_cleanup(context.user_data, sent.message_id)
         return
 
     await _begin_analysis_after_intake(update, context, lang, language_code)
@@ -1862,23 +1882,67 @@ async def _handle_dialog_action(
         )
         return
 
-    if action == "err:next":
-        errors = sections.get("errors") or []
-        idx = int(state.get("error_index") or 0) + 1
-        if idx >= len(errors):
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=t(lang, "dialog_errors_done"),
-                reply_markup=keyboard_finish(lang),
-            )
+    if action == "err:next" or action.startswith("obs:next:"):
+        total = observation_total(state)
+        from_card = action.startswith("obs:next:")
+        if from_card:
+            try:
+                current = int(action.rsplit(":", 1)[-1])
+            except ValueError:
+                return
+        else:
+            current = int(state.get("error_index") or 0)
+        next_index = current + 1
+        shown = int(state.get("shown_count") or 0)
+        if next_index >= total or (from_card and next_index < shown):
+            if not from_card and next_index >= total:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=t(lang, "dialog_errors_done"),
+                    reply_markup=keyboard_finish(lang),
+                )
             return
-        state["error_index"] = idx
-        state["step"] = "errors"
+        state["error_index"] = next_index
+        state["step"] = "observations"
+        state["shown_count"] = max(shown, next_index + 1)
+        if from_card and query and query.message:
+            try:
+                await query.edit_message_reply_markup(
+                    reply_markup=keyboard_remark(lang, current)
+                )
+            except BadRequest:
+                pass
         await _reply_dialog(
             context,
             chat_id,
             format_error_card(lang, state),
-            keyboard_error(lang, state),
+            keyboard_observation(lang, state, next_index),
+        )
+        return
+
+    if action == "focus":
+        focus = (state.get("focus_text") or "").strip()
+        drill = (state.get("drill_text") or "").strip()
+        if not focus:
+            session = _get_session(context.user_data)
+            row = await asyncio.to_thread(
+                storage.get_player_focus,
+                query.from_user.id,
+                session.get("stroke"),
+            )
+            if row:
+                focus = (row.get("focus") or "").strip()
+        if not drill:
+            plan = await asyncio.to_thread(
+                storage.get_active_practice_plan, query.from_user.id
+            )
+            if plan:
+                drill = (plan.get("drill_text") or "").strip()
+        await _reply_dialog(
+            context,
+            chat_id,
+            format_focus_message(lang, focus, drill),
+            keyboard_after_focus(lang),
         )
         return
 
@@ -2444,6 +2508,33 @@ async def _analyze_video_once(
         raise TimeoutError("Превышено время ожидания ответа AI.") from exc
 
 
+def _remember_cleanup(user_data: dict, message_id) -> None:
+    if not isinstance(message_id, int):
+        return
+    ids = user_data.setdefault(_CLEANUP_KEY, [])
+    if message_id not in ids:
+        ids.append(message_id)
+
+
+async def _delete_tracked_messages(
+    context: ContextTypes.DEFAULT_TYPE, chat_id: int
+) -> None:
+    """Убирает вопросы и статус между видео и разбором."""
+    ids = context.user_data.pop(_CLEANUP_KEY, None) or []
+    for message_id in reversed(ids):
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+        except BadRequest:
+            continue
+        except Exception:
+            logger.warning(
+                "Не удалось удалить message_id=%s chat_id=%s",
+                message_id,
+                chat_id,
+                exc_info=True,
+            )
+
+
 async def _present_analysis_to_player(
     context: ContextTypes.DEFAULT_TYPE,
     *,
@@ -2468,6 +2559,9 @@ async def _present_analysis_to_player(
         "sections": parse_dialog_sections(report, language_code),
         "visited_categories": [],
         "error_index": 0,
+        "focus_text": focus_text or "",
+        "drill_text": drill_text or "",
+        "shown_count": 0,
     }
     payload = {
         "analysis": report,
@@ -2483,6 +2577,7 @@ async def _present_analysis_to_player(
     if preface:
         await context.bot.send_message(chat_id=chat_id, text=preface)
 
+    total = observation_total(state)
     summary = format_summary_message(lang, state)
     if scores:
         summary = f"{summary}\n\n{format_scores_line(scores, lang)}"
@@ -2490,19 +2585,21 @@ async def _present_analysis_to_player(
         context,
         chat_id,
         summary,
-        keyboard_summary(lang),
+        None if total else keyboard_closing(lang),
     )
 
-    remarks = state["sections"].get("remarks") or []
-    for index in range(len(remarks)):
-        state["error_index"] = index
+    if total:
+        await asyncio.sleep(2)
+        state["error_index"] = 0
+        state["step"] = "observations"
+        state["shown_count"] = 1
         await _reply_dialog(
             context,
             chat_id,
             format_error_card(lang, state),
-            keyboard_remark(lang, index),
+            keyboard_observation(lang, state, 0),
         )
-    state["error_index"] = 0
+        await asyncio.to_thread(storage.save_active_session, user_id, payload)
 
     if create_practice:
         await asyncio.to_thread(
@@ -2593,6 +2690,7 @@ async def _run_video_analysis(
     language_code: str,
     model_override: Optional[str] = None,
 ) -> None:
+    _remember_cleanup(context.user_data, getattr(status_message, "message_id", None))
     pending = context.user_data.get("pending_video")
     if not pending:
         await status_message.edit_text(t(lang, "video_not_found"))
@@ -2809,15 +2907,8 @@ async def _run_video_analysis(
             top_items = sections.get("top3_items") or []
             drill_text = (top_items[0] if top_items else focus_text) or ""
 
-        try:
-            await status_message.delete()
-        except BadRequest:
-            pass
-        if used_simple:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=t(lang, "analysis_used_simple_model"),
-            )
+        await _delete_tracked_messages(context, chat_id)
+        preface = t(lang, "analysis_used_simple_model") if used_simple else None
 
         # Игрок сразу получает AI-разбор и может общаться с ботом.
         await _present_analysis_to_player(
@@ -2832,6 +2923,7 @@ async def _run_video_analysis(
             focus_text=focus_text,
             drill_text=drill_text,
             drill_id=drill_id,
+            preface=preface,
             offer_coach_button=True,
             create_practice=True,
         )
@@ -2961,12 +3053,13 @@ async def _edit_or_reply_status(
             text, parse_mode=parse_mode, reply_markup=reply_markup
         )
     except BadRequest:
-        await context.bot.send_message(
+        sent = await context.bot.send_message(
             chat_id=chat_id,
             text=text,
             parse_mode=parse_mode,
             reply_markup=reply_markup,
         )
+        _remember_cleanup(context.user_data, sent.message_id)
 
 
 async def handle_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

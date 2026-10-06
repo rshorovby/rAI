@@ -264,7 +264,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "status_analyzing_comment": (
             "⏳ Видео и комментарий получены. Анализирую — это может занять до минуты..."
         ),
-        "dialog_ready": "✅ *Готово.* Кратко по видео:",
+        "dialog_ready": "*Кратко по видео*",
         "dialog_section_empty": "_В отчёте нет этой секции._",
         "dialog_title_video": "📹 *Подробнее про видео*",
         "dialog_title_cats": ("🔎 *Углублённый анализ*\nВыберите категорию:"),
@@ -272,6 +272,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "dialog_title_prio": "📌 *Совет {n}*",
         "dialog_title_error": ("🔴 *Ошибка {n} из {total}*\n\n{text}"),
         "dialog_label_remark": "Замечание",
+        "dialog_label_observation": "Наблюдение",
         "dialog_label_strength": "Сильная сторона",
         "dialog_note_title": "{badge}*{label} {n} из {total}*\n\n{text}",
         "dialog_title_finish": (
@@ -291,7 +292,15 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "dialog_btn_feedback": "⭐ Оценить разбор",
         "dialog_btn_err_deep": "🔍 Углубиться / рекомендация",
         "dialog_btn_err_next": "➡️ Следующая ошибка",
+        "dialog_btn_obs_next": "➡️ К следующему наблюдению",
+        "dialog_btn_focus": "🎯 Сформировать фокус",
         "dialog_btn_err_done": "✅ Ошибки закончились",
+        "dialog_focus_ready": "🎯 *Фокус на эту неделю*\n\n{focus}",
+        "dialog_focus_drill": "Упражнение: {drill}",
+        "dialog_focus_empty": (
+            "По этому видео не получилось выбрать один фокус. "
+            "Можно завершить разбор."
+        ),
         "dialog_errors_done": (
             "✅ Все приоритетные ошибки разобрали.\n"
             "Можете вернуться к резюме или завершить разбор."
@@ -836,7 +845,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "status_analyzing_comment": (
             "⏳ Video and caption received. Analyzing — this may take up to a minute..."
         ),
-        "dialog_ready": "✅ *Done.* Brief take on the video:",
+        "dialog_ready": "*Brief take on the video*",
         "dialog_section_empty": "_This section is missing from the report._",
         "dialog_title_video": "📹 *More about the video*",
         "dialog_title_cats": "🔎 *Deep dive*\nPick a category:",
@@ -844,6 +853,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "dialog_title_prio": "📌 *Tip {n}*",
         "dialog_title_error": "🔴 *Error {n} of {total}*\n\n{text}",
         "dialog_label_remark": "Note",
+        "dialog_label_observation": "Observation",
         "dialog_label_strength": "Strength",
         "dialog_note_title": "{badge}*{label} {n} of {total}*\n\n{text}",
         "dialog_title_finish": (
@@ -862,7 +872,14 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "dialog_btn_feedback": "⭐ Rate the analysis",
         "dialog_btn_err_deep": "🔍 Go deeper / tip",
         "dialog_btn_err_next": "➡️ Next error",
+        "dialog_btn_obs_next": "➡️ Next observation",
+        "dialog_btn_focus": "🎯 Set a focus",
         "dialog_btn_err_done": "✅ Errors done",
+        "dialog_focus_ready": "🎯 *Focus for this week*\n\n{focus}",
+        "dialog_focus_drill": "Drill: {drill}",
+        "dialog_focus_empty": (
+            "Couldn't pick a single focus from this video. You can finish the analysis."
+        ),
         "dialog_errors_done": (
             "✅ All priority errors covered.\n"
             "You can go back to the summary or finish."

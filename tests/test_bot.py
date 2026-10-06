@@ -342,6 +342,62 @@ def test_scope_off_keeps_model_text_and_saves_the_note(tmp_path):
         assert [item["text"] for item in notes] == ["напиши стих"]
 
 
+def test_followup_forwards_bot_reply_to_cabinet(tmp_path):
+    from analyzer import AnalysisResult
+    from bot import _process_followup
+    from pricing import Usage
+
+    with patch.object(storage, "DB_PATH", tmp_path / "cabinet-reply.db"):
+        player_id = storage.upsert_user(7, "ann", "Ann", None, "ru")
+        storage.save_active_session(player_id, {"analysis": "отчёт", "history": []})
+        context = MagicMock()
+        context.user_data = {"user_id": player_id}
+        context.bot.send_chat_action = AsyncMock()
+        context.application.bot_data = {
+            "analyzer": MagicMock(_model="m"),
+            "admin_user_ids": (),
+            "settings": None,
+        }
+        context.application.bot_data["analyzer"].chat.return_value = AnalysisResult(
+            text="Кисть впереди контакта.",
+            usage=Usage(),
+            model="m",
+        )
+        notified = []
+
+        async def _notify(_ctx, user_id, text, user=None):
+            notified.append((user_id, text))
+
+        async def _send(_ctx, _chat_id, text, reply_markup=None):
+            return None
+
+        async def _run():
+            with (
+                patch("bot.services.load_analysis_context", return_value={}),
+                patch("bot._cabinet_notify", new=_notify),
+                patch("bot.storage.log_usage"),
+                patch("bot._send_formatted", new=_send),
+            ):
+                await _process_followup(
+                    context,
+                    context.user_data,
+                    7,
+                    "куда смотреть кисть",
+                    question_label="Кисть",
+                    lang="ru",
+                    language_code="ru",
+                )
+
+        asyncio.run(_run())
+        assert notified[0][0] == player_id
+        assert "Вопрос игрока" in notified[0][1]
+        assert "куда смотреть кисть" in notified[0][1]
+        assert notified[1][0] == player_id
+        assert "Ответ бота" in notified[1][1]
+        assert "Кисть впереди контакта." in notified[1][1]
+        assert "(Кисть)" in notified[1][1]
+
+
 def test_coach_forum_text_goes_to_player():
     settings = _coach_forum_settings()
     update = _make_coach_forum_update(text="Смотри на кисть")
@@ -757,6 +813,10 @@ def test_begin_analysis_sends_cabinet_video_before_ai():
             await _begin_analysis_after_intake(update, context, "ru", "ru")
             post_video.assert_awaited()
             run_ai.assert_awaited()
+            assert update.message.reply_text.await_count == 1
+            ack = update.message.reply_text.await_args.args[0]
+            assert "AI-помощник" in ack
+            assert "Анализирую технику" not in ack
             assert post_video.await_count == 1
             assert (
                 post_video.await_args.args[3]
@@ -929,3 +989,77 @@ def test_profile_language_button_sets_bot_and_ai_lang(tmp_path):
         fresh.user_data = {}
         assert _lang_from_update(followup, fresh) == "ru"
         assert fresh.user_data["language_code"] == "ru"
+
+
+def test_delete_tracked_messages_keeps_the_video():
+    from bot import _CLEANUP_KEY, _delete_tracked_messages, _remember_cleanup
+
+    context = MagicMock()
+    context.user_data = {}
+    context.bot.delete_message = AsyncMock()
+    _remember_cleanup(context.user_data, 11)
+    _remember_cleanup(context.user_data, "12")
+    _remember_cleanup(context.user_data, 13)
+
+    async def _run():
+        await _delete_tracked_messages(context, 99)
+
+    asyncio.run(_run())
+    deleted = [
+        call.kwargs["message_id"] for call in context.bot.delete_message.await_args_list
+    ]
+    assert deleted == [13, 11]
+    assert _CLEANUP_KEY not in context.user_data
+
+
+def test_present_analysis_sends_summary_then_first_observation(tmp_path):
+    from bot import _present_analysis_to_player
+
+    report = (
+        "## Краткое резюме\n"
+        "Коротко про удар.\n\n"
+        "## Разбор по категориям\n"
+        "### Техника удара\n"
+        "**Наблюдение:** Локоть высоко.\n"
+        "**Критичность:** 🔴 Критично\n\n"
+        "**Наблюдение:** Нет сплит-степа.\n"
+        "**Критичность:** 🟠 Важно\n"
+    )
+    context = MagicMock()
+    context.user_data = {}
+    context.bot.send_message = AsyncMock()
+
+    async def _run():
+        with (
+            patch.object(storage, "DB_PATH", tmp_path / "t.db"),
+            patch("bot.asyncio.sleep", new=AsyncMock()) as sleep,
+        ):
+            await _present_analysis_to_player(
+                context,
+                chat_id=7,
+                user_id=7,
+                lang="ru",
+                language_code="ru",
+                report=report,
+                scores={},
+                stroke="forehand",
+                focus_text="Опустить локоть",
+                drill_text="Пауза до отскока",
+                drill_id=None,
+            )
+            sleep.assert_awaited_once_with(2)
+
+    asyncio.run(_run())
+    texts = [call.kwargs["text"] for call in context.bot.send_message.await_args_list]
+    assert len(texts) == 2
+    assert "Кратко по видео" in texts[0]
+    assert "Готово" not in texts[0]
+    assert "Локоть высоко" in texts[1]
+    assert "сплит" not in texts[1].lower()
+    markup = context.bot.send_message.await_args_list[1].kwargs["reply_markup"]
+    callbacks = [
+        button.callback_data for row in markup.inline_keyboard for button in row
+    ]
+    assert callbacks == ["d:err:deep:0", "d:obs:next:0"]
+    assert context.user_data["analysis_dialog"]["shown_count"] == 1
+    assert context.user_data["analysis_dialog"]["focus_text"] == "Опустить локоть"
