@@ -85,8 +85,12 @@ def test_format_video_intake_ready():
     assert "Техника удара" in text
     assert "18" in text
     assert "локоть" in text
+    assert "акцент:" in text
     empty = cabinet.format_video_intake_ready(5)
     assert "не указан" in empty
+    assert "акцент" not in empty
+    dash = cabinet.format_video_intake_ready(5, look="—")
+    assert "акцент" not in dash
 
 
 def test_format_practice_post_and_followup():

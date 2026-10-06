@@ -1342,7 +1342,7 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
 
     await message.reply_text(
-        f"{t(lang, 'vi_got_video')}\n\n{t(lang, 'vi_question_stroke')}",
+        f"{t(lang, 'vi_got_video')}\n{t(lang, 'vi_question_stroke')}",
         reply_markup=intake_keyboard(lang, "stroke"),
     )
 

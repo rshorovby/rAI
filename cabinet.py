@@ -277,7 +277,7 @@ def format_video_uploaded(
     comment = (comment or "").strip()
     if comment:
         lines.append(f"подпись: {comment[:300]}")
-    lines.append("статус: уточняет удар/акцент")
+    lines.append("статус: уточняет удар")
     return "\n".join(lines)
 
 
@@ -292,8 +292,10 @@ def format_video_intake_ready(
     lines = [
         f"🎬 Видео готово к разбору\nid: {user_id}",
         f"удар: {(stroke or '').strip() or 'не указан'}",
-        f"акцент: {(look or '').strip() or 'не указан'}",
     ]
+    accent = (look or "").strip()
+    if accent and accent not in ("—", "-", "не указан"):
+        lines.append(f"акцент: {accent}")
     if duration:
         lines.append(f"длина: {duration} сек")
     comment = (comment or "").strip()

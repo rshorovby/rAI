@@ -710,9 +710,9 @@ def build_video_context_block(
         )
     else:
         rules.append(
-            "Акцент игрок не выбирал. Разбери все видимые составные части выбранного удара, не сужай разбор до одной темы."
+            "Разбери все видимые составные части выбранного удара, не сужай разбор до одной темы."
             if base == "ru"
-            else "The player did not pick a focus. Cover every visible part of the selected stroke; do not narrow the review to one theme."
+            else "Cover every visible part of the selected stroke; do not narrow the review to one theme."
         )
 
     from video_intake import intake_value_label

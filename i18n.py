@@ -318,10 +318,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "feedback_not_useful": "👎 Не помогло",
         "feedback_actionable": "✅ Понятно, что делать на тренировке",
         "feedback_thanks": "Спасибо за отзыв — это помогает улучшить разборы.",
-        "vi_got_video": (
-            "📹 Видео получил. Два коротких вопроса — так разбор будет точнее."
-        ),
-        "vi_question_stroke": "На какой удар обращать внимание в первую очередь?",
+        "vi_got_video": "📹 Видео получил.",
+        "vi_question_stroke": "Что будем разбирать в первую очередь?",
         "vi_question_look": "На что смотреть в первую очередь?",
         "vi_skip": "⏭ Пропустить — разбери как есть",
         "vi_invalid": "Выберите вариант на кнопках или нажмите «Пропустить».",
@@ -1026,10 +1024,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "feedback_not_useful": "👎 Not helpful",
         "feedback_actionable": "✅ I know what to do at practice",
         "feedback_thanks": "Thanks for the feedback — it helps improve the analyses.",
-        "vi_got_video": (
-            "📹 Got the video. Two quick questions — so the analysis is more precise."
-        ),
-        "vi_question_stroke": "Which stroke should I focus on first?",
+        "vi_got_video": "📹 Got the video.",
+        "vi_question_stroke": "What should we look at first?",
         "vi_question_look": "What should I look at first?",
         "vi_skip": "⏭ Skip — analyze as-is",
         "vi_invalid": "Choose a button option or tap Skip.",
