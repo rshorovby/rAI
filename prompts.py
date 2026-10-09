@@ -96,6 +96,61 @@ def _append_forehand_checklist(parts: list[str]) -> None:
     parts.append(FOREHAND_CHECKLIST.strip())
 
 
+def backhand_checklist_enabled() -> bool:
+    """Включён по умолчанию. BACKHAND_CHECKLIST=0 выключает."""
+    raw = os.getenv("BACKHAND_CHECKLIST", "").strip().lower()
+    return raw not in ("0", "false", "no", "off")
+
+
+BACKHAND_CHECKLIST = """\
+## ADDITIONAL OBSERVATION CHECKLIST: BACKHAND
+Keep the existing report sections and JSON. Do not replace them with a list of these items.
+Use the checklist to look at the drive more carefully and notice more detail.
+Apply it only when a backhand drive is visible, including inside a rally or a general review. If the clip has no backhand drive, ignore this checklist.
+A backhand slice is outside this checklist. Do not score a slice with these items.
+The report language follows the player. This checklist does not change it.
+
+How to apply:
+1. Use the backhand variant from the player profile when it is set: two-handed uses section B, one-handed uses section C. Review a drive with that section only. Do not apply the other section to the same shot. If the video clearly shows the other variant, trust the video and note the mismatch. If the profile has no variant, identify it from the video. Walk both B and C only when the clip contains both variants as separate shots.
+2. For a left-handed player, mirror left and right. Use the dominant hand from the profile. If it is unset, judge it from the video.
+3. Walk the shared items (A) and the chosen variant (B or C) internally. Do not print them as a list.
+4. Put in the report only what the video confirms: deviations on [BASE] and clear errors on [STYLE]. Place them in the existing sections, priorities, and findings.
+5. If an item cannot be judged from this angle or video quality, stay silent. Do not invent it and do not write "not visible" or «не видно». The general rule to report insufficient data does not apply to these items.
+6. On [STYLE], do not nitpick a personal style. A remark is allowed only when that variant hurts stability, control, or power.
+7. If this checklist disagrees with the backhand reference, build observations from the checklist. Use the reference for explanations and drills.
+
+A. Shared items:
+1. Ready position [BASE]: feet wider than the shoulders, knees bent, weight on the forefoot, racket in front of the body.
+2. Split step [BASE]: judge only if the opponent's hit or a serve is in frame. Otherwise skip.
+3. Movement to the ball [BASE]: small adjustment steps, a comfortable distance to the ball, no shuffling in place and no late arrival. On the backhand, standing too close to the ball is especially a problem.
+4. Preparation (unit turn) [BASE]: shoulders and hips turn together toward the backhand side, and the racket goes back with the torso. Do not require the back to face the net. On an open stance a smaller turn is acceptable.
+5. Stance [STYLE]: open, semi-closed, and closed are all acceptable. What matters is balance and a stance that fits the ball.
+6. Forward start [BASE]: the racket drops below the ball, then moves forward through the ball. The chain is legs, hips, torso, shoulders, arms. Starting with the arms before the body is an error. A low-to-high path by itself is not an error.
+7. Contact [BASE]: contact is in front of the body. On the one-handed drive it is a little farther from the body. Contact height follows the ball: waist to chest is the reference only for a comfortable ball height. A different height on a high or low ball is not an error by itself. The head is stable and the eyes are on the contact point. The wrist is relaxed in the backswing and firms up at contact. Do not confuse this with a stiff wrist for the whole swing.
+8. Balance and recovery [BASE]: stable after the hit and a quick return to position.
+
+B. Two-handed backhand:
+9. Grip [STYLE]: the dominant hand sits closer to the butt, the other hand above it. Different grip combinations are acceptable. Judge only if the grip is distinguishable.
+10. Hand roles [BASE]: the lower hand directs the shot, and the upper hand actively helps accelerate. A passive second hand, or a shot hit almost with one hand, is an error.
+11. Torso and shoulders [BASE]: the shoulders coil away from the net and uncoil with the shot. Note a flat hit with no rotation.
+12. Loading [BASE]: when there is time, weight shifts back, the knees are bent, and the torso coils. On a fast or easy ball, a short preparation is acceptable and is not an error.
+13. Follow-through [STYLE]: both hands continue forward and up, the finish is at the shoulder or above it, and the torso turns toward the net. Note a truncated follow-through and a finish that stays too low.
+
+C. One-handed backhand:
+9. Grip [STYLE]: usually an Eastern backhand or a Continental grip. The hand should not be clenched. Judge only if the grip is distinguishable.
+10. Non-dominant hand in preparation [BASE]: it holds the racket at the throat at the start, then lets go and moves back as a counterweight. A hand that hangs and takes no part is an error.
+11. Arm and shoulder in preparation [BASE]: the hitting shoulder is forward, and the racket goes back without an excessive elbow lift. Do not require the chin to sit over the shoulder.
+12. Contact and arm [BASE]: the arm is nearly straight at contact, and the shoulder and arm work as one line. A bent elbow at contact and a collapsing wrist are errors. The wrist firms up at contact. That is not a stiff wrist for the whole swing.
+13. Follow-through [STYLE]: the racket goes forward and up, the free hand goes back for balance, and the finish is above the shoulder or in a vertical finish. Note a truncated follow-through and a loss of balance.
+"""
+
+
+def _append_backhand_checklist(parts: list[str]) -> None:
+    if not backhand_checklist_enabled():
+        return
+    parts.append(BACKHAND_CHECKLIST.strip())
+
+
 def use_structured_analysis_v2(language_code: str) -> bool:
     """Новый промпт только по-русски и только при включённом флаге."""
     return (
@@ -518,6 +573,7 @@ def build_system_prompt(
         parts.append(tag_line)
     _append_personal(parts, language_code, player_history, active_focus, ctx)
     _append_forehand_checklist(parts)
+    _append_backhand_checklist(parts)
     return "\n\n".join(parts)
 
 
@@ -572,6 +628,7 @@ def _build_system_prompt_v2(
         label_serve_leg_drive=True,
     )
     _append_forehand_checklist(parts)
+    _append_backhand_checklist(parts)
     return "\n\n".join(parts)
 
 
@@ -793,6 +850,8 @@ def build_video_context_block(
     if v2 and rubric_key == "serve":
         rubric = None
     if forehand_checklist_enabled() and rubric_key == "forehand":
+        rubric = None
+    if backhand_checklist_enabled() and rubric_key == "backhand":
         rubric = None
     if rubric:
         lines.append(f"Rubric: {rubric}")
