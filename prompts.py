@@ -202,6 +202,72 @@ def _append_slice_checklist(parts: list[str]) -> None:
     parts.append(SLICE_CHECKLIST.strip())
 
 
+def serve_checklist_enabled() -> bool:
+    """Включён по умолчанию. SERVE_CHECKLIST=0 выключает."""
+    raw = os.getenv("SERVE_CHECKLIST", "").strip().lower()
+    return raw not in ("0", "false", "no", "off")
+
+
+SERVE_CHECKLIST = """\
+## ADDITIONAL OBSERVATION CHECKLIST: SERVE
+Keep the existing report sections and JSON. Do not replace them with a list of these items.
+Use the checklist to look at the serve more carefully and notice more detail.
+Apply it only when a serve is visible, including inside a rally or a general review. If the clip has no serve, ignore this checklist.
+The report language follows the player. This checklist does not change it.
+
+How to apply:
+1. For a left-handed player, mirror left and right. Use the dominant hand from the profile. If it is unset, judge it from the video.
+2. The player's chosen type (flat, slice, kick) is a hint. If the video clearly shows another type, trust the video and note the mismatch. If the type is unsure or cannot be seen, do not invent it and skip the type-specific notes.
+3. Do not label a serve first or second unless the player said so or the sequence shows it. A second serve may be slower and higher over the net. Do not demand maximum power from it.
+4. Walk several serves internally. In the report, keep only repeated confirmed issues. Do not call the toss stable or unstable from a single serve. Compare toss scatter only when several serves are in the clip.
+5. Walk the items internally. Do not print them as a list.
+6. Put in the report only what the video confirms: deviations on [BASE] and clear errors on [STYLE]. Place them in the existing sections, priorities, and findings.
+7. If an item cannot be judged from this angle or video quality, stay silent. Do not invent it and do not write "not visible" or «не видно». Pronation, the wrist at contact, and ball spin are often invisible at low frame rate: stay silent unless they are clearly seen.
+8. On [STYLE], do not nitpick a personal style. A remark is allowed only when that variant hurts stability, control, rhythm, or power.
+9. If this checklist disagrees with the serve reference, build observations from the checklist. Use the reference for explanations and drills.
+10. Do not assess grip or racket-face orientation. A short clip does not show them reliably.
+
+Phase 1. Preparation:
+1. Stance [STYLE]: sideways to the net or at a small angle, feet about shoulder width, front foot toward the service box. Different foot arrangements are acceptable. Note a stance so closed or so open that the body cannot rotate.
+2. Starting rhythm [BASE]: the player settles, the weight is stable, the motion starts smoothly, and the arms and legs stay together. Jerks, a stop in the middle of the motion, and a rush are errors.
+
+Phase 2. Toss:
+3. Toss arm [BASE]: the arm straightens and rises smoothly, and the ball leaves the fingers at about eye level or a little higher, without a wrist flick. A bent tossing arm and a snatched throw are errors.
+4. Toss path and height [BASE]: the ball goes up on a steady vertical line, a little above the racket's full reach, with time to meet it when needed. A toss that is too low, so the player hurries, or so high that the rhythm breaks, is an error. Call the toss inconsistent only across several serves.
+5. Toss relative to the body [BASE]: when the type is known, a flat toss is a little in front and slightly to the racket side of the hitting shoulder, a slice toss is farther to the racket side, and a kick toss is toward the head and a little to the non-racket side. A toss far behind the body, with the player falling back, or so far in front that the player jumps after the ball and loses balance, is an error. If the type is unknown, describe where the ball is and do not grade it against a type.
+6. Non-dominant arm after the toss [BASE]: the arm stays up after the release, then comes in toward the chest or stomach. Dropping it immediately and a dangling arm are errors.
+
+Phase 3. Trophy:
+7. Knee bend [BASE]: the knees bend, the weight goes down and slightly back, and the torso stays upright. Serving on straight legs, an overly deep squat, and the torso collapsing are errors.
+8. Trophy [BASE]: the hitting shoulder is lower than the other, the hitting elbow is about shoulder height or a little higher, the racket points upward, the free arm is up toward the ball, and the eyes are on the ball. A low elbow, the racket dropping down, and losing sight of the ball are errors.
+9. Coil [BASE]: shoulders and hips are coiled, like a spring. A serve that is only the arm, with no coil, is an error.
+
+Phase 4. Hit:
+10. Leg drive [BASE]: the player straightens the legs and lifts the hips up and forward, and the weight goes into the serve. No drive, straightening too early, or driving only after the racket has already started, is an error.
+11. Racket drop [BASE]: the racket drops down the back, the wrist is relaxed, and the elbow stays up. No drop, so the serve is a push, and a racket stuck against the back are errors.
+12. Chain [BASE]: the motion passes in order: legs, hips, torso, shoulder, elbow, forearm, wrist. Starting with the arm before the body, or a flat turn with no leg drive, is an error.
+13. Contact [BASE]: as high as the player can reach, in front of the body, on a nearly straight arm. A low contact with a bent arm, or contact behind or beside the head, is an error.
+14. Wrist and pronation [BASE]: judge only if the forearm turn is clearly visible. Otherwise skip. The wrist stays relaxed until contact and the forearm turns into the hit. A stiff wrist, or a serve with no pronation, is an error only in that case.
+15. Body at contact [BASE]: the body is long along the line of legs, torso, and arm, the head is stable, and the eyes are on the contact. The torso falling off to the side and the head dropping are errors.
+
+Phase 5. Finish:
+16. Follow-through [STYLE]: the racket continues down and forward and finishes on the other side of the body, and the torso turns toward the net. A truncated finish and the racket wrapping off to the side are errors.
+17. Landing and balance [BASE]: a soft landing on the front foot or both feet, with balance kept, ready for the next ball. Falling sideways, landing on a locked leg, and losing balance are errors.
+18. Recovery [BASE]: a quick return to ready, especially after a serve-and-volley. Standing still after the serve and a slow recovery are errors.
+
+Type-specific notes, only for a known type:
+- Slice: toss a little farther to the racket side, the hit brushes the side of the ball, and the finish goes out and down. A completely flat hit with no side spin is an error only if that spin is clearly missing.
+- Kick: toss above the head and a little to the non-racket side, the torso leans back, and the racket brushes up and across the ball. A toss too far in front, and a hit with no upward brush, are errors.
+- Second serve: a higher path over the net is acceptable. A second serve that matches the first in rhythm and power, and is also unsteady, is an error. Do not apply this unless you know it is a second serve.
+"""
+
+
+def _append_serve_checklist(parts: list[str]) -> None:
+    if not serve_checklist_enabled():
+        return
+    parts.append(SERVE_CHECKLIST.strip())
+
+
 def use_structured_analysis_v2(language_code: str) -> bool:
     """Новый промпт только по-русски и только при включённом флаге."""
     return (
@@ -764,6 +830,7 @@ def build_system_prompt(
     _append_forehand_checklist(parts)
     _append_backhand_checklist(parts)
     _append_slice_checklist(parts)
+    _append_serve_checklist(parts)
     return "\n\n".join(parts)
 
 
@@ -820,6 +887,7 @@ def _build_system_prompt_v2(
     _append_forehand_checklist(parts)
     _append_backhand_checklist(parts)
     _append_slice_checklist(parts)
+    _append_serve_checklist(parts)
     return "\n\n".join(parts)
 
 
@@ -966,6 +1034,7 @@ def build_video_context_block(
         header = "УТОЧНЕНИЕ ОТ ИГРОКА ПЕРЕД РАЗБОРОМ:"
         stroke_l = "Удар для фокуса (со слов игрока)"
         look_l = "Смотреть в первую очередь"
+        serve_type_l = "Тип подачи (со слов игрока)"
         general_l = "Игрок не выбрал сегмент — сделай общий обзор техники по тому, что видно. Заполни primary_segment и detected_segments."
         multi_l = "Игрок отметил несколько сегментов — разбор точечный по ним, но детект всё равно по факту видео."
         rules = [
@@ -979,6 +1048,7 @@ def build_video_context_block(
         header = "PLAYER CLARIFICATION BEFORE ANALYSIS:"
         stroke_l = "Stroke to focus on (player said)"
         look_l = "Look at first"
+        serve_type_l = "Serve type (player said)"
         general_l = "The player selected no segment — write a general technique overview from what is visible. Fill primary_segment and detected_segments."
         multi_l = "The player marked several segments — target those, but detect still follows the footage."
         rules = [
@@ -1041,12 +1111,27 @@ def build_video_context_block(
         lines.append(f"• {stroke_l}: {intake_value_label(ui_lang, 'stroke', stroke)}")
     if look:
         lines.append(f"• {look_l}: {intake_value_label(ui_lang, 'look', look)}")
+    serve_type = (video_context.get("serve_type") or "").strip()
+    if serve_type:
+        lines.append(
+            f"• {serve_type_l}: {intake_value_label(ui_lang, 'serve_type', serve_type)}"
+        )
+        lines.append(
+            "The chosen serve type is a hint. If the video clearly shows another "
+            "type, trust the video and note the mismatch. If the player is unsure, "
+            "do not invent the type."
+            if base != "ru"
+            else "Выбранный тип — ориентир. Если на видео явно другой тип, доверяй "
+            "видео и отметь расхождение. Если игрок не уверен, тип не выдумывай."
+        )
     lines.append("")
 
     rubric_key = intake_keys[0] if len(intake_keys) == 1 else (stroke or "")
     v2 = use_structured_analysis_v2(language_code) and not experiment_v2
     rubric = _STROKE_RUBRICS.get(rubric_key or "")
     if v2 and rubric_key == "serve":
+        rubric = None
+    if serve_checklist_enabled() and rubric_key == "serve":
         rubric = None
     if forehand_checklist_enabled() and rubric_key == "forehand":
         rubric = None

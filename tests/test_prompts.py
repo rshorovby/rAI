@@ -121,6 +121,7 @@ def test_rally_stroke_rubric():
 
 def test_legacy_serve_prompt_still_names_the_trigger_phrase(monkeypatch):
     monkeypatch.delenv("STRUCTURED_ANALYSIS_V2", raising=False)
+    monkeypatch.setenv("SERVE_CHECKLIST", "0")
     assert "waiter's tray" in SYSTEM_PROMPT_BASE
     assert "поднос официанта" in SYSTEM_PROMPT_BASE
     result = build_analysis_prompt("ru", video_context={"stroke": "serve"})

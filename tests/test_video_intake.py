@@ -25,6 +25,21 @@ def test_intake_flow_asks_only_stroke():
     assert ctx == {"stroke": "forehand", "look": None}
 
 
+def test_serve_intake_asks_for_the_type():
+    data: dict = {}
+    start_intake_state(data)
+    assert match_intake_answer("ru", "stroke", "🚀 Подача") == "serve"
+    get_intake_answers(data)["stroke"] = "serve"
+    assert advance_intake_step(data) == "serve_type"
+    assert get_intake_step(data) == "serve_type"
+    assert match_intake_answer("ru", "serve_type", "Кик") == "kick"
+    get_intake_answers(data)["serve_type"] = "kick"
+    assert advance_intake_step(data) is None
+    ctx = build_video_context(get_intake_answers(data))
+    assert ctx["stroke"] == "serve"
+    assert ctx["serve_type"] == "kick"
+
+
 def test_intake_skip_text():
     assert is_intake_skip_text("ru", "⏭ Пропустить — разбери как есть")
     assert is_intake_skip_text("en", "⏭ Skip — analyze as-is")

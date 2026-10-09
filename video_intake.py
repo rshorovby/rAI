@@ -9,7 +9,7 @@ from i18n import t
 INTAKE_KEY = "video_intake"
 INTAKE_ANSWERS_KEY = "video_intake_answers"
 
-STEPS = ("stroke",)
+STEPS = ("stroke", "serve_type")
 
 STROKE_KEYS = (
     "forehand",
@@ -21,8 +21,11 @@ STROKE_KEYS = (
     "rally",
 )
 
+SERVE_TYPE_KEYS = ("flat", "slice", "kick", "unsure")
+
 _STEP_OPTIONS = {
     "stroke": STROKE_KEYS,
+    "serve_type": SERVE_TYPE_KEYS,
 }
 
 
@@ -52,14 +55,12 @@ def get_intake_answers(user_data: dict) -> dict:
 
 def advance_intake_step(user_data: dict) -> Optional[str]:
     current = get_intake_step(user_data)
-    if not current:
+    if current != "stroke":
         return None
-    idx = STEPS.index(current)
-    if idx + 1 >= len(STEPS):
+    if get_intake_answers(user_data).get("stroke") != "serve":
         return None
-    next_step = STEPS[idx + 1]
-    user_data[INTAKE_KEY] = {"step": next_step}
-    return next_step
+    user_data[INTAKE_KEY] = {"step": "serve_type"}
+    return "serve_type"
 
 
 def is_intake_skip_text(lang: str, text: str) -> bool:
@@ -97,13 +98,26 @@ def intake_keyboard(lang: str, step: str) -> ReplyKeyboardMarkup:
             ]
             for i in range(0, len(keys), 2)
         ]
+    elif step == "serve_type":
+        keys = list(SERVE_TYPE_KEYS)
+        rows = [
+            [
+                KeyboardButton(intake_option_label(lang, step, key))
+                for key in keys[i : i + 2]
+            ]
+            for i in range(0, len(keys), 2)
+        ]
 
     rows.append([KeyboardButton(t(lang, "vi_skip"))])
     return ReplyKeyboardMarkup(rows, resize_keyboard=True, one_time_keyboard=True)
 
 
 def build_video_context(answers: dict[str, Any]) -> dict[str, Optional[str]]:
-    return {
+    context: dict[str, Optional[str]] = {
         "stroke": answers.get("stroke"),
         "look": answers.get("look"),
     }
+    serve_type = answers.get("serve_type")
+    if serve_type:
+        context["serve_type"] = serve_type
+    return context

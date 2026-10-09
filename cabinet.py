@@ -292,6 +292,7 @@ def format_video_intake_ready(
     *,
     stroke: str = "",
     look: str = "",
+    serve_type: str = "",
     duration: int = 0,
     comment: str = "",
 ) -> str:
@@ -299,6 +300,9 @@ def format_video_intake_ready(
         f"🎬 Видео готово к разбору\nid: {user_id}",
         f"удар: {(stroke or '').strip() or 'не указан'}",
     ]
+    kind = (serve_type or "").strip()
+    if kind and kind not in ("—", "-", "не указан"):
+        lines.append(f"тип подачи: {kind}")
     accent = (look or "").strip()
     if accent and accent not in ("—", "-", "не указан"):
         lines.append(f"акцент: {accent}")

@@ -2550,6 +2550,7 @@ async def _post_intake_video_to_cabinet(
         user_id,
         stroke=intake_value_label("ru", "stroke", ctx.get("stroke")),
         look=intake_value_label("ru", "look", ctx.get("look")),
+        serve_type=intake_value_label("ru", "serve_type", ctx.get("serve_type")),
         duration=int(pending.get("duration") or 0),
         comment=pending.get("comment") or "",
     )
