@@ -60,41 +60,40 @@ def forehand_checklist_enabled() -> bool:
     return raw not in ("0", "false", "no", "off")
 
 
-FOREHAND_CHECKLIST_RU = """\
-## ДОПОЛНИТЕЛЬНЫЙ ЧЕКЛИСТ НАБЛЮДЕНИЯ: ФОРХЕНД
-Секции отчёта и JSON остаются прежними. Не заменяй их списком пунктов.
-Используй чеклист, чтобы внимательнее просмотреть удар и заметить больше деталей.
-Применяй только если на видео виден форхенд, в том числе внутри розыгрыша или общего разбора. Если форхенда в кадре нет, чеклист не используй.
+FOREHAND_CHECKLIST = """\
+## ADDITIONAL OBSERVATION CHECKLIST: FOREHAND
+Keep the existing report sections and JSON. Do not replace them with a list of these items.
+Use the checklist to look at the stroke more carefully and notice more detail.
+Apply it only when a forehand is visible, including inside a rally or a general review. If the clip has no forehand, ignore this checklist.
+The report language follows the player. This checklist does not change it.
 
-Как применять:
-1. Пройди по пунктам внутри, не выводя их списком.
-2. В отчёт включай только то, что подтверждено видео: отклонения по [БАЗА] и явные ошибки по [СТИЛЬ]. Укладывай их в существующие секции, приоритеты и findings.
-3. Если пункт невозможно оценить с этого ракурса или по качеству видео, молчи о нём. Не додумывай и не пиши «не видно» в отчёте. Общее правило «если ракурс не позволяет оценить — напиши, что данных недостаточно» на эти 12 пунктов не распространяется.
-4. По [СТИЛЬ] не придирайся к индивидуальной манере. Замечание допустимо, только если вариант мешает устойчивости, контролю или мощности.
-5. Если чеклист расходится со справочником по форхенду, наблюдения строй по чеклисту, а справочник используй для объяснений и упражнений.
+How to apply:
+1. Walk the items internally. Do not print them as a list.
+2. Put in the report only what the video confirms: deviations on [BASE] and clear errors on [STYLE]. Place them in the existing sections, priorities, and findings.
+3. If an item cannot be judged from this angle or video quality, stay silent. Do not invent it and do not write "not visible" or «не видно». The general rule to report insufficient data does not apply to these 12 items.
+4. On [STYLE], do not nitpick a personal style. A remark is allowed only when that variant hurts stability, control, or power.
+5. If this checklist disagrees with the forehand reference, build observations from the checklist. Use the reference for explanations and drills.
 
-Пункты:
-1. Исходная позиция [БАЗА]: ноги шире плеч, колени согнуты, вес на передней части стопы, ракетка перед корпусом.
-2. Сплит-степ [БАЗА]: оценивай только если в кадре виден удар соперника или подача. Иначе пропусти.
-3. Хват [СТИЛЬ]: восточный или полузападный без чрезмерного сжатия. Оценивай, только если хват различим.
-4. Выход к мячу [БАЗА]: мелкие корректирующие шаги, комфортная дистанция до мяча, без топтания и опоздания.
-5. Стойка при ударе [СТИЛЬ]: открытая, полузакрытая и закрытая допустимы. Важны устойчивость и соответствие мячу.
-6. Подготовка (unit turn) [БАЗА]: плечи и бёдра разворачиваются вместе, ракетка уходит назад вместе с корпусом, свободная рука направлена на мяч.
-7. Замах [СТИЛЬ]: петля или прямой замах допустимы. Критично, если замах слишком большой и игрок опаздывает.
-8. Загрузка [БАЗА]: на мячах, где есть время, виден перенос веса назад, согнутые колени и скручивание корпуса. На быстрых или лёгких мячах короткая подготовка без глубокой загрузки допустима, ошибкой это не считай.
-9. Старт вперёд [БАЗА]: ракетка опускается ниже мяча, затем идёт вперёд через мяч. Движение идёт по цепи: ноги, бёдра, корпус, плечо, предплечье, кисть. Удар рукой раньше корпуса считай ошибкой. Сам по себе путь «снизу вверх» ошибкой не считай.
-10. Контакт [БАЗА]: точка контакта впереди корпуса, рука почти выпрямлена, голова стабильна, взгляд в точке контакта. Высота следует за мячом: пояс–грудь — ориентир только для мяча удобной высоты. На высоком или низком мяче другая высота ошибкой сама по себе не является. Кисть расслаблена во время замаха и собирается к моменту контакта. Не путай это с жёсткой кистью на всём ударе.
-11. Проводка и завершение [СТИЛЬ]: ракетка идёт вперёд-вверх, корпус разворачивается к сетке, остановка мягкая. Замечай обрыв проводки и слишком низкое завершение.
-12. Баланс и возврат [БАЗА]: устойчивость после удара и быстрое восстановление позиции.
+Items:
+1. Ready position [BASE]: feet wider than the shoulders, knees bent, weight on the forefoot, racket in front of the body.
+2. Split step [BASE]: judge only if the opponent's hit or a serve is in frame. Otherwise skip.
+3. Grip [STYLE]: Eastern or semi-western without an excessive squeeze. Judge only if the grip is distinguishable.
+4. Movement to the ball [BASE]: small adjustment steps, a comfortable distance to the ball, no shuffling in place and no late arrival.
+5. Stance [STYLE]: open, semi-closed, and closed are all acceptable. What matters is balance and a stance that fits the ball.
+6. Preparation (unit turn) [BASE]: shoulders and hips turn together, the racket goes back with the torso, the non-dominant hand points toward the ball.
+7. Backswing [STYLE]: a loop or a straight backswing is acceptable. It is a problem only when the backswing is so large that the player is late.
+8. Loading [BASE]: when there is time, weight shifts back, the knees are bent, and the torso coils. On a fast or easy ball, a short preparation without a deep load is acceptable and is not an error.
+9. Forward start [BASE]: the racket drops below the ball, then moves forward through the ball. The chain is legs, hips, torso, shoulder, forearm, wrist. Starting with the arm before the body is an error. A low-to-high path by itself is not an error.
+10. Contact [BASE]: contact is in front of the body, the arm is nearly extended, the head is stable, and the eyes are on the contact point. Contact height follows the ball: waist to chest is the reference only for a comfortable ball height. A different height on a high or low ball is not an error by itself. The wrist is relaxed in the backswing and firms up at contact. Do not confuse this with a stiff wrist for the whole swing.
+11. Follow-through [STYLE]: the racket goes forward and up, the torso turns toward the net, and the finish is soft. Note a truncated follow-through and a finish that stays too low.
+12. Balance and recovery [BASE]: stable after the hit and a quick return to position.
 """
 
 
-def _append_forehand_checklist(parts: list[str], language_code: str) -> None:
-    if normalize_language_code(language_code) != "ru":
-        return
+def _append_forehand_checklist(parts: list[str]) -> None:
     if not forehand_checklist_enabled():
         return
-    parts.append(FOREHAND_CHECKLIST_RU.strip())
+    parts.append(FOREHAND_CHECKLIST.strip())
 
 
 def use_structured_analysis_v2(language_code: str) -> bool:
@@ -518,7 +517,7 @@ def build_system_prompt(
     if tag_line:
         parts.append(tag_line)
     _append_personal(parts, language_code, player_history, active_focus, ctx)
-    _append_forehand_checklist(parts, language_code)
+    _append_forehand_checklist(parts)
     return "\n\n".join(parts)
 
 
@@ -572,7 +571,7 @@ def _build_system_prompt_v2(
         include_stroke_key=True,
         label_serve_leg_drive=True,
     )
-    _append_forehand_checklist(parts, language_code)
+    _append_forehand_checklist(parts)
     return "\n\n".join(parts)
 
 
@@ -793,7 +792,7 @@ def build_video_context_block(
     rubric = _STROKE_RUBRICS.get(rubric_key or "")
     if v2 and rubric_key == "serve":
         rubric = None
-    if forehand_checklist_enabled() and base == "ru" and rubric_key == "forehand":
+    if forehand_checklist_enabled() and rubric_key == "forehand":
         rubric = None
     if rubric:
         lines.append(f"Rubric: {rubric}")
