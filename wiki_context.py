@@ -38,6 +38,10 @@ _STROKE_PAGES = {
         "wiki/strokes/backhand-2h.md",
     )
     + _CORE_GS,
+    "slice": (
+        "wiki/strokes/backhand-slice.md",
+        "wiki/concepts/contact-point.md",
+    ),
     "serve": (
         "wiki/strokes/serve.md",
         "wiki/concepts/ground-force.md",

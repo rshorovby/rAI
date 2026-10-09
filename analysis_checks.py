@@ -47,6 +47,14 @@ ALLOWED_AXES = {
         "footwork",
         "balance",
     },
+    "slice": {
+        "preparation",
+        "leg_drive",
+        "contact",
+        "follow_through",
+        "footwork",
+        "balance",
+    },
     "rally": {
         "preparation",
         "leg_drive",
@@ -139,7 +147,9 @@ def _drop_serve_racket_orientation(payload: dict, notes: list) -> None:
     for item in payload.get("observations") or []:
         if not isinstance(item, dict):
             continue
-        seen = redact_racket_orientation(str(item.get("what_is_seen") or ""), serve=True)
+        seen = redact_racket_orientation(
+            str(item.get("what_is_seen") or ""), serve=True
+        )
         if not seen:
             notes.append("наблюдение подачи: ориентация ракетки снята")
             continue
@@ -195,7 +205,9 @@ def _without_racket_items(items, fields: tuple, kind: str, notes: list) -> list:
             notes.append(f"{kind}: ориентация ракетки снята")
             continue
         if "issue_tags" in item:
-            item["issue_tags"] = [tag for tag in item.get("issue_tags") or [] if tag != "grip"]
+            item["issue_tags"] = [
+                tag for tag in item.get("issue_tags") or [] if tag != "grip"
+            ]
         kept.append(item)
     return kept
 

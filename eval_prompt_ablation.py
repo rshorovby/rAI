@@ -54,6 +54,7 @@ _STEM_STROKE = {
     "back": "backhand",
     "bh": "backhand",
     "backhand": "backhand",
+    "slice": "slice",
     "fh": "forehand",
     "forh": "forehand",
     "forehand": "forehand",

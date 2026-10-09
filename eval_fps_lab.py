@@ -24,7 +24,16 @@ from dataclasses import dataclass
 from pathlib import Path
 
 VIDEO_SUFFIXES = {".mp4", ".mov", ".webm", ".m4v"}
-STROKES = ("forehand", "backhand", "serve", "volley", "footwork", "rally", "general")
+STROKES = (
+    "forehand",
+    "backhand",
+    "slice",
+    "serve",
+    "volley",
+    "footwork",
+    "rally",
+    "general",
+)
 
 
 @dataclass(frozen=True)
@@ -161,7 +170,17 @@ def _catalog() -> str:
     return drills.catalog_for_prompt()
 
 
-def _run_one(client, uploaded, variant, system_prompt, user_prompt, schema, drill_ids, duration, model):
+def _run_one(
+    client,
+    uploaded,
+    variant,
+    system_prompt,
+    user_prompt,
+    schema,
+    drill_ids,
+    duration,
+    model,
+):
     from google.genai import types
 
     from analysis_schema import to_sdk_schema
@@ -185,7 +204,9 @@ def _run_one(client, uploaded, variant, system_prompt, user_prompt, schema, dril
     config_kwargs = {
         "system_instruction": system_prompt,
         "temperature": temperature,
-        "automatic_function_calling": types.AutomaticFunctionCallingConfig(disable=True),
+        "automatic_function_calling": types.AutomaticFunctionCallingConfig(
+            disable=True
+        ),
     }
     if not legacy:
         config_kwargs["response_mime_type"] = "application/json"
@@ -297,14 +318,20 @@ def main(argv=None) -> int:
     parser.add_argument("--dir", required=True, help="Папка с роликами")
     parser.add_argument("--out", default="eval_out/fps-lab")
     parser.add_argument("--repeats", type=int, default=1)
-    parser.add_argument("--high", action="store_true", help="Добавить вариант fps8 и high resolution")
-    parser.add_argument("--fps", default="", help="Список частот через запятую, например 1,8,16")
+    parser.add_argument(
+        "--high", action="store_true", help="Добавить вариант fps8 и high resolution"
+    )
+    parser.add_argument(
+        "--fps", default="", help="Список частот через запятую, например 1,8,16"
+    )
     parser.add_argument(
         "--matrix",
         default="",
         help="natali, resolution, prompt или temp (новый промпт, fps 8, температура 0.3 и 1)",
     )
-    parser.add_argument("--only", default="", help="Только ролик с этим именем, без расширения")
+    parser.add_argument(
+        "--only", default="", help="Только ролик с этим именем, без расширения"
+    )
     parser.add_argument("--yes", action="store_true", help="Реально вызвать Gemini")
     args = parser.parse_args(argv)
 
@@ -318,7 +345,9 @@ def main(argv=None) -> int:
 
     videos = list_videos(directory)
     if args.matrix in ("prompt", "temp") and not args.only:
-        print(f"Для --matrix {args.matrix} укажите --only: иначе прогон пойдёт по всей папке.")
+        print(
+            f"Для --matrix {args.matrix} укажите --only: иначе прогон пойдёт по всей папке."
+        )
         return 1
     if args.matrix == "prompt":
         plan = prompt_matrix()
@@ -341,9 +370,13 @@ def main(argv=None) -> int:
     elif args.matrix == "natali":
         videos = [path for path in videos if path.stem == "serve_natali"]
     calls = len(videos) * len(plan) * args.repeats
-    print(f"Роликов: {len(videos)}. Вариантов: {len(plan)}. Повторов: {args.repeats}. Вызовов: {calls}.")
+    print(
+        f"Роликов: {len(videos)}. Вариантов: {len(plan)}. Повторов: {args.repeats}. Вызовов: {calls}."
+    )
     if not videos:
-        print("Положите в папку mp4, mov или webm. Удар — префикс имени, например serve_rus.mov.")
+        print(
+            "Положите в папку mp4, mov или webm. Удар — префикс имени, например serve_rus.mov."
+        )
         return 1
     for path in videos:
         print(f"  {path.name}  →  {stroke_of(path)}")
@@ -380,6 +413,7 @@ def main(argv=None) -> int:
     for path in videos:
         stroke = stroke_of(path)
         context = video_context_for(stroke)
+
         def prompts_for(variant):
             if variant.prompt == "old":
                 os.environ.pop("STRUCTURED_ANALYSIS_V2", None)
@@ -403,7 +437,11 @@ def main(argv=None) -> int:
             uploaded = _wait_active(client, client.files.upload(file=str(upload_path)))
             for variant in plan:
                 for repeat in range(1, args.repeats + 1):
-                    label = variant.name if args.repeats == 1 else f"{variant.name}-r{repeat}"
+                    label = (
+                        variant.name
+                        if args.repeats == 1
+                        else f"{variant.name}-r{repeat}"
+                    )
                     dest = out_root / path.stem / label
                     dest.mkdir(parents=True, exist_ok=True)
                     if (dest / "report.md").is_file():
@@ -426,8 +464,12 @@ def main(argv=None) -> int:
                     except Exception as exc:
                         message = f"{type(exc).__name__}: {exc}"
                         print(message, flush=True)
-                        (dest / "error.txt").write_text(message + "\n", encoding="utf-8")
-                        summary.append({"file": path.name, "config": label, "error": message})
+                        (dest / "error.txt").write_text(
+                            message + "\n", encoding="utf-8"
+                        )
+                        summary.append(
+                            {"file": path.name, "config": label, "error": message}
+                        )
                         continue
                     (dest / "report.md").write_text(outcome["text"], encoding="utf-8")
                     (dest / "raw.json").write_text(

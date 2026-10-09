@@ -14,6 +14,7 @@ STEPS = ("stroke",)
 STROKE_KEYS = (
     "forehand",
     "backhand",
+    "slice",
     "serve",
     "volley",
     "footwork",
@@ -88,19 +89,13 @@ def intake_value_label(lang: str, field: str, value: Optional[str]) -> str:
 def intake_keyboard(lang: str, step: str) -> ReplyKeyboardMarkup:
     rows: list[list[KeyboardButton]] = []
     if step == "stroke":
+        keys = list(STROKE_KEYS)
         rows = [
             [
-                KeyboardButton(intake_option_label(lang, step, STROKE_KEYS[0])),
-                KeyboardButton(intake_option_label(lang, step, STROKE_KEYS[1])),
-            ],
-            [
-                KeyboardButton(intake_option_label(lang, step, STROKE_KEYS[2])),
-                KeyboardButton(intake_option_label(lang, step, STROKE_KEYS[3])),
-            ],
-            [
-                KeyboardButton(intake_option_label(lang, step, STROKE_KEYS[4])),
-                KeyboardButton(intake_option_label(lang, step, STROKE_KEYS[5])),
-            ],
+                KeyboardButton(intake_option_label(lang, step, key))
+                for key in keys[i : i + 2]
+            ]
+            for i in range(0, len(keys), 2)
         ]
 
     rows.append([KeyboardButton(t(lang, "vi_skip"))])

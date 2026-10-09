@@ -20,6 +20,7 @@ COVERAGE_WEIGHTS = {
     "serve": 0.25,
     "forehand": 0.25,
     "backhand": 0.25,
+    "slice": 1.0 / 12,
     "volley": 1.0 / 12,
     "footwork": 1.0 / 12,
     "rally": 1.0 / 12,

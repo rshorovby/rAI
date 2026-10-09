@@ -26,7 +26,8 @@ def test_default_appends_checklist_after_the_forehand_reference(monkeypatch):
     monkeypatch.delenv("STRUCTURED_ANALYSIS_V2", raising=False)
     system = build_system_prompt("ru")
     assert system.index("БАЗА ЗНАНИЙ") < system.index(_HEADER)
-    assert "only when a forehand is visible" in system
+    assert "only when a forehand drive is visible" in system
+    assert "Do not score a slice with these items." in system
     assert 'do not write "not visible"' in system
     assert "insufficient data does not apply" in system
     assert "forward through the ball" in system

@@ -16,7 +16,7 @@ Your task is to provide a technical breakdown of a short video (10–30 seconds)
 showing a player from one or more angles.
 
 Analysis rules:
-1. Identify visible strokes/actions (serve, forehand, backhand, volley, smash, movement without a hit).
+1. Identify visible strokes/actions (serve, forehand, backhand, slice, volley, smash, movement without a hit).
 2. Evaluate stroke technique: grip (not on serve), preparation, body rotation, weight transfer, contact point, follow-through.
 3. Evaluate footwork: split step, movement to the ball, recovery after the hit, balance, body position relative to the ball.
 4. If multiple angles are shown — compare observations and note what each angle reveals best.
@@ -39,7 +39,7 @@ Your task is to provide a technical breakdown of a video up to 60 seconds \
 showing a player from one or more angles.
 
 Analysis rules:
-1. Identify visible strokes/actions (serve, forehand, backhand, volley, smash, movement without a hit).
+1. Identify visible strokes/actions (serve, forehand, backhand, slice, volley, smash, movement without a hit).
 2. Evaluate stroke technique: grip (not on serve), preparation, body rotation, weight transfer, contact point, follow-through.
 3. Evaluate footwork: split step, movement to the ball, recovery after the hit, balance, body position relative to the ball.
 4. If multiple angles are shown — compare observations and note what each angle reveals best.
@@ -64,7 +64,8 @@ FOREHAND_CHECKLIST = """\
 ## ADDITIONAL OBSERVATION CHECKLIST: FOREHAND
 Keep the existing report sections and JSON. Do not replace them with a list of these items.
 Use the checklist to look at the stroke more carefully and notice more detail.
-Apply it only when a forehand is visible, including inside a rally or a general review. If the clip has no forehand, ignore this checklist.
+Apply it only when a forehand drive is visible, including inside a rally or a general review. If the clip has no forehand drive, ignore this checklist.
+A forehand slice is outside this checklist. Do not score a slice with these items.
 The report language follows the player. This checklist does not change it.
 
 How to apply:
@@ -151,6 +152,56 @@ def _append_backhand_checklist(parts: list[str]) -> None:
     parts.append(BACKHAND_CHECKLIST.strip())
 
 
+def slice_checklist_enabled() -> bool:
+    """Включён по умолчанию. SLICE_CHECKLIST=0 выключает."""
+    raw = os.getenv("SLICE_CHECKLIST", "").strip().lower()
+    return raw not in ("0", "false", "no", "off")
+
+
+SLICE_CHECKLIST = """\
+## ADDITIONAL OBSERVATION CHECKLIST: SLICE
+Keep the existing report sections and JSON. Do not replace them with a list of these items.
+Use the checklist to look at a slice more carefully and notice more detail.
+Apply it only when a slice is visible, including inside a rally or a general review. If the clip has no slice, ignore this checklist.
+Do not score a slice with the topspin forehand or backhand checklists.
+The report language follows the player. This checklist does not change it.
+
+How to apply:
+1. For a left-handed player, mirror left and right. Use the dominant hand from the profile. If it is unset, judge it from the video.
+2. Note the side, backhand or forehand. Name the job of the slice only when the situation shows it: a short ball, an approach to the net, or a change of pace inside a rally. Do not invent a purpose.
+3. Walk several slices internally. In the report, keep only repeated confirmed issues. Do not describe every ball. The existing sections, priorities, and findings stay as they are.
+4. Walk the items internally. Do not print them as a list.
+5. Put in the report only what the video confirms: deviations on [BASE] and clear errors on [STYLE]. Place them in the existing sections, priorities, and findings.
+6. If an item cannot be judged from this angle or video quality, stay silent. Do not invent it and do not write "not visible" or «не видно». The general rule to report insufficient data does not apply to these items.
+7. On [STYLE], do not nitpick a personal style. A remark is allowed only when that variant hurts stability, control, or depth.
+8. If this checklist disagrees with the slice reference, build observations from the checklist. Use the reference for explanations and drills.
+
+Items:
+1. Grip [STYLE]: usually Continental or close to it. Judge only if the grip is distinguishable. A grip that is too closed makes an open racket face hard.
+2. Preparation (unit turn) [BASE]: shoulders and hips turn together, and the racket goes back and up with the torso. Preparing with the arm only, or preparing late, is an error.
+3. Racket before the hit [BASE]: the racket is above the contact point, the racket head is above the wrist, and the free hand helps balance or guides the motion. A low backswing that forces a low-to-high path is an error.
+4. Movement and stance [BASE]: small adjustment steps and a stable base. Open, semi-closed, and closed stances are all acceptable. Straight legs and an unstable base are errors. Do not require a low crouch.
+5. Racket path [BASE]: the racket travels high to low and forward on a shallow arc, not a steep chop. A near-vertical chop, which sends the ball into the net or kills it, is an error. A low-to-high path, which makes the shot flat or a topspin drive, is an error.
+6. Racket face [BASE]: judge only if the strings are clearly visible. Otherwise skip. The face is slightly open and the angle stays steady through the hit. A face that is too open, so the ball balloons, or an angle that changes during the hit, is an error.
+7. Contact [BASE]: contact is in front of the body. On a one-handed backhand slice it is a little farther from the body. Contact height follows the ball: waist to chest is the reference only for a comfortable ball height. A different height on a high or low ball is not an error by itself. The arm is nearly extended, the head is stable, and the eyes are on the contact point. The wrist is firm at contact. A floppy wrist and the head pulling away are errors. Firm at contact is not a stiff wrist for the whole swing.
+8. Weight and torso [BASE]: weight steps forward onto the front foot, and the shoulders stay sideways through contact. Do not uncoil the chest to the net the way a topspin drive does. No step forward, falling backward, or an arm-only swing is an error.
+9. Follow-through [STYLE]: the racket continues forward and slightly downward after contact, the arm extends along the shot, and the finish is soft. A short slice may finish shorter. Stopping dead at contact, or wrapping the racket down or off to the side, is an error.
+10. Balance and recovery [BASE]: stable after the hit, the free hand works as a counterweight, and the recovery is quick. Losing balance, or a slow recovery when the slice was an approach to the net, is an error.
+
+Only for a one-handed backhand slice:
+11. Non-dominant hand [BASE]: it holds the racket at the throat at the start of the preparation, then lets go and moves back as a counterweight. A hand that hangs and takes no part is an error. Skip this item for a forehand slice and for a two-handed slice.
+
+Only for a forehand slice:
+11. Shot choice [STYLE]: this is the only tactical remark in the checklist. Make it only when a real rally is visible and the player slices a ball that could have been a topspin drive. Do not make it on a basket of slices, and do not call it a technical fault.
+"""
+
+
+def _append_slice_checklist(parts: list[str]) -> None:
+    if not slice_checklist_enabled():
+        return
+    parts.append(SLICE_CHECKLIST.strip())
+
+
 def use_structured_analysis_v2(language_code: str) -> bool:
     """Новый промпт только по-русски и только при включённом флаге."""
     return (
@@ -211,7 +262,7 @@ USER_PROMPT_RU = """\
 Поле focus_checks — проверки активных фокусов, чей удар виден на видео. Элемент: stroke (ключ удара), status (improved, same, worse или not_visible). Если фокус не стал лучше, в поле focus повтори его прежний текст.
 Поле issue_tags — 0–3 slug из списка в системном промпте. Только то, что видно на этом видео.
 Поле findings — массив из 1–3 пунктов для игрока. Каждый пункт: problem (что не так, одно-два предложения), recommendation (как закрыть на корзине, одно-два предложения), detail (почему это видно на этом клипе, 2–4 предложения), practice (как исправлять на корте, отдельный текст), drill_ids (0–3 id из каталога). Не пиши категории техника/ноги/баланс и не пиши URL в findings. Markdown секций выше не убирай — это черновик для Forum.
-Поле primary_segment — один ключ удара, который реально доминирует на видео: forehand, backhand, serve, volley, footwork, rally.
+Поле primary_segment — один ключ удара, который реально доминирует на видео: forehand, backhand, slice, serve, volley, footwork, rally.
 Поле detected_segments — массив всех видимых сегментов из того же списка (без general). Всегда заполняй детект по факту видео, даже если игрок выбрал другой удар или ничего не выбрал.
 Пример:
 ```json
@@ -273,7 +324,7 @@ Field drills — array of drill ids from the system prompt catalog (0–2 items)
 Field focus_checks — checks of active foci whose stroke is visible. Each item: stroke, status (improved, same, worse, or not_visible). If a focus did not improve, repeat its previous text in focus.
 Field issue_tags — 0–3 slugs from the system prompt list. Only what is visible on this video.
 Field findings — array of 1–3 player-facing items. Each item: problem (what is wrong, one or two sentences), recommendation (how to close it in the basket, one or two sentences), detail (why this shows on this clip, 2–4 sentences), practice (how to fix it on court, a separate paragraph), drill_ids (0–3 catalog ids). Do not put technique/footwork/balance categories or URLs in findings. Keep the markdown sections above — they are the Forum draft.
-Field primary_segment — the one stroke key that actually dominates the video: forehand, backhand, serve, volley, footwork, rally.
+Field primary_segment — the one stroke key that actually dominates the video: forehand, backhand, slice, serve, volley, footwork, rally.
 Field detected_segments — array of every visible segment from that same list (no general). Always fill detect from the footage, even if the player selected a different stroke or selected none.
 Example:
 ```json
@@ -679,6 +730,7 @@ def build_system_prompt(
     _append_personal(parts, language_code, player_history, active_focus, ctx)
     _append_forehand_checklist(parts)
     _append_backhand_checklist(parts)
+    _append_slice_checklist(parts)
     return "\n\n".join(parts)
 
 
@@ -734,6 +786,7 @@ def _build_system_prompt_v2(
     )
     _append_forehand_checklist(parts)
     _append_backhand_checklist(parts)
+    _append_slice_checklist(parts)
     return "\n\n".join(parts)
 
 
@@ -936,7 +989,15 @@ def build_video_context_block(
             (
                 intake_value_label(ui_lang, "stroke", key)
                 if key
-                in ("forehand", "backhand", "serve", "volley", "footwork", "rally")
+                in (
+                    "forehand",
+                    "backhand",
+                    "slice",
+                    "serve",
+                    "volley",
+                    "footwork",
+                    "rally",
+                )
                 else key
             )
             for key in intake_keys
@@ -1141,6 +1202,7 @@ _STROKE_LABELS = {
     "ru": {
         "forehand": "форхенд",
         "backhand": "бэкхенд",
+        "slice": "резаный удар",
         "serve": "подача",
         "volley": "волей",
         "footwork": "ноги",
@@ -1149,6 +1211,7 @@ _STROKE_LABELS = {
     "en": {
         "forehand": "forehand",
         "backhand": "backhand",
+        "slice": "slice",
         "serve": "serve",
         "volley": "volley",
         "footwork": "footwork",

@@ -131,6 +131,7 @@
             "enum": [
               "forehand",
               "backhand",
+              "slice",
               "serve",
               "volley",
               "footwork",
@@ -257,7 +258,7 @@
     },
     "focus_checks": {
       "type": "array",
-      "description": "Только для активных фокусов. Ключи ударов: подача=serve, форхенд=forehand, бэкхенд=backhand, вольё=volley, ноги=footwork, розыгрыш=rally.",
+      "description": "Только для активных фокусов. Ключи ударов: подача=serve, форхенд=forehand, бэкхенд=backhand, резаный=slice, вольё=volley, ноги=footwork, розыгрыш=rally.",
       "items": {
         "type": "object",
         "propertyOrdering": [
@@ -276,6 +277,7 @@
             "enum": [
               "forehand",
               "backhand",
+              "slice",
               "serve",
               "volley",
               "footwork",
@@ -497,6 +499,7 @@
       "enum": [
         "forehand",
         "backhand",
+        "slice",
         "serve",
         "volley",
         "footwork",
@@ -511,6 +514,7 @@
         "enum": [
           "forehand",
           "backhand",
+          "slice",
           "serve",
           "volley",
           "footwork",
