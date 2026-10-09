@@ -121,6 +121,7 @@ from onboarding import (
     is_skip_text,
     language_choice,
     match_step_answer,
+    onboarding_flow,
     onboarding_keyboard,
     profile_actions_keyboard,
     profile_reset_confirm_keyboard,
@@ -484,7 +485,7 @@ async def _send_onboarding_question(
     parts = []
     if intro:
         parts.append(intro)
-    n, total = step_progress(step)
+    n, total = step_progress(step, flow=onboarding_flow(user_data))
     parts.append(t(lang, "ob_progress", n=n, total=total))
     parts.append(t(lang, f"ob_question_{step}"))
     markup = onboarding_keyboard(lang, step)
@@ -1126,7 +1127,9 @@ async def _apply_language(
     if is_onboarding_active(context.user_data):
         step = get_onboarding_step(context.user_data)
         if step:
-            await _send_onboarding_question(message, choice, step)
+            await _send_onboarding_question(
+                message, choice, step, user_data=context.user_data
+            )
             return
     await _show_profile(message, choice, player_id)
 
@@ -4160,11 +4163,11 @@ async def _trainer_on_text(
         trainer.set_wizard(
             context.user_data, "create", trainer_id=telegram_id, name=name
         )
-        start_onboarding_state(context.user_data)
+        start_onboarding_state(context.user_data, flow="trainer")
         await _send_onboarding_question(
             message,
             lang,
-            "level",
+            get_onboarding_step(context.user_data),
             intro=name,
             user_data=context.user_data,
         )
@@ -4272,11 +4275,11 @@ async def _trainer_on_text(
             player_id=int(card["player_id"]),
             name=card["name"],
         )
-        start_onboarding_state(context.user_data)
+        start_onboarding_state(context.user_data, flow="trainer")
         await _send_onboarding_question(
             message,
             lang,
-            "level",
+            get_onboarding_step(context.user_data),
             intro=t(lang, "profile_edit_prompt"),
             user_data=context.user_data,
         )

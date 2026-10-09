@@ -380,6 +380,95 @@ def _backhand_rule(language_code: str, backhand: Optional[str]) -> str:
     )
 
 
+_JUNIOR_AGE_BANDS = frozenset({"u8", "y8_9", "y10_11", "y12_13", "y14_15", "y16_17"})
+
+_AGE_NORMS = {
+    "ru": {
+        "u8": (
+            "7 лет и младше: норма — координация и контакт. "
+            "Укороченный замах и толчковая подача не ошибка."
+        ),
+        "y8_9": (
+            "8–9 лет: часто мяч orange, рычаги короткие. "
+            "Нет lag, нет пронации, низкий контакт — не ошибка."
+        ),
+        "y10_11": (
+            "10–11 лет: можно просить unit turn и готовность. "
+            "Полную взрослую кинетическую цепь не требовать."
+        ),
+        "y12_13": "12–13 лет: взрослая форма удара уместна, сила ещё ограничена.",
+        "y14_15": (
+            "14–15 лет: скачок роста. Сбитый тайминг часто из тела, "
+            "не из новой вредной привычки."
+        ),
+        "y16_17": "16–17 лет: чеклист почти взрослый, объём нагрузки юниорский.",
+        "adult": "18 или больше: норма — взрослая техника этого уровня.",
+    },
+    "en": {
+        "u8": (
+            "7 or under: the standard is coordination and contact. "
+            "A short swing and a push serve are not errors."
+        ),
+        "y8_9": (
+            "8–9: often an orange ball, short levers. "
+            "No lag, no pronation, and a low contact are not errors."
+        ),
+        "y10_11": (
+            "10–11: a unit turn and a ready position are fair to ask. "
+            "Do not require a full adult kinetic chain."
+        ),
+        "y12_13": "12–13: an adult swing shape is fair, power is still limited.",
+        "y14_15": (
+            "14–15: growth spurt. Lost timing often comes from the body, "
+            "not from a new bad habit."
+        ),
+        "y16_17": "16–17: the checklist is nearly adult, training load stays junior.",
+        "adult": "18 or older: the standard is adult technique for this level.",
+    },
+}
+
+
+def _age_rule(language_code: str, profile: dict) -> str:
+    band = profile.get("age_band")
+    if not band:
+        return ""
+    ui_lang = "ru" if normalize_language_code(language_code) == "ru" else "en"
+    norm = _AGE_NORMS[ui_lang].get(band)
+    if not norm:
+        return ""
+    recorded = (profile.get("age_recorded_on") or "").strip()
+    if ui_lang == "ru":
+        parts = [norm]
+        if recorded:
+            parts.append(f"Диапазон указан {recorded} — это возраст на дату анкеты.")
+        if band in _JUNIOR_AGE_BANDS:
+            parts.append(
+                "Сравнивай с типичной техникой этого возраста, не со взрослым "
+                "чеклистом. Стаж в годах не переводи во взрослую шкалу. "
+                "Упражнения без взрослой силовой нагрузки и без взрослого "
+                "объёма корзины."
+            )
+            if profile.get("level") == "competitive":
+                parts.append(
+                    "Уровень Pro — юниорские соревнования, не взрослый турнир."
+                )
+        return " ".join(parts)
+    parts = [norm]
+    if recorded:
+        parts.append(
+            f"The band was recorded on {recorded} — age on the questionnaire date."
+        )
+    if band in _JUNIOR_AGE_BANDS:
+        parts.append(
+            "Compare with technique typical for this age, not an adult checklist. "
+            "Years of experience are not an adult beginner scale. "
+            "No adult strength work and no adult basket volume."
+        )
+        if profile.get("level") == "competitive":
+            parts.append("Pro here means junior competition, not an adult tournament.")
+    return " ".join(parts)
+
+
 def build_player_context(profile: Optional[dict], language_code: str = "en") -> str:
     if not profile or profile.get("skipped"):
         return ""
@@ -391,6 +480,7 @@ def build_player_context(profile: Optional[dict], language_code: str = "en") -> 
         hand_l = "Ведущая рука"
         frequency_l = "Частота игры"
         experience_l = "Стаж"
+        age_l = "Возраст"
         coaching_l = "Занятия с тренером"
         focus_l = "Главная цель"
         backhand_l = "Бэкхенд"
@@ -405,12 +495,16 @@ def build_player_context(profile: Optional[dict], language_code: str = "en") -> 
             "Учитывай травмы: не рекомендуй упражнения, которые могут усугубить дискомфорт.",
             _backhand_rule("ru", profile.get("backhand")),
         ]
+        age_rule = _age_rule("ru", profile)
+        if age_rule:
+            rules.append(age_rule)
     else:
         header = "PLAYER PROFILE (self-reported):"
         level_l = "Level"
         hand_l = "Dominant hand"
         frequency_l = "Play frequency"
         experience_l = "Experience"
+        age_l = "Age"
         coaching_l = "Coaching"
         focus_l = "Primary goal"
         backhand_l = "Backhand"
@@ -425,6 +519,9 @@ def build_player_context(profile: Optional[dict], language_code: str = "en") -> 
             "Respect injuries: do not recommend drills that may worsen discomfort.",
             _backhand_rule("en", profile.get("backhand")),
         ]
+        age_rule = _age_rule("en", profile)
+        if age_rule:
+            rules.append(age_rule)
 
     from onboarding import profile_value_label
 
@@ -440,11 +537,19 @@ def build_player_context(profile: Optional[dict], language_code: str = "en") -> 
         f"• {backhand_l}: {profile_value_label(ui_lang, 'backhand', profile.get('backhand'))}",
         f"• {frequency_l}: {profile_value_label(ui_lang, 'frequency', profile.get('frequency'))}",
         f"• {experience_l}: {profile_value_label(ui_lang, 'experience', profile.get('experience'))}",
-        f"• {coaching_l}: {profile_value_label(ui_lang, 'coaching', profile.get('coaching'))}",
-        f"• {focus_l}: {profile_value_label(ui_lang, 'focus', 'all')}",
-        f"• {injuries_l}: {injuries}",
-        "",
     ]
+    if profile.get("age_band"):
+        lines.append(
+            f"• {age_l}: {profile_value_label(ui_lang, 'age', profile.get('age_band'))}"
+        )
+    lines.extend(
+        [
+            f"• {coaching_l}: {profile_value_label(ui_lang, 'coaching', profile.get('coaching'))}",
+            f"• {focus_l}: {profile_value_label(ui_lang, 'focus', 'all')}",
+            f"• {injuries_l}: {injuries}",
+            "",
+        ]
+    )
     lines.extend(rules)
     lines.append("─────────────────────────────────────────")
     return "\n".join(lines)

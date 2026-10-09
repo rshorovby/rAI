@@ -563,6 +563,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "подстроят глубину критики, приоритеты и упражнения под вас."
         ),
         "ob_progress": "Вопрос {n} из {total}:",
+        "ob_question_age": "Сколько лет игроку?",
         "ob_question_level": "Какой у вас уровень игры?",
         "ob_question_hand": "Какая у вас ведущая рука?",
         "ob_question_backhand": "Какой у вас бэкхенд?",
@@ -625,6 +626,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "• Частота игры: {frequency}\n"
             "• Стаж: {experience}\n"
             "• Тренер: {coaching}\n"
+            "{age_line}"
             "• Травмы/ограничения: {injuries}\n"
             "• Обновлён: {updated_at}\n\n"
             "«Изменить профиль» — обновить данные.\n"
@@ -638,6 +640,22 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "profile_btn_lang_en": "🇬🇧 English",
         "profile_lang_saved": "✅ Язык бота и ответов ИИ: {language}.",
         "profile_edit_prompt": "Давайте обновим профиль.",
+        "profile_age_line": "• Возраст: {age} (указан {recorded})\n",
+        "profile_age_line_nodate": "• Возраст: {age}\n",
+        "ob_opt_age_u8": "7 и младше",
+        "ob_opt_age_y8_9": "8–9",
+        "ob_opt_age_y10_11": "10–11",
+        "ob_opt_age_y12_13": "12–13",
+        "ob_opt_age_y14_15": "14–15",
+        "ob_opt_age_y16_17": "16–17",
+        "ob_opt_age_adult": "18+",
+        "ob_val_age_u8": "7 и младше",
+        "ob_val_age_y8_9": "8–9",
+        "ob_val_age_y10_11": "10–11",
+        "ob_val_age_y12_13": "12–13",
+        "ob_val_age_y14_15": "14–15",
+        "ob_val_age_y16_17": "16–17",
+        "ob_val_age_adult": "18+",
         "ob_opt_level_beginner": "🌱 Начинающий",
         "ob_opt_level_recreational": "🎾 Любитель",
         "ob_opt_level_advanced": "💪 Продвинутый",
@@ -1185,6 +1203,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "depth of critique, priorities, and drills tailored to you."
         ),
         "ob_progress": "Question {n} of {total}:",
+        "ob_question_age": "How old is the player?",
         "ob_question_level": "What's your skill level?",
         "ob_question_hand": "What's your dominant hand?",
         "ob_question_backhand": "What's your backhand?",
@@ -1246,6 +1265,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "• Play frequency: {frequency}\n"
             "• Experience: {experience}\n"
             "• Coaching: {coaching}\n"
+            "{age_line}"
             "• Injuries/limitations: {injuries}\n"
             "• Updated: {updated_at}\n\n"
             "Edit profile — update your details.\n"
@@ -1259,6 +1279,22 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "profile_btn_lang_en": "🇬🇧 English",
         "profile_lang_saved": "✅ Bot and AI language: {language}.",
         "profile_edit_prompt": "Let's update your profile.",
+        "profile_age_line": "• Age: {age} (as of {recorded})\n",
+        "profile_age_line_nodate": "• Age: {age}\n",
+        "ob_opt_age_u8": "7 and under",
+        "ob_opt_age_y8_9": "8–9",
+        "ob_opt_age_y10_11": "10–11",
+        "ob_opt_age_y12_13": "12–13",
+        "ob_opt_age_y14_15": "14–15",
+        "ob_opt_age_y16_17": "16–17",
+        "ob_opt_age_adult": "18+",
+        "ob_val_age_u8": "7 and under",
+        "ob_val_age_y8_9": "8–9",
+        "ob_val_age_y10_11": "10–11",
+        "ob_val_age_y12_13": "12–13",
+        "ob_val_age_y14_15": "14–15",
+        "ob_val_age_y16_17": "16–17",
+        "ob_val_age_adult": "18+",
         "ob_opt_level_beginner": "🌱 Beginner",
         "ob_opt_level_recreational": "🎾 Recreational",
         "ob_opt_level_advanced": "💪 Advanced",

@@ -1,5 +1,6 @@
 """Онбординг: вопросы о профиле игрока перед разбором."""
 
+from datetime import date
 from typing import Any, Optional
 
 from telegram import KeyboardButton, ReplyKeyboardMarkup
@@ -19,6 +20,7 @@ STEPS = (
     "coaching",
     "injuries",
 )
+TRAINER_STEPS = ("age",) + STEPS
 
 LEVEL_KEYS = ("beginner", "recreational", "advanced", "competitive")
 HAND_KEYS = ("right", "left")
@@ -26,6 +28,7 @@ BACKHAND_KEYS = ("one_handed", "two_handed")
 FREQUENCY_KEYS = ("1", "2", "3_4", "5_plus")
 EXPERIENCE_KEYS = ("under_1", "y1_3", "y3_7", "y7_15", "y15_plus")
 COACHING_KEYS = ("individual", "group", "both", "none")
+AGE_KEYS = ("u8", "y8_9", "y10_11", "y12_13", "y14_15", "y16_17", "adult")
 FOCUS_KEYS = ("stability", "power", "technique", "footwork", "serve", "all")
 FULL_EVAL_FOCUS = "all"
 
@@ -36,12 +39,28 @@ _STEP_OPTIONS = {
     "frequency": FREQUENCY_KEYS,
     "experience": EXPERIENCE_KEYS,
     "coaching": COACHING_KEYS,
+    "age": AGE_KEYS,
 }
+
+
+def onboarding_flow(user_data: Optional[dict]) -> str:
+    if not user_data:
+        return "player"
+    state = user_data.get(ONBOARDING_KEY) or {}
+    if state.get("flow") == "trainer":
+        return "trainer"
+    return "player"
+
+
+def steps_for_flow(flow: str) -> tuple:
+    if flow == "trainer":
+        return TRAINER_STEPS
+    return STEPS
 
 
 def is_onboarding_active(user_data: dict) -> bool:
     state = user_data.get(ONBOARDING_KEY)
-    return bool(state and state.get("step") in STEPS)
+    return bool(state and state.get("step") in TRAINER_STEPS)
 
 
 def get_onboarding_step(user_data: dict) -> Optional[str]:
@@ -49,8 +68,9 @@ def get_onboarding_step(user_data: dict) -> Optional[str]:
     return state.get("step") if state else None
 
 
-def start_onboarding_state(user_data: dict) -> None:
-    user_data[ONBOARDING_KEY] = {"step": "level"}
+def start_onboarding_state(user_data: dict, *, flow: str = "player") -> None:
+    steps = steps_for_flow(flow)
+    user_data[ONBOARDING_KEY] = {"step": steps[0], "flow": flow}
     user_data[ONBOARDING_ANSWERS_KEY] = {}
 
 
@@ -67,16 +87,19 @@ def advance_step(user_data: dict) -> Optional[str]:
     current = get_onboarding_step(user_data)
     if not current:
         return None
-    idx = STEPS.index(current)
-    if idx + 1 >= len(STEPS):
+    steps = steps_for_flow(onboarding_flow(user_data))
+    idx = steps.index(current)
+    if idx + 1 >= len(steps):
         return None
-    next_step = STEPS[idx + 1]
-    user_data[ONBOARDING_KEY] = {"step": next_step}
+    next_step = steps[idx + 1]
+    state = user_data.get(ONBOARDING_KEY) or {}
+    user_data[ONBOARDING_KEY] = {"step": next_step, "flow": state.get("flow", "player")}
     return next_step
 
 
-def step_progress(step: str) -> tuple[int, int]:
-    return STEPS.index(step) + 1, len(STEPS)
+def step_progress(step: str, *, flow: str = "player") -> tuple[int, int]:
+    steps = steps_for_flow(flow)
+    return steps.index(step) + 1, len(steps)
 
 
 def is_skip_text(lang: str, text: str) -> bool:
@@ -223,7 +246,7 @@ def language_choice(text: str) -> Optional[str]:
 
 
 def build_profile_dict(answers: dict[str, Any], *, skipped: bool = False) -> dict:
-    return {
+    profile = {
         "level": answers.get("level"),
         "hand": answers.get("hand"),
         "backhand": answers.get("backhand"),
@@ -234,3 +257,11 @@ def build_profile_dict(answers: dict[str, Any], *, skipped: bool = False) -> dic
         "injuries": answers.get("injuries", ""),
         "skipped": skipped,
     }
+    if "age" in answers:
+        band = answers.get("age") or None
+        recorded = answers.get("age_recorded_on")
+        if band and not recorded:
+            recorded = date.today().isoformat()
+        profile["age_band"] = band
+        profile["age_recorded_on"] = recorded if band else None
+    return profile

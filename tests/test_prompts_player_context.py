@@ -30,10 +30,48 @@ def test_profile_included_in_system_prompt():
     assert "Главная цель" in ctx
     assert "не смешивай чеклисты" in ctx
     assert "частоту игры и стаж" in ctx
+    assert "Возраст" not in ctx
 
     system = build_system_prompt("ru", player_profile=profile)
     assert "ПРОФИЛЬ ИГРОКА" in system
     assert "доверяй видео" in system
+
+
+def test_junior_age_sets_the_yardstick():
+    profile = {
+        "level": "competitive",
+        "hand": "right",
+        "backhand": "two_handed",
+        "frequency": "3_4",
+        "experience": "y1_3",
+        "coaching": "individual",
+        "injuries": "",
+        "skipped": False,
+        "age_band": "y8_9",
+        "age_recorded_on": "2026-10-09",
+    }
+    ctx = build_player_context(profile, "ru")
+    assert "Возраст: 8–9" in ctx
+    assert "orange" in ctx
+    assert "не ошибка" in ctx
+    assert "2026-10-09" in ctx
+    assert "юниорские соревнования" in ctx
+    assert "взрослым чеклистом" in ctx
+
+
+def test_adult_age_keeps_the_adult_yardstick():
+    profile = {
+        "level": "recreational",
+        "hand": "right",
+        "skipped": False,
+        "age_band": "adult",
+        "age_recorded_on": "2026-10-09",
+    }
+    ctx = build_player_context(profile, "ru")
+    assert "Возраст: 18+" in ctx
+    assert "взрослая техника" in ctx
+    assert "orange" not in ctx
+    assert "юниорские" not in ctx
 
 
 def test_missing_backhand_is_identified_from_video():

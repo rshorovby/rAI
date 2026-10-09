@@ -141,6 +141,8 @@ def _init_db(conn: sqlite3.Connection) -> None:
             experience  TEXT,
             coaching    TEXT,
             focus       TEXT,
+            age_band    TEXT,
+            age_recorded_on TEXT,
             injuries    TEXT    NOT NULL DEFAULT '',
             skipped     INTEGER NOT NULL DEFAULT 0,
             updated_at  TEXT    NOT NULL
@@ -396,6 +398,8 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         ("player_profiles", "frequency", "TEXT"),
         ("player_profiles", "experience", "TEXT"),
         ("player_profiles", "coaching", "TEXT"),
+        ("player_profiles", "age_band", "TEXT"),
+        ("player_profiles", "age_recorded_on", "TEXT"),
         ("review_jobs", "source_channel", "TEXT NOT NULL DEFAULT 'telegram'"),
         ("players", "display_name", "TEXT"),
         ("review_jobs", "accent_mismatch", "INTEGER NOT NULL DEFAULT 0"),
@@ -1486,7 +1490,7 @@ def get_player_profile(user_id: int) -> Optional[dict]:
         row = conn.execute(
             """
             SELECT level, hand, backhand, frequency, experience, coaching, focus,
-                   injuries, skipped, updated_at
+                   age_band, age_recorded_on, injuries, skipped, updated_at
             FROM player_profiles
             WHERE user_id = ?
             """,
@@ -1502,6 +1506,8 @@ def get_player_profile(user_id: int) -> Optional[dict]:
         "experience": row["experience"],
         "coaching": row["coaching"],
         "focus": row["focus"],
+        "age_band": row["age_band"],
+        "age_recorded_on": row["age_recorded_on"],
         "injuries": row["injuries"] or "",
         "skipped": bool(row["skipped"]),
         "updated_at": row["updated_at"],
@@ -1509,6 +1515,11 @@ def get_player_profile(user_id: int) -> Optional[dict]:
 
 
 def save_player_profile(user_id: int, profile: dict) -> None:
+    if "age_band" not in profile:
+        current = get_player_profile(user_id) or {}
+        profile = dict(profile)
+        profile["age_band"] = current.get("age_band")
+        profile["age_recorded_on"] = current.get("age_recorded_on")
     updated_at = datetime.now().strftime("%d %b %Y %H:%M")
     with _connect() as conn:
         _init_db(conn)
@@ -1516,8 +1527,8 @@ def save_player_profile(user_id: int, profile: dict) -> None:
             """
             INSERT INTO player_profiles
                 (user_id, level, hand, backhand, frequency, experience, coaching,
-                 focus, injuries, skipped, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 focus, age_band, age_recorded_on, injuries, skipped, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id) DO UPDATE SET
                 level = excluded.level,
                 hand = excluded.hand,
@@ -1526,6 +1537,8 @@ def save_player_profile(user_id: int, profile: dict) -> None:
                 experience = excluded.experience,
                 coaching = excluded.coaching,
                 focus = excluded.focus,
+                age_band = excluded.age_band,
+                age_recorded_on = excluded.age_recorded_on,
                 injuries = excluded.injuries,
                 skipped = excluded.skipped,
                 updated_at = excluded.updated_at
@@ -1539,6 +1552,8 @@ def save_player_profile(user_id: int, profile: dict) -> None:
                 profile.get("experience"),
                 profile.get("coaching"),
                 profile.get("focus"),
+                profile.get("age_band"),
+                profile.get("age_recorded_on"),
                 profile.get("injuries", ""),
                 1 if profile.get("skipped") else 0,
                 updated_at,
@@ -1558,6 +1573,8 @@ def mark_profile_skipped(user_id: int) -> None:
             "experience": None,
             "coaching": None,
             "focus": None,
+            "age_band": None,
+            "age_recorded_on": None,
             "injuries": "",
             "skipped": True,
         },
@@ -1588,6 +1605,8 @@ def carry_profile_on_telegram_link(from_player_id: int, to_player_id: int) -> No
                 "experience": source.get("experience"),
                 "coaching": source.get("coaching"),
                 "focus": source.get("focus"),
+                "age_band": source.get("age_band"),
+                "age_recorded_on": source.get("age_recorded_on"),
                 "injuries": source.get("injuries") or "",
                 "skipped": False,
             },
@@ -1908,6 +1927,14 @@ def format_profile_for_user(user_id: int, lang: str) -> str:
     injuries_text = (
         t(ui_lang, "ob_injuries_none") if not injuries.strip() else injuries.strip()
     )
+    age_line = ""
+    if profile.get("age_band"):
+        recorded = profile.get("age_recorded_on") or ""
+        age = profile_value_label(ui_lang, "age", profile.get("age_band"))
+        if recorded:
+            age_line = t(ui_lang, "profile_age_line", age=age, recorded=recorded)
+        else:
+            age_line = t(ui_lang, "profile_age_line_nodate", age=age)
     return t(
         ui_lang,
         "profile_view",
@@ -1919,6 +1946,7 @@ def format_profile_for_user(user_id: int, lang: str) -> str:
             ui_lang, "experience", profile.get("experience")
         ),
         coaching=profile_value_label(ui_lang, "coaching", profile.get("coaching")),
+        age_line=age_line,
         injuries=injuries_text,
         updated_at=profile.get("updated_at", "—"),
         language=language,

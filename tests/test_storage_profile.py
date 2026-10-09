@@ -153,6 +153,51 @@ def test_legacy_profile_focus_becomes_full_eval(tmp_path):
     assert profile["hand"] == "left"
 
 
+def test_trainer_age_roundtrip_and_preserve(tmp_path):
+    with _tmp_db(tmp_path):
+        storage.save_player_profile(
+            3,
+            {
+                "level": "beginner",
+                "hand": "right",
+                "backhand": "two_handed",
+                "frequency": "2",
+                "experience": "under_1",
+                "coaching": "individual",
+                "focus": "all",
+                "age_band": "y10_11",
+                "age_recorded_on": "2026-10-09",
+                "injuries": "",
+                "skipped": False,
+            },
+        )
+        storage.save_player_profile(
+            3,
+            {
+                "level": "beginner",
+                "hand": "left",
+                "frequency": "2",
+                "experience": "under_1",
+                "coaching": "individual",
+                "focus": "all",
+                "injuries": "",
+                "skipped": False,
+            },
+        )
+        profile = storage.get_player_profile(3)
+        text = storage.format_profile_for_user(3, "ru")
+        storage.mark_profile_skipped(3)
+        skipped = storage.get_player_profile(3)
+
+    assert profile["hand"] == "left"
+    assert profile["age_band"] == "y10_11"
+    assert profile["age_recorded_on"] == "2026-10-09"
+    assert "10–11" in text
+    assert "2026-10-09" in text
+    assert skipped["age_band"] is None
+    assert skipped["skipped"] is True
+
+
 def test_format_profile_complete(tmp_path):
     with _tmp_db(tmp_path):
         storage.save_player_profile(
@@ -172,6 +217,7 @@ def test_format_profile_complete(tmp_path):
         text = storage.format_profile_for_user(2, "ru")
     assert "Начинающий" in text
     assert "Одноручный" in text
+    assert "Возраст" not in text
     assert "Главная цель" not in text
     assert "3–4 раза в неделю" in text
     assert "Индивидуально" in text
