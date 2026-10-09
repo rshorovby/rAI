@@ -63,13 +63,14 @@ def compose_final_report(
     return "\n\n".join(parts).strip()
 
 
-def keyboard_message_coach(lang: str) -> InlineKeyboardMarkup:
+def keyboard_message_coach(lang: str, player_id: int = 0) -> InlineKeyboardMarkup:
+    data = f"rvp:msg:{int(player_id)}" if player_id else "rvp:msg"
     return InlineKeyboardMarkup(
         [
             [
                 InlineKeyboardButton(
                     t(lang, "review_btn_message_coach"),
-                    callback_data="rvp:msg",
+                    callback_data=data,
                 )
             ]
         ]

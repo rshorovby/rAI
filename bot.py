@@ -38,6 +38,7 @@ import review
 import services
 import storage
 import survey
+import trainer
 from analysis_dialog import (
     DIALOG_KEY,
     clear_dialog,
@@ -478,6 +479,7 @@ async def _send_onboarding_question(
     step: str,
     *,
     intro: Optional[str] = None,
+    user_data: Optional[dict] = None,
 ) -> None:
     parts = []
     if intro:
@@ -485,10 +487,13 @@ async def _send_onboarding_question(
     n, total = step_progress(step)
     parts.append(t(lang, "ob_progress", n=n, total=total))
     parts.append(t(lang, f"ob_question_{step}"))
+    markup = onboarding_keyboard(lang, step)
+    if user_data is not None and trainer.wizard(user_data):
+        markup = trainer.with_cancel(markup, lang)
     await message.reply_text(
         "\n\n".join(parts),
         parse_mode=ParseMode.MARKDOWN,
-        reply_markup=onboarding_keyboard(lang, step),
+        reply_markup=markup,
     )
 
 
@@ -519,17 +524,80 @@ async def _load_coach_corrections(user_id: Optional[int]) -> list:
     return await asyncio.to_thread(storage.get_coach_corrections_for_prompt, player_id)
 
 
+async def _bind_trainer_onboarding_player(
+    context: ContextTypes.DEFAULT_TYPE, fallback_user_id: int
+) -> Optional[int]:
+    """Создаёт карточку в момент завершения анкеты. None — имя уже занято."""
+    wiz = trainer.wizard(context.user_data)
+    if not wiz or wiz.get("kind") not in ("create", "edit"):
+        return fallback_user_id
+    if wiz.get("kind") == "edit":
+        return int(wiz["player_id"])
+    if wiz.get("player_id"):
+        return int(wiz["player_id"])
+    card = await asyncio.to_thread(
+        storage.create_trainer_card, int(wiz["trainer_id"]), wiz["name"]
+    )
+    if not card:
+        return None
+    wiz["player_id"] = int(card["player_id"])
+    context.user_data[trainer.WIZARD_KEY] = wiz
+    return int(card["player_id"])
+
+
+async def _trainer_keyboard(telegram_id: int, lang: str) -> ReplyKeyboardMarkup:
+    card = await asyncio.to_thread(storage.get_active_trainer_card, telegram_id)
+    return trainer.menu_keyboard(lang, has_active=card is not None)
+
+
+async def _trainer_show_home(message, lang: str, telegram_id: int) -> None:
+    card = await asyncio.to_thread(storage.get_active_trainer_card, telegram_id)
+    if card:
+        text = t(lang, "tr_home_active", name=card["name"])
+    else:
+        text = t(lang, "tr_home_empty")
+    await message.reply_text(
+        text,
+        reply_markup=trainer.menu_keyboard(lang, has_active=card is not None),
+    )
+
+
 async def _finish_onboarding_skip(
     update: Update, context: ContextTypes.DEFAULT_TYPE, lang: str, user_id: int
 ) -> None:
+    bound = await _bind_trainer_onboarding_player(context, user_id)
+    if bound is None:
+        trainer.clear_wizard(context.user_data)
+        clear_onboarding_state(context.user_data)
+        await update.message.reply_text(t(lang, "tr_name_taken"))
+        if update.effective_user:
+            await _trainer_show_home(update.message, lang, update.effective_user.id)
+        return
+    user_id = bound
     await asyncio.to_thread(storage.mark_profile_skipped, user_id)
     await _log_event(user_id, EVENT_ONBOARDING_SKIPPED)
+    wiz = trainer.wizard(context.user_data)
     clear_onboarding_state(context.user_data)
-    await update.message.reply_text(
-        t(lang, "ob_skip_warning"),
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=_main_menu_keyboard(lang),
-    )
+    trainer.clear_wizard(context.user_data)
+    actor = update.effective_user
+    if actor and await asyncio.to_thread(storage.is_trainer, actor.id):
+        card = await asyncio.to_thread(storage.get_trainer_card_by_player, user_id)
+        name = (card or {}).get("name") or (wiz or {}).get("name") or ""
+        key = (
+            "tr_profile_updated"
+            if wiz and wiz.get("kind") == "edit"
+            else "tr_card_ready"
+        )
+        await update.message.reply_text(
+            t(lang, key, name=name),
+            reply_markup=await _trainer_keyboard(actor.id, lang),
+        )
+    else:
+        await update.message.reply_text(
+            t(lang, "ob_skip_warning"),
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=_main_menu_keyboard(lang),
+        )
     profile_text = await asyncio.to_thread(
         storage.format_profile_for_user, user_id, "ru"
     )
@@ -550,15 +618,40 @@ async def _finish_onboarding_skip(
 async def _finish_onboarding_complete(
     update: Update, context: ContextTypes.DEFAULT_TYPE, lang: str, user_id: int
 ) -> None:
+    bound = await _bind_trainer_onboarding_player(context, user_id)
+    if bound is None:
+        trainer.clear_wizard(context.user_data)
+        clear_onboarding_state(context.user_data)
+        await update.message.reply_text(t(lang, "tr_name_taken"))
+        if update.effective_user:
+            await _trainer_show_home(update.message, lang, update.effective_user.id)
+        return
+    user_id = bound
     profile = build_profile_dict(get_onboarding_answers(context.user_data))
     await asyncio.to_thread(storage.save_player_profile, user_id, profile)
     await _log_event(user_id, EVENT_ONBOARDING_COMPLETED)
+    wiz = trainer.wizard(context.user_data)
     clear_onboarding_state(context.user_data)
-    await update.message.reply_text(
-        t(lang, "ob_complete"),
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=_main_menu_keyboard(lang),
-    )
+    trainer.clear_wizard(context.user_data)
+    actor = update.effective_user
+    if actor and await asyncio.to_thread(storage.is_trainer, actor.id):
+        card = await asyncio.to_thread(storage.get_trainer_card_by_player, user_id)
+        name = (card or {}).get("name") or (wiz or {}).get("name") or ""
+        key = (
+            "tr_profile_updated"
+            if wiz and wiz.get("kind") == "edit"
+            else "tr_card_ready"
+        )
+        await update.message.reply_text(
+            t(lang, key, name=name),
+            reply_markup=await _trainer_keyboard(actor.id, lang),
+        )
+    else:
+        await update.message.reply_text(
+            t(lang, "ob_complete"),
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=_main_menu_keyboard(lang),
+        )
     profile_text = await asyncio.to_thread(
         storage.format_profile_for_user, user_id, "ru"
     )
@@ -584,7 +677,15 @@ async def _handle_onboarding_text(
 ) -> None:
     message = update.message
     user_id = message.from_user.id
-    context.user_data["user_id"] = user_id
+    if trainer.wizard(context.user_data):
+        if trainer.is_cancel_text(lang, user_text):
+            trainer.clear_wizard(context.user_data)
+            clear_onboarding_state(context.user_data)
+            await message.reply_text(t(lang, "tr_cancelled"))
+            await _trainer_show_home(message, lang, user_id)
+            return
+    else:
+        context.user_data["user_id"] = user_id
     step = get_onboarding_step(context.user_data)
     if not step:
         return
@@ -601,16 +702,21 @@ async def _handle_onboarding_text(
 
     value = match_step_answer(lang, step, user_text)
     if not value:
+        markup = onboarding_keyboard(lang, step)
+        if trainer.wizard(context.user_data):
+            markup = trainer.with_cancel(markup, lang)
         await message.reply_text(
             t(lang, "ob_invalid_answer"),
-            reply_markup=onboarding_keyboard(lang, step),
+            reply_markup=markup,
         )
         return
 
     get_onboarding_answers(context.user_data)[step] = value
     next_step = advance_step(context.user_data)
     if next_step:
-        await _send_onboarding_question(message, lang, next_step)
+        await _send_onboarding_question(
+            message, lang, next_step, user_data=context.user_data
+        )
 
 
 async def _reply_formatted(message, text: str, **kwargs) -> None:
@@ -807,6 +913,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     player_id = await _touch_user(update, context)
     if player_id is None:
         return
+    actor = update.effective_user
+    if actor and await asyncio.to_thread(storage.is_trainer, actor.id):
+        if await asyncio.to_thread(storage.trainer_instruction_pending, actor.id):
+            await update.message.reply_text(t(lang, "tr_instruction"))
+            await asyncio.to_thread(storage.mark_trainer_instruction_sent, actor.id)
+        await _trainer_show_home(update.message, lang, actor.id)
+        return
 
     has_record = await asyncio.to_thread(storage.has_profile_record, player_id)
     user = update.effective_user or update.message.from_user
@@ -849,6 +962,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     lang = _lang_from_update(update, context)
+    actor = update.effective_user
+    if actor and await asyncio.to_thread(storage.is_trainer, actor.id):
+        await update.message.reply_text(
+            t(lang, "tr_instruction"),
+            reply_markup=await _trainer_keyboard(actor.id, lang),
+        )
+        return
     await update.message.reply_text(
         t(lang, "help"),
         parse_mode=ParseMode.MARKDOWN,
@@ -861,6 +981,9 @@ async def link_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not message:
         return
     lang = _lang_from_update(update, context)
+    if await asyncio.to_thread(storage.is_trainer, message.from_user.id):
+        await _trainer_show_home(message, lang, message.from_user.id)
+        return
     player_id = await _touch_user(update, context)
     if player_id is None:
         return
@@ -887,6 +1010,11 @@ async def link_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 async def new_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     lang = _lang_from_update(update, context)
+    if update.effective_user and await asyncio.to_thread(
+        storage.is_trainer, update.effective_user.id
+    ):
+        await _trainer_show_home(update.message, lang, update.effective_user.id)
+        return
     await _touch_user(update, context)
     session = _get_session(context.user_data)
     if await _followup_scope_on(context, context.user_data):
@@ -935,20 +1063,31 @@ async def _confirm_new_analysis(
 
 async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     lang = _lang_from_update(update, context)
-    player_id = await _touch_user(update, context)
-    if player_id is None:
-        return
+    actor = update.effective_user
+    if actor and await asyncio.to_thread(storage.is_trainer, actor.id):
+        card = await asyncio.to_thread(storage.get_active_trainer_card, actor.id)
+        if not card:
+            await _trainer_show_home(update.message, lang, actor.id)
+            return
+        player_id = int(card["player_id"])
+    else:
+        player_id = await _touch_user(update, context)
+        if player_id is None:
+            return
     text = await asyncio.to_thread(storage.format_history_for_user, player_id, lang)
+    markup = _main_menu_keyboard(lang)
+    if actor and await asyncio.to_thread(storage.is_trainer, actor.id):
+        markup = await _trainer_keyboard(actor.id, lang)
     if not text:
         await update.message.reply_text(
             t(lang, "history_empty"),
-            reply_markup=_main_menu_keyboard(lang),
+            reply_markup=markup,
         )
         return
     await update.message.reply_text(
         text,
         parse_mode=ParseMode.MARKDOWN,
-        reply_markup=_main_menu_keyboard(lang),
+        reply_markup=markup,
     )
 
 
@@ -995,6 +1134,22 @@ async def _apply_language(
 async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     lang = _lang_from_update(update, context)
     clear_reset_pending(context.user_data)
+    actor = update.effective_user
+    if actor and await asyncio.to_thread(storage.is_trainer, actor.id):
+        card = await asyncio.to_thread(storage.get_active_trainer_card, actor.id)
+        if not card or not update.message:
+            if update.message:
+                await _trainer_show_home(update.message, lang, actor.id)
+            return
+        text = await asyncio.to_thread(
+            storage.format_profile_for_user, int(card["player_id"]), lang
+        )
+        await update.message.reply_text(
+            text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=await _trainer_keyboard(actor.id, lang),
+        )
+        return
     player_id = await _touch_user(update, context)
     if player_id is None or not update.message:
         return
@@ -1260,6 +1415,75 @@ async def grant_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         logger.exception("Не удалось уведомить user_id=%s о grant Pro", target_id)
 
 
+async def set_trainer_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Админ: /set_trainer <telegram_id> [off] — режим тренера с учениками."""
+    denied = _admin_gate(update, context)
+    if denied:
+        await update.message.reply_text(denied)
+        return
+    if update.message.chat.type != ChatType.PRIVATE:
+        await update.message.reply_text("Команда запускается в личном чате с ботом.")
+        return
+    args = context.args or []
+    if not args:
+        await update.message.reply_text(
+            "Использование: /set_trainer <telegram_id>\n"
+            "Снять: /set_trainer <telegram_id> off"
+        )
+        return
+    try:
+        target_id = int(args[0])
+    except ValueError:
+        await update.message.reply_text("telegram_id должен быть числом.")
+        return
+    turning_off = len(args) > 1 and args[1].lower() == "off"
+    if turning_off:
+        removed = await asyncio.to_thread(storage.revoke_trainer, target_id)
+        if not removed:
+            await update.message.reply_text(f"user_id={target_id} не был тренером.")
+            return
+        delivered = True
+        try:
+            await context.bot.send_message(
+                chat_id=target_id, text=t("ru", "tr_off_notice")
+            )
+        except Exception:
+            delivered = False
+            logger.exception("Не удалось уведомить user_id=%s о снятии", target_id)
+        note = (
+            ""
+            if delivered
+            else "\nСообщение не доставлено — пользователь не открывал бота."
+        )
+        await update.message.reply_text(
+            f"Режим тренера снят с user_id={target_id}.{note}"
+        )
+        return
+
+    await asyncio.to_thread(storage.grant_trainer, target_id)
+    delivered = True
+    try:
+        await context.bot.send_message(
+            chat_id=target_id, text=t("ru", "tr_instruction")
+        )
+    except Exception:
+        delivered = False
+        logger.exception("Не удалось отправить инструкцию user_id=%s", target_id)
+    if delivered:
+        await asyncio.to_thread(storage.mark_trainer_instruction_sent, target_id)
+        await update.message.reply_text(
+            f"Режим тренера включён для user_id={target_id}. Инструкция отправлена."
+        )
+        return
+    await update.message.reply_text(
+        f"Режим тренера включён для user_id={target_id}.\n"
+        "Инструкция не доставлена: пользователь ещё не открывал бота. "
+        "Она придёт при /start."
+    )
+
+
 async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.message
     if not message:
@@ -1278,25 +1502,53 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         )
         return
 
-    if is_onboarding_active(context.user_data):
-        step = get_onboarding_step(context.user_data)
-        await message.reply_text(
-            t(lang, "ob_in_progress_video"),
-            reply_markup=onboarding_keyboard(lang, step),
+    trainer_card = None
+    if message.from_user and await asyncio.to_thread(
+        storage.is_trainer, message.from_user.id
+    ):
+        if trainer.blocks_video(context.user_data) or is_onboarding_active(
+            context.user_data
+        ):
+            await message.reply_text(
+                t(lang, "tr_video_busy"),
+                reply_markup=await _trainer_keyboard(message.from_user.id, lang),
+            )
+            return
+        trainer_card = await asyncio.to_thread(
+            storage.get_active_trainer_card, message.from_user.id
         )
-        return
+        if not trainer_card or not await asyncio.to_thread(
+            storage.has_profile_record, int(trainer_card["player_id"])
+        ):
+            await message.reply_text(
+                t(lang, "tr_video_need_card"),
+                reply_markup=await _trainer_keyboard(message.from_user.id, lang),
+            )
+            return
+        await _touch_user(update, context)
+        player_id = int(trainer_card["player_id"])
+        context.user_data["user_id"] = player_id
+        context.user_data[trainer.SESSION_PLAYER_KEY] = player_id
+    else:
+        if is_onboarding_active(context.user_data):
+            step = get_onboarding_step(context.user_data)
+            await message.reply_text(
+                t(lang, "ob_in_progress_video"),
+                reply_markup=onboarding_keyboard(lang, step),
+            )
+            return
 
-    player_id = await _touch_user(update, context)
-    if player_id is None:
-        return
+        player_id = await _touch_user(update, context)
+        if player_id is None:
+            return
 
-    has_record = await asyncio.to_thread(storage.has_profile_record, player_id)
-    if not has_record:
-        await _begin_onboarding(context, player_id, is_new_user=True)
-        await _send_onboarding_question(
-            message, lang, "level", intro=t(lang, "ob_intro")
-        )
-        return
+        has_record = await asyncio.to_thread(storage.has_profile_record, player_id)
+        if not has_record:
+            await _begin_onboarding(context, player_id, is_new_user=True)
+            await _send_onboarding_question(
+                message, lang, "level", intro=t(lang, "ob_intro")
+            )
+            return
 
     plan = await asyncio.to_thread(services.get_plan, player_id)
     if billing.MONETIZATION_ENABLED and plan.analyses_left <= 0:
@@ -1341,6 +1593,8 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "comment": user_comment,
         "video_context": None,
         "duration": duration,
+        "subject_player_id": player_id,
+        "subject_name": (trainer_card or {}).get("name") or "",
     }
     clear_intake_state(context.user_data)
     start_intake_state(context.user_data)
@@ -1355,8 +1609,12 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         user=message.from_user,
     )
 
+    got = f"{t(lang, 'vi_got_video')}\n{t(lang, 'vi_question_stroke')}"
+    subject_name = (trainer_card or {}).get("name") or ""
+    if subject_name:
+        got = f"{subject_name}\n\n{got}"
     prompt = await message.reply_text(
-        f"{t(lang, 'vi_got_video')}\n{t(lang, 'vi_question_stroke')}",
+        got,
         reply_markup=intake_keyboard(lang, "stroke"),
     )
     _remember_cleanup(context.user_data, prompt.message_id)
@@ -1371,13 +1629,16 @@ async def _begin_analysis_after_intake(
     message = update.message
     if not message:
         return
-    player_id = _get_user_id(context.user_data)
+    pending = context.user_data.get("pending_video")
+    player_id = (pending or {}).get("subject_player_id") or _get_user_id(
+        context.user_data
+    )
     if player_id is None:
         player_id = await _touch_user(update, context)
     if player_id is None:
         return
+    context.user_data["user_id"] = player_id
     answers = get_intake_answers(context.user_data)
-    pending = context.user_data.get("pending_video")
     video_context = build_video_context(answers)
     if pending is not None:
         pending["video_context"] = video_context
@@ -1392,9 +1653,18 @@ async def _begin_analysis_after_intake(
     clear_intake_state(context.user_data)
 
     _remember_cleanup(context.user_data, message.message_id)
+    ack_markup = _main_menu_keyboard(lang)
+    if message.from_user and await asyncio.to_thread(
+        storage.is_trainer, message.from_user.id
+    ):
+        ack_markup = await _trainer_keyboard(message.from_user.id, lang)
+    ack_text = t(lang, "review_ack")
+    subject_name = (pending or {}).get("subject_name") or ""
+    if subject_name:
+        ack_text = f"{subject_name}\n\n{ack_text}"
     status_message = await message.reply_text(
-        t(lang, "review_ack"),
-        reply_markup=_main_menu_keyboard(lang),
+        ack_text,
+        reply_markup=ack_markup,
     )
     _remember_cleanup(context.user_data, status_message.message_id)
     await _run_video_analysis(
@@ -1511,11 +1781,17 @@ async def _ask_next_practice(
         return
     focus = (plan.get("focus_text") or "").strip() or "—"
     drill = (plan.get("drill_text") or "").strip() or "—"
+    text = t(lang, "practice_ask", focus=focus, drill=drill)
+    markup = practice.keyboard_ask_practice(lang)
+    card = await asyncio.to_thread(storage.get_trainer_card_by_player, user_id)
+    if card:
+        text = f"{card['name']}\n\n{text}"
+        markup = practice.markup_for_player(markup, user_id)
     await context.bot.send_message(
         chat_id=chat_id,
-        text=t(lang, "practice_ask", focus=focus, drill=drill),
+        text=text,
         parse_mode=ParseMode.MARKDOWN,
-        reply_markup=practice.keyboard_ask_practice(lang),
+        reply_markup=markup,
     )
 
 
@@ -1527,14 +1803,21 @@ async def _send_practice_pre_now(
 ) -> None:
     focus = (plan.get("focus_text") or "").strip() or "—"
     drill = (plan.get("drill_text") or "").strip() or "—"
+    player_id = int(plan["user_id"])
+    text = t(lang, "practice_pre", focus=focus, drill=drill)
+    markup = practice.keyboard_pre_nudge(lang)
+    card = await asyncio.to_thread(storage.get_trainer_card_by_player, player_id)
+    if card:
+        text = f"{card['name']}\n\n{text}"
+        markup = practice.markup_for_player(markup, player_id)
     await context.bot.send_message(
         chat_id=chat_id,
-        text=t(lang, "practice_pre", focus=focus, drill=drill),
+        text=text,
         parse_mode=ParseMode.MARKDOWN,
-        reply_markup=practice.keyboard_pre_nudge(lang),
+        reply_markup=markup,
     )
     await asyncio.to_thread(storage.mark_practice_pre_sent, int(plan["id"]))
-    await _log_event(chat_id, EVENT_PRACTICE_PRE_SENT)
+    await _log_event(player_id, EVENT_PRACTICE_PRE_SENT)
 
 
 async def _send_feedback_step(
@@ -1814,9 +2097,13 @@ async def handle_dialog(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     lang = _lang_from_update(update, context)
     language_code = _language_code_from_context(context)
     chat_id = query.message.chat_id
-    user_id = query.from_user.id
-    context.user_data["user_id"] = user_id
     await _touch_user(update, context)
+    user_id = query.from_user.id
+    if await asyncio.to_thread(storage.is_trainer, query.from_user.id):
+        bound = context.user_data.get(trainer.SESSION_PLAYER_KEY)
+        if bound:
+            user_id = int(bound)
+    context.user_data["user_id"] = user_id
 
     state = _restore_dialog_from_session(context.user_data, user_id)
     if not state:
@@ -1827,7 +2114,15 @@ async def handle_dialog(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     sections = state.get("sections") or {}
     try:
         await _handle_dialog_action(
-            update, context, lang, language_code, chat_id, state, action, sections
+            update,
+            context,
+            lang,
+            language_code,
+            chat_id,
+            state,
+            action,
+            sections,
+            user_id,
         )
     finally:
         _persist_dialog_state(context.user_data)
@@ -1842,6 +2137,7 @@ async def _handle_dialog_action(
     state: dict,
     action: str,
     sections: dict,
+    user_id: int,
 ) -> None:
     query = update.callback_query
 
@@ -1927,15 +2223,13 @@ async def _handle_dialog_action(
             session = _get_session(context.user_data)
             row = await asyncio.to_thread(
                 storage.get_player_focus,
-                query.from_user.id,
+                user_id,
                 session.get("stroke"),
             )
             if row:
                 focus = (row.get("focus") or "").strip()
         if not drill:
-            plan = await asyncio.to_thread(
-                storage.get_active_practice_plan, query.from_user.id
-            )
+            plan = await asyncio.to_thread(storage.get_active_practice_plan, user_id)
             if plan:
                 drill = (plan.get("drill_text") or "").strip()
         await _reply_dialog(
@@ -2137,12 +2431,12 @@ async def _handle_dialog_action(
             text=t(lang, "dialog_title_finish"),
             parse_mode=ParseMode.MARKDOWN,
         )
-        await _ask_next_practice(context, chat_id, lang, query.from_user.id)
+        await _ask_next_practice(context, chat_id, lang, user_id)
         return
 
     if action in ("next", "done"):
         await _send_next_video_and_prompt_feedback(context, chat_id, lang, state)
-        await _ask_next_practice(context, chat_id, lang, query.from_user.id)
+        await _ask_next_practice(context, chat_id, lang, user_id)
         return
 
     if action == "ask":
@@ -2601,6 +2895,14 @@ async def _present_analysis_to_player(
         )
         await asyncio.to_thread(storage.save_active_session, user_id, payload)
 
+    card = await asyncio.to_thread(storage.get_trainer_card_by_player, user_id)
+    if card and offer_coach_button:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=card["name"],
+            reply_markup=review.keyboard_message_coach(lang, player_id=user_id),
+        )
+
     if create_practice:
         await asyncio.to_thread(
             storage.create_practice_plan,
@@ -2654,6 +2956,10 @@ async def _deliver_review_to_player(
         else None
     )
     chat_id = _player_chat_id(user_id)
+    card = await asyncio.to_thread(storage.get_trainer_card_by_player, user_id)
+    if chat_id is None and card:
+        chat_id = int(card["trainer_telegram_id"])
+        preface = f"{card['name']}\n\n{preface}" if preface else card["name"]
     if chat_id is None:
         logger.warning("deliver: нет telegram identity player_id=%s", user_id)
         return
@@ -2890,6 +3196,7 @@ async def _run_video_analysis(
         await asyncio.to_thread(
             services.save_analysis_session, user_id, prepared, language_code
         )
+        subject_name = (pending.get("subject_name") or "").strip()
         context.user_data.pop("pending_video", None)
 
         picked = await asyncio.to_thread(
@@ -2909,6 +3216,8 @@ async def _run_video_analysis(
 
         await _delete_tracked_messages(context, chat_id)
         preface = t(lang, "analysis_used_simple_model") if used_simple else None
+        if subject_name:
+            preface = f"{subject_name}\n\n{preface}" if preface else subject_name
 
         # Игрок сразу получает AI-разбор и может общаться с ботом.
         await _present_analysis_to_player(
@@ -3148,24 +3457,50 @@ async def handle_practice(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     lang = _lang_from_update(update, context)
     user_id = query.from_user.id
     chat_id = query.message.chat_id
+    raw = query.data
+    if raw.startswith("pc:"):
+        pieces = raw.split(":", 2)
+        if len(pieces) != 3:
+            return
+        try:
+            bound_id = int(pieces[1])
+        except ValueError:
+            return
+        owner = await asyncio.to_thread(storage.get_trainer_card_by_player, bound_id)
+        if not owner or int(owner["trainer_telegram_id"]) != query.from_user.id:
+            await query.message.reply_text(t(lang, "tr_not_yours"))
+            return
+        user_id = bound_id
+        raw = "p:" + pieces[2]
     context.user_data["user_id"] = user_id
     await _touch_user(update, context)
+    context.user_data["user_id"] = user_id
 
-    parts = query.data.split(":")
+    parts = raw.split(":")
     if len(parts) < 2:
         return
     kind = parts[1]
+
+    async def _practice_reply(text: str, **kwargs) -> None:
+        body = text
+        markup = kwargs.get("reply_markup")
+        card = await asyncio.to_thread(storage.get_trainer_card_by_player, user_id)
+        if card:
+            body = f"{card['name']}\n\n{body}"
+            if markup is not None:
+                kwargs["reply_markup"] = practice.markup_for_player(markup, user_id)
+        await query.message.reply_text(body, **kwargs)
 
     plan = await asyncio.to_thread(storage.get_active_practice_plan, user_id)
 
     if kind == "mute":
         await asyncio.to_thread(storage.snooze_practice_plan, user_id, 7)
-        await query.message.reply_text(t(lang, "practice_muted"))
+        await _practice_reply(t(lang, "practice_muted"))
         return
 
     if kind == "date":
         if not plan or plan.get("status") not in ("awaiting_date", "scheduled"):
-            await query.message.reply_text(t(lang, "practice_no_plan"))
+            await _practice_reply(t(lang, "practice_no_plan"))
             return
         choice = parts[2] if len(parts) > 2 else ""
         try:
@@ -3183,7 +3518,7 @@ async def handle_practice(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 skip_pre=True,
             )
             await _log_event(user_id, EVENT_PRACTICE_DATE_SET, "unknown")
-            await query.message.reply_text(
+            await _practice_reply(
                 t(lang, "practice_date_unknown"),
                 reply_markup=practice.keyboard_after_date_set(lang),
             )
@@ -3209,7 +3544,7 @@ async def handle_practice(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         await _log_event(user_id, EVENT_PRACTICE_DATE_SET, practice_day.isoformat())
         date_label = practice_day.strftime("%d.%m.%Y")
-        await query.message.reply_text(
+        await _practice_reply(
             t(lang, "practice_date_saved", date=date_label),
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=practice.keyboard_after_date_set(lang),
@@ -3236,11 +3571,11 @@ async def handle_practice(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     if kind == "pre":
         if not plan:
-            await query.message.reply_text(t(lang, "practice_no_plan"))
+            await _practice_reply(t(lang, "practice_no_plan"))
             return
         action = parts[2] if len(parts) > 2 else ""
         if action == "ok":
-            await query.message.reply_text(t(lang, "practice_pre_ok"))
+            await _practice_reply(t(lang, "practice_pre_ok"))
             return
         if action == "move":
             await asyncio.to_thread(
@@ -3256,7 +3591,7 @@ async def handle_practice(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     if kind == "post":
         if not plan:
-            await query.message.reply_text(t(lang, "practice_no_plan"))
+            await _practice_reply(t(lang, "practice_no_plan"))
             return
         answer = parts[2] if len(parts) > 2 else ""
         await asyncio.to_thread(
@@ -3277,7 +3612,7 @@ async def handle_practice(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         if answer == practice.POST_YES:
             next_video = await asyncio.to_thread(storage.get_latest_next_video, user_id)
-            await query.message.reply_text(
+            await _practice_reply(
                 t(
                     lang,
                     "practice_post_yes",
@@ -3303,7 +3638,7 @@ async def handle_practice(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     break
             if alt_drill == "—" and alt:
                 alt_drill = drills.localize_drill(alt[0], lang).get("title") or "—"
-            await query.message.reply_text(
+            await _practice_reply(
                 t(lang, "practice_post_hard", cue=cue, alt_drill=alt_drill),
                 parse_mode=ParseMode.MARKDOWN,
             )
@@ -3317,7 +3652,7 @@ async def handle_practice(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 plan.get("drill_text") or "",
                 plan.get("drill_id"),
             )
-            await query.message.reply_text(t(lang, "practice_post_skip"))
+            await _practice_reply(t(lang, "practice_post_skip"))
             await _ask_next_practice(context, chat_id, lang, user_id)
             return
         return
@@ -3344,8 +3679,13 @@ async def handle_quick_question(
     label_key, prompt_key = question
     label = prompts[label_key]
     prompt = prompts[prompt_key]
-    context.user_data["user_id"] = query.from_user.id
     await _touch_user(update, context)
+    subject_id = query.from_user.id
+    if await asyncio.to_thread(storage.is_trainer, query.from_user.id):
+        bound = context.user_data.get(trainer.SESSION_PLAYER_KEY)
+        if bound:
+            subject_id = int(bound)
+    context.user_data["user_id"] = subject_id
 
     session = _get_session(context.user_data)
     if not session.get("analysis"):
@@ -3385,19 +3725,41 @@ async def handle_review_callback(
     user_id = query.from_user.id
 
     # Игрок: написать тренеру (через тему кабинета, без привязки к open job)
-    if query.data == "rvp:msg":
+    if query.data == "rvp:msg" or query.data.startswith("rvp:msg:"):
         lang = _lang_from_update(update, context)
+        target_id = user_id
+        card_name = ""
+        if query.data.startswith("rvp:msg:"):
+            try:
+                target_id = int(query.data.split(":", 2)[2])
+            except ValueError:
+                return
+            card = await asyncio.to_thread(
+                storage.get_trainer_card_by_player, target_id
+            )
+            if not card or int(card["trainer_telegram_id"]) != query.from_user.id:
+                await query.message.reply_text(t(lang, "tr_not_yours"))
+                return
+            if int(card["archived"]):
+                await query.message.reply_text(t(lang, "tr_need_card"))
+                return
+            card_name = card["name"]
         forum_chat_id = settings.coach_forum_chat_id if settings else None
         topic = None
         if forum_chat_id:
             topic = await asyncio.to_thread(
-                storage.get_player_forum_topic, user_id, int(forum_chat_id)
+                storage.get_player_forum_topic, target_id, int(forum_chat_id)
             )
         if not topic:
             await query.message.reply_text(t(lang, "review_no_topic"))
             return
-        context.user_data[review.PLAYER_MSG_PENDING_KEY] = True
-        await query.message.reply_text(t(lang, "review_message_prompt"))
+        context.user_data[review.PLAYER_MSG_PENDING_KEY] = (
+            target_id if card_name else True
+        )
+        if card_name:
+            await query.message.reply_text(t(lang, "tr_msg_prompt", name=card_name))
+        else:
+            await query.message.reply_text(t(lang, "review_message_prompt"))
         return
 
     if query.data.startswith("rv:"):
@@ -3562,6 +3924,11 @@ async def _handle_coach_forum_message(
         return False
 
     language_code = await asyncio.to_thread(storage.get_user_language_code, player_id)
+    card = await asyncio.to_thread(storage.get_trainer_card_by_player, player_id)
+    if not language_code and card:
+        language_code = await asyncio.to_thread(
+            storage.get_user_language_code, int(card["trainer_telegram_id"])
+        )
     lang = "ru" if (language_code or "").startswith("ru") else "en"
 
     if message.text:
@@ -3590,6 +3957,10 @@ async def _handle_coach_forum_message(
         return await _store_coach_ai_fix(message, pending_job, player_id)
 
     chat_id = _player_chat_id(player_id)
+    name_prefix = ""
+    if chat_id is None and card:
+        chat_id = int(card["trainer_telegram_id"])
+        name_prefix = f"{card['name']}\n\n"
     if chat_id is None:
         logger.warning("coach message: нет telegram identity player_id=%s", player_id)
         await message.reply_text("⚠️ У игрока нет Telegram — сообщение не доставлено.")
@@ -3600,19 +3971,20 @@ async def _handle_coach_forum_message(
             user_text = message.text.strip()
             if not user_text:
                 return False
+            body = name_prefix + t(lang, "review_coach_message", text=user_text)
             try:
                 await context.bot.send_message(
                     chat_id=chat_id,
-                    text=t(lang, "review_coach_message", text=user_text),
+                    text=body,
                     parse_mode=ParseMode.MARKDOWN,
                 )
             except BadRequest:
                 await context.bot.send_message(
                     chat_id=chat_id,
-                    text=t(lang, "review_coach_message", text=user_text),
+                    text=body,
                 )
         else:
-            header = t(lang, "review_coach_media_header")
+            header = name_prefix + t(lang, "review_coach_media_header")
             try:
                 await context.bot.send_message(
                     chat_id=chat_id,
@@ -3677,19 +4049,31 @@ async def _store_coach_ai_fix(message, job: dict, player_id: int) -> bool:
 async def _handle_player_coach_message(
     update: Update, context: ContextTypes.DEFAULT_TYPE, user_text: str
 ) -> bool:
-    if not context.user_data.get(review.PLAYER_MSG_PENDING_KEY):
+    pending = context.user_data.get(review.PLAYER_MSG_PENDING_KEY)
+    if not pending:
         return False
     message = update.message
     lang = _lang_from_update(update, context)
+    user_text_raw = (message.text or "").strip()
+    if isinstance(pending, int) and trainer.is_cancel_text(lang, user_text_raw):
+        context.user_data.pop(review.PLAYER_MSG_PENDING_KEY, None)
+        await message.reply_text(t(lang, "tr_cancelled"))
+        await _trainer_show_home(message, lang, message.from_user.id)
+        return True
     user_id = message.from_user.id
     context.user_data.pop(review.PLAYER_MSG_PENDING_KEY, None)
+    if isinstance(pending, int):
+        user_id = pending
 
     settings: Settings = context.application.bot_data.get("settings")
     forum_chat_id = settings.coach_forum_chat_id if settings else None
     if not forum_chat_id:
         await message.reply_text(t(lang, "review_no_topic"))
         return True
-    player_id = _get_user_id(context.user_data) or user_id
+    if isinstance(pending, int):
+        player_id = pending
+    else:
+        player_id = _get_user_id(context.user_data) or user_id
     topic = await asyncio.to_thread(
         storage.get_player_forum_topic, player_id, int(forum_chat_id)
     )
@@ -3705,6 +4089,278 @@ async def _handle_player_coach_message(
     )
     await message.reply_text(t(lang, "review_message_sent"))
     return True
+
+
+async def _retitle_trainer_topic(
+    context: ContextTypes.DEFAULT_TYPE, player_id: int, player_name: str
+) -> None:
+    settings: Settings = context.application.bot_data.get("settings")
+    if not settings or not settings.coach_forum_chat_id:
+        return
+    forum_id = int(settings.coach_forum_chat_id)
+    topic = await asyncio.to_thread(storage.get_player_forum_topic, player_id, forum_id)
+    if not topic:
+        return
+    card = await asyncio.to_thread(storage.get_trainer_card_by_player, player_id)
+    if not card:
+        return
+    coach = await asyncio.to_thread(
+        storage.trainer_label, int(card["trainer_telegram_id"])
+    )
+    title = trainer.topic_title(player_name, coach)
+    try:
+        await context.bot.edit_forum_topic(
+            chat_id=forum_id,
+            message_thread_id=int(topic["message_thread_id"]),
+            name=title,
+        )
+    except Exception:
+        logger.exception("Не удалось переименовать тему player_id=%s", player_id)
+    await asyncio.to_thread(
+        storage.update_player_forum_title, player_id, forum_id, title
+    )
+
+
+def _trainer_bind_session(user_data: dict, player_id: int) -> None:
+    user_data["user_id"] = player_id
+    if user_data.get(trainer.SESSION_PLAYER_KEY) != player_id:
+        user_data.pop(SESSION_KEY, None)
+        user_data[trainer.SESSION_PLAYER_KEY] = player_id
+
+
+async def _trainer_on_text(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    lang: str,
+    language_code: str,
+    user_text: str,
+) -> None:
+    message = update.message
+    telegram_id = message.from_user.id
+    wiz = trainer.wizard(context.user_data)
+
+    if trainer.is_cancel_text(lang, user_text) and (
+        wiz or is_onboarding_active(context.user_data)
+    ):
+        trainer.clear_wizard(context.user_data)
+        clear_onboarding_state(context.user_data)
+        await message.reply_text(t(lang, "tr_cancelled"))
+        await _trainer_show_home(message, lang, telegram_id)
+        return
+
+    if wiz and wiz.get("kind") == "await_name":
+        name = trainer.normalize_name(user_text)
+        problem = trainer.name_problem(name)
+        if problem:
+            await message.reply_text(t(lang, problem))
+            return
+        if await asyncio.to_thread(storage.trainer_name_taken, telegram_id, name):
+            await message.reply_text(t(lang, "tr_name_taken"))
+            return
+        trainer.set_wizard(
+            context.user_data, "create", trainer_id=telegram_id, name=name
+        )
+        start_onboarding_state(context.user_data)
+        await _send_onboarding_question(
+            message,
+            lang,
+            "level",
+            intro=name,
+            user_data=context.user_data,
+        )
+        return
+
+    if wiz and wiz.get("kind") == "rename":
+        name = trainer.normalize_name(user_text)
+        problem = trainer.name_problem(name)
+        if problem:
+            await message.reply_text(t(lang, problem))
+            return
+        result = await asyncio.to_thread(
+            storage.rename_trainer_card, telegram_id, int(wiz["player_id"]), name
+        )
+        trainer.clear_wizard(context.user_data)
+        if result == "taken":
+            await message.reply_text(t(lang, "tr_name_taken"))
+        elif result != "ok":
+            await message.reply_text(t(lang, "tr_need_card"))
+        else:
+            await _retitle_trainer_topic(context, int(wiz["player_id"]), name)
+            await message.reply_text(t(lang, "tr_renamed", name=name))
+        await _trainer_show_home(message, lang, telegram_id)
+        return
+
+    if wiz and wiz.get("kind") == "archive":
+        typed = trainer.normalize_name(user_text)
+        if typed.casefold() != (wiz.get("name") or "").casefold():
+            trainer.clear_wizard(context.user_data)
+            await message.reply_text(t(lang, "tr_archive_mismatch"))
+            await _trainer_show_home(message, lang, telegram_id)
+            return
+        await asyncio.to_thread(
+            storage.archive_trainer_card, telegram_id, int(wiz["player_id"])
+        )
+        trainer.clear_wizard(context.user_data)
+        context.user_data.pop(SESSION_KEY, None)
+        await message.reply_text(t(lang, "tr_archived", name=wiz.get("name") or ""))
+        await _trainer_show_home(message, lang, telegram_id)
+        return
+
+    if wiz and wiz.get("kind") == "pick":
+        cards = await asyncio.to_thread(storage.list_trainer_cards, telegram_id)
+        chosen = None
+        for card in cards:
+            if card["name"] == user_text:
+                chosen = card
+                break
+        if not chosen:
+            await message.reply_text(
+                t(lang, "tr_need_card"),
+                reply_markup=trainer.pick_keyboard(
+                    lang, [card["name"] for card in cards]
+                ),
+            )
+            return
+        await asyncio.to_thread(
+            storage.set_active_trainer_card, telegram_id, int(chosen["player_id"])
+        )
+        trainer.clear_wizard(context.user_data)
+        _trainer_bind_session(context.user_data, int(chosen["player_id"]))
+        await _trainer_show_home(message, lang, telegram_id)
+        return
+
+    if is_onboarding_active(context.user_data):
+        await _handle_onboarding_text(update, context, lang, user_text)
+        return
+
+    if user_text == t(lang, "tr_btn_create"):
+        trainer.set_wizard(context.user_data, "await_name", trainer_id=telegram_id)
+        await message.reply_text(
+            t(lang, "tr_ask_name"),
+            reply_markup=ReplyKeyboardMarkup(
+                [[KeyboardButton(t(lang, "tr_btn_cancel"))]],
+                resize_keyboard=True,
+            ),
+        )
+        return
+
+    if user_text == t(lang, "tr_btn_select"):
+        cards = await asyncio.to_thread(storage.list_trainer_cards, telegram_id)
+        if not cards:
+            await message.reply_text(
+                t(lang, "tr_no_students"),
+                reply_markup=await _trainer_keyboard(telegram_id, lang),
+            )
+            return
+        trainer.set_wizard(context.user_data, "pick", trainer_id=telegram_id)
+        await message.reply_text(
+            t(lang, "tr_btn_select"),
+            reply_markup=trainer.pick_keyboard(lang, [card["name"] for card in cards]),
+        )
+        return
+
+    if is_edit_profile_text(user_text):
+        card = await asyncio.to_thread(storage.get_active_trainer_card, telegram_id)
+        if not card:
+            await message.reply_text(t(lang, "tr_need_card"))
+            await _trainer_show_home(message, lang, telegram_id)
+            return
+        trainer.set_wizard(
+            context.user_data,
+            "edit",
+            trainer_id=telegram_id,
+            player_id=int(card["player_id"]),
+            name=card["name"],
+        )
+        start_onboarding_state(context.user_data)
+        await _send_onboarding_question(
+            message,
+            lang,
+            "level",
+            intro=t(lang, "profile_edit_prompt"),
+            user_data=context.user_data,
+        )
+        return
+
+    if user_text == t(lang, "tr_btn_rename"):
+        card = await asyncio.to_thread(storage.get_active_trainer_card, telegram_id)
+        if not card:
+            await message.reply_text(t(lang, "tr_need_card"))
+            await _trainer_show_home(message, lang, telegram_id)
+            return
+        trainer.set_wizard(
+            context.user_data,
+            "rename",
+            trainer_id=telegram_id,
+            player_id=int(card["player_id"]),
+            name=card["name"],
+        )
+        await message.reply_text(
+            t(lang, "tr_ask_rename", name=card["name"]),
+            reply_markup=ReplyKeyboardMarkup(
+                [[KeyboardButton(t(lang, "tr_btn_cancel"))]],
+                resize_keyboard=True,
+            ),
+        )
+        return
+
+    if user_text == t(lang, "tr_btn_archive"):
+        card = await asyncio.to_thread(storage.get_active_trainer_card, telegram_id)
+        if not card:
+            await message.reply_text(t(lang, "tr_need_card"))
+            await _trainer_show_home(message, lang, telegram_id)
+            return
+        trainer.set_wizard(
+            context.user_data,
+            "archive",
+            trainer_id=telegram_id,
+            player_id=int(card["player_id"]),
+            name=card["name"],
+        )
+        await message.reply_text(
+            t(lang, "tr_ask_archive", name=card["name"]),
+            reply_markup=ReplyKeyboardMarkup(
+                [[KeyboardButton(t(lang, "tr_btn_cancel"))]],
+                resize_keyboard=True,
+            ),
+        )
+        return
+
+    if is_intake_active(context.user_data):
+        pending = context.user_data.get("pending_video") or {}
+        subject = pending.get("subject_player_id")
+        if subject:
+            context.user_data["user_id"] = int(subject)
+        await _handle_video_intake_text(update, context, lang, language_code, user_text)
+        return
+
+    card = await asyncio.to_thread(storage.get_active_trainer_card, telegram_id)
+    if not card:
+        await _trainer_show_home(message, lang, telegram_id)
+        return
+    _trainer_bind_session(context.user_data, int(card["player_id"]))
+    session = _get_session(context.user_data)
+    if not session.get("analysis"):
+        await message.reply_text(
+            t(lang, "no_active_analysis"),
+            reply_markup=await _trainer_keyboard(telegram_id, lang),
+        )
+        return
+    try:
+        await _process_followup(
+            context,
+            context.user_data,
+            message.chat_id,
+            user_text,
+            lang=lang,
+            language_code=language_code,
+        )
+    except Exception as exc:
+        logger.exception("Ошибка диалога тренера user_id=%s", card["player_id"])
+        await message.reply_text(
+            format_analysis_error(exc, lang),
+            parse_mode=ParseMode.MARKDOWN,
+        )
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -3728,6 +4384,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if await _consume_broadcast_text(update, context):
         return
     if await _handle_player_coach_message(update, context, user_text):
+        return
+
+    if message.from_user and await asyncio.to_thread(
+        storage.is_trainer, message.from_user.id
+    ):
+        await _trainer_on_text(update, context, lang, language_code, user_text)
         return
 
     menu_handler = _MENU_HANDLERS.get(user_text)
@@ -3857,8 +4519,15 @@ async def plan_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
     lang = _lang_from_update(update, context)
     user_id = message.from_user.id
+    if await asyncio.to_thread(storage.is_trainer, user_id):
+        card = await asyncio.to_thread(storage.get_active_trainer_card, user_id)
+        if not card:
+            await _trainer_show_home(message, lang, user_id)
+            return
+        user_id = int(card["player_id"])
     context.user_data["user_id"] = user_id
     await _touch_user(update, context)
+    context.user_data["user_id"] = user_id
     plan = await asyncio.to_thread(services.get_plan, user_id)
     if not billing.MONETIZATION_ENABLED:
         await message.reply_text(
@@ -3893,8 +4562,15 @@ async def focus_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
     lang = _lang_from_update(update, context)
     user_id = message.from_user.id
+    if await asyncio.to_thread(storage.is_trainer, user_id):
+        card = await asyncio.to_thread(storage.get_active_trainer_card, user_id)
+        if not card:
+            await _trainer_show_home(message, lang, user_id)
+            return
+        user_id = int(card["player_id"])
     context.user_data["user_id"] = user_id
     await _touch_user(update, context)
+    context.user_data["user_id"] = user_id
     rows = await asyncio.to_thread(storage.list_player_foci, user_id)
     if not rows:
         await message.reply_text(t(lang, "focus_empty"))
@@ -3924,8 +4600,15 @@ async def progress_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return
     lang = _lang_from_update(update, context)
     user_id = message.from_user.id
+    if await asyncio.to_thread(storage.is_trainer, user_id):
+        card = await asyncio.to_thread(storage.get_active_trainer_card, user_id)
+        if not card:
+            await _trainer_show_home(message, lang, user_id)
+            return
+        user_id = int(card["player_id"])
     context.user_data["user_id"] = user_id
     await _touch_user(update, context)
+    context.user_data["user_id"] = user_id
     rows = await asyncio.to_thread(services.progress_scores, user_id, 90)
     if not rows:
         await message.reply_text(t(lang, "progress_empty"))
@@ -4081,6 +4764,7 @@ def build_application(settings: Settings) -> Application:
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(CommandHandler("daly", daly_command))
     app.add_handler(CommandHandler("grant", grant_command))
+    app.add_handler(CommandHandler("set_trainer", set_trainer_command))
     app.add_handler(CommandHandler("followup", followup_scope_command))
     app.add_handler(CommandHandler("broadcast", broadcast_command))
     app.add_handler(CallbackQueryHandler(handle_broadcast_callback, pattern=r"^bc:"))

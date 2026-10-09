@@ -693,6 +693,50 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "ob_val_focus_footwork": "Ноги и перемещение",
         "ob_val_focus_serve": "Подача",
         "ob_val_focus_all": "Всё понемногу",
+        "tr_btn_create": "Завести",
+        "tr_btn_select": "Выбрать",
+        "tr_btn_rename": "Переименовать",
+        "tr_btn_archive": "Архив",
+        "tr_btn_cancel": "Отмена",
+        "tr_btn_back": "Назад",
+        "tr_instruction": (
+            "Вы в режиме тренера.\n\n"
+            "1. «Завести» — имя ученика, затем анкета или пропуск.\n"
+            "2. Этот ученик становится текущим. Видео идёт ему.\n"
+            "3. «Выбрать» — смена ученика.\n"
+            "4. «Изменить профиль» и «Переименовать» — у текущего.\n"
+            "5. «Архив» — убрать из списка. История в форуме остаётся."
+        ),
+        "tr_home_active": "Сейчас: {name}\n\nПришлите видео этого ученика.",
+        "tr_home_empty": (
+            "Ученик не выбран.\n\nЗаведите карточку или выберите ученика."
+        ),
+        "tr_ask_name": "Имя ученика. Оно будет в списке и в теме форума.",
+        "tr_name_empty": "Имя не может быть пустым.",
+        "tr_name_long": "Имя длиннее 60 символов.",
+        "tr_name_taken": "Такое имя уже есть среди ваших учеников.",
+        "tr_name_reserved": "Это имя занято кнопкой. Выберите другое.",
+        "tr_video_busy": "Сначала закончите карточку или нажмите «Отмена».",
+        "tr_video_need_card": "Сначала выберите или заведите ученика.",
+        "tr_ask_rename": "Новое имя для {name}.",
+        "tr_renamed": "Теперь это {name}.",
+        "tr_ask_archive": (
+            "Чтобы убрать {name} из списка, отправьте это имя ещё раз. "
+            "Тема в форуме останется."
+        ),
+        "tr_archived": "{name} в архиве.",
+        "tr_archive_mismatch": "Имя не совпало. Архив отменён.",
+        "tr_no_students": "Список пуст. Нажмите «Завести».",
+        "tr_cancelled": "Отменено.",
+        "tr_card_ready": "Карточка {name} готова. Видео пойдёт этому ученику.",
+        "tr_profile_updated": "Профиль {name} обновлён.",
+        "tr_msg_prompt": (
+            "{name}. Следующее сообщение уйдёт штатному тренеру в тему "
+            "этого ученика.\nОтмена — «Отмена»."
+        ),
+        "tr_not_yours": "Это не ваш ученик.",
+        "tr_off_notice": "Режим тренера выключен.",
+        "tr_need_card": "Сначала выберите ученика.",
     },
     "en": {
         "welcome": (
@@ -1270,6 +1314,48 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "ob_val_focus_footwork": "Footwork & movement",
         "ob_val_focus_serve": "Serve",
         "ob_val_focus_all": "A bit of everything",
+        "tr_btn_create": "Add student",
+        "tr_btn_select": "Choose",
+        "tr_btn_rename": "Rename",
+        "tr_btn_archive": "Archive",
+        "tr_btn_cancel": "Cancel",
+        "tr_btn_back": "Back",
+        "tr_instruction": (
+            "You are in coach mode.\n\n"
+            "1. Add student — name, then the questionnaire or skip.\n"
+            "2. That student becomes current. Video goes to them.\n"
+            "3. Choose — switch student.\n"
+            "4. Edit profile and Rename apply to the current student.\n"
+            "5. Archive removes them from the list. Forum history stays."
+        ),
+        "tr_home_active": "Current: {name}\n\nSend this student's video.",
+        "tr_home_empty": "No student selected.\n\nAdd a card or choose a student.",
+        "tr_ask_name": "Student name. It is the list label and the forum topic.",
+        "tr_name_empty": "The name cannot be empty.",
+        "tr_name_long": "The name is longer than 60 characters.",
+        "tr_name_taken": "You already have a student with this name.",
+        "tr_name_reserved": "That name is a button. Pick another.",
+        "tr_video_busy": "Finish the card first, or press Cancel.",
+        "tr_video_need_card": "Choose or add a student first.",
+        "tr_ask_rename": "New name for {name}.",
+        "tr_renamed": "Now this is {name}.",
+        "tr_ask_archive": (
+            "To remove {name} from the list, send that name again. "
+            "The forum topic stays."
+        ),
+        "tr_archived": "{name} is archived.",
+        "tr_archive_mismatch": "The name did not match. Archive cancelled.",
+        "tr_no_students": "The list is empty. Press Add student.",
+        "tr_cancelled": "Cancelled.",
+        "tr_card_ready": "Card {name} is ready. Video will go to this student.",
+        "tr_profile_updated": "Profile of {name} updated.",
+        "tr_msg_prompt": (
+            "{name}. The next message goes to the staff coach in this "
+            "student's topic.\nCancel — Cancel."
+        ),
+        "tr_not_yours": "This is not your student.",
+        "tr_off_notice": "Coach mode is off.",
+        "tr_need_card": "Choose a student first.",
     },
 }
 

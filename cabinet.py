@@ -11,6 +11,7 @@ from telegram.error import BadRequest
 import identity
 import review
 import storage
+import trainer
 
 logger = logging.getLogger(__name__)
 
@@ -64,8 +65,13 @@ async def ensure_player_topic(
                     "get_chat failed for topic title telegram_id=%s", tg_id
                 )
 
-    title_id = identity.telegram_id_for(user_id) or user_id
-    title = review.topic_title(title_id, first_name, username)
+    card = storage.get_trainer_card_by_player(user_id)
+    if card:
+        coach = storage.trainer_label(int(card["trainer_telegram_id"]))
+        title = trainer.topic_title(card["name"], coach)
+    else:
+        title_id = identity.telegram_id_for(user_id) or user_id
+        title = review.topic_title(title_id, first_name, username)
     try:
         topic = await bot.create_forum_topic(chat_id=forum_chat_id, name=title)
     except Exception:

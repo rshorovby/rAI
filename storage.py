@@ -268,6 +268,25 @@ def _init_db(conn: sqlite3.Connection) -> None:
             created_at         TEXT    NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS trainer_grants (
+            telegram_user_id   INTEGER PRIMARY KEY,
+            active             INTEGER NOT NULL DEFAULT 1,
+            instruction_pending INTEGER NOT NULL DEFAULT 1,
+            active_player_id   INTEGER,
+            created_at         TEXT    NOT NULL,
+            updated_at         TEXT    NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS trainer_cards (
+            player_id            INTEGER PRIMARY KEY,
+            trainer_telegram_id  INTEGER NOT NULL,
+            name                 TEXT    NOT NULL,
+            archived             INTEGER NOT NULL DEFAULT 0,
+            created_at           TEXT    NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_trainer_cards_owner
+            ON trainer_cards (trainer_telegram_id, archived);
+
         CREATE TABLE IF NOT EXISTS review_jobs (
             id                   INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id              INTEGER NOT NULL,
@@ -3682,3 +3701,306 @@ def get_coach_eval_stats() -> dict:
         "miss": int(rated.get("miss", 0)),
         "with_delta": int(with_delta),
     }
+
+
+def _trainer_now() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def grant_trainer(telegram_user_id: int) -> None:
+    """Включает режим тренера и помечает, что инструкцию ещё нужно доставить."""
+    now = _trainer_now()
+    telegram_user_id = int(telegram_user_id)
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            """
+            INSERT INTO trainer_grants
+                (telegram_user_id, active, instruction_pending,
+                 created_at, updated_at)
+            VALUES (?, 1, 1, ?, ?)
+            ON CONFLICT(telegram_user_id) DO UPDATE SET
+                active = 1,
+                instruction_pending = 1,
+                updated_at = excluded.updated_at
+            """,
+            (telegram_user_id, now, now),
+        )
+        conn.commit()
+
+
+def revoke_trainer(telegram_user_id: int) -> bool:
+    """Снимает режим. Карточки не архивирует. False, если права не было."""
+    now = _trainer_now()
+    telegram_user_id = int(telegram_user_id)
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            "SELECT active FROM trainer_grants WHERE telegram_user_id = ?",
+            (telegram_user_id,),
+        ).fetchone()
+        if not row or not int(row["active"]):
+            return False
+        conn.execute(
+            """
+            UPDATE trainer_grants
+            SET active = 0, instruction_pending = 0, updated_at = ?
+            WHERE telegram_user_id = ?
+            """,
+            (now, telegram_user_id),
+        )
+        conn.commit()
+    return True
+
+
+def is_trainer(telegram_user_id: int) -> bool:
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            """
+            SELECT active FROM trainer_grants
+            WHERE telegram_user_id = ?
+            """,
+            (int(telegram_user_id),),
+        ).fetchone()
+    return bool(row and int(row["active"]))
+
+
+def trainer_instruction_pending(telegram_user_id: int) -> bool:
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            """
+            SELECT instruction_pending FROM trainer_grants
+            WHERE telegram_user_id = ? AND active = 1
+            """,
+            (int(telegram_user_id),),
+        ).fetchone()
+    return bool(row and int(row["instruction_pending"]))
+
+
+def mark_trainer_instruction_sent(telegram_user_id: int) -> None:
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            """
+            UPDATE trainer_grants
+            SET instruction_pending = 0, updated_at = ?
+            WHERE telegram_user_id = ?
+            """,
+            (_trainer_now(), int(telegram_user_id)),
+        )
+        conn.commit()
+
+
+def trainer_label(telegram_user_id: int) -> str:
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            """
+            SELECT first_name, username FROM users WHERE user_id = ?
+            """,
+            (int(telegram_user_id),),
+        ).fetchone()
+    if not row:
+        return str(int(telegram_user_id))
+    first = (row["first_name"] or "").strip()
+    if first:
+        return first
+    username = (row["username"] or "").strip()
+    if username:
+        return f"@{username}"
+    return str(int(telegram_user_id))
+
+
+def trainer_name_taken(
+    trainer_telegram_id: int,
+    name: str,
+    *,
+    except_player_id: Optional[int] = None,
+) -> bool:
+    target = name.casefold()
+    for card in list_trainer_cards(trainer_telegram_id):
+        if except_player_id is not None and int(card["player_id"]) == int(
+            except_player_id
+        ):
+            continue
+        if (card["name"] or "").casefold() == target:
+            return True
+    return False
+
+
+def create_trainer_card(trainer_telegram_id: int, name: str) -> Optional[dict]:
+    """Новый player без Telegram. None, если имя уже занято."""
+    trainer_telegram_id = int(trainer_telegram_id)
+    if trainer_name_taken(trainer_telegram_id, name):
+        return None
+    now = _trainer_now()
+    with _connect() as conn:
+        _init_db(conn)
+        cur = conn.execute(
+            "INSERT INTO players (created_at, display_name) VALUES (?, ?)",
+            (now, name),
+        )
+        player_id = int(cur.lastrowid)
+        conn.execute(
+            """
+            INSERT INTO trainer_cards
+                (player_id, trainer_telegram_id, name, archived, created_at)
+            VALUES (?, ?, ?, 0, ?)
+            """,
+            (player_id, trainer_telegram_id, name, now),
+        )
+        conn.execute(
+            """
+            UPDATE trainer_grants
+            SET active_player_id = ?, updated_at = ?
+            WHERE telegram_user_id = ?
+            """,
+            (player_id, now, trainer_telegram_id),
+        )
+        conn.commit()
+    return get_trainer_card_by_player(player_id)
+
+
+def list_trainer_cards(trainer_telegram_id: int) -> list:
+    with _connect() as conn:
+        _init_db(conn)
+        rows = conn.execute(
+            """
+            SELECT * FROM trainer_cards
+            WHERE trainer_telegram_id = ? AND archived = 0
+            ORDER BY name COLLATE NOCASE
+            """,
+            (int(trainer_telegram_id),),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_trainer_card_by_player(player_id: int) -> Optional[dict]:
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            "SELECT * FROM trainer_cards WHERE player_id = ?",
+            (int(player_id),),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def get_active_trainer_card(trainer_telegram_id: int) -> Optional[dict]:
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            """
+            SELECT c.*
+            FROM trainer_grants g
+            JOIN trainer_cards c ON c.player_id = g.active_player_id
+            WHERE g.telegram_user_id = ?
+              AND g.active = 1
+              AND c.archived = 0
+            """,
+            (int(trainer_telegram_id),),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def set_active_trainer_card(trainer_telegram_id: int, player_id: int) -> bool:
+    card = get_trainer_card_by_player(player_id)
+    if not card or int(card["archived"]):
+        return False
+    if int(card["trainer_telegram_id"]) != int(trainer_telegram_id):
+        return False
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            """
+            UPDATE trainer_grants
+            SET active_player_id = ?, updated_at = ?
+            WHERE telegram_user_id = ? AND active = 1
+            """,
+            (int(player_id), _trainer_now(), int(trainer_telegram_id)),
+        )
+        conn.commit()
+    return get_active_trainer_card(trainer_telegram_id) is not None
+
+
+def clear_active_trainer_card(trainer_telegram_id: int) -> None:
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            """
+            UPDATE trainer_grants
+            SET active_player_id = NULL, updated_at = ?
+            WHERE telegram_user_id = ?
+            """,
+            (_trainer_now(), int(trainer_telegram_id)),
+        )
+        conn.commit()
+
+
+def archive_trainer_card(trainer_telegram_id: int, player_id: int) -> bool:
+    card = get_trainer_card_by_player(player_id)
+    if not card or int(card["archived"]):
+        return False
+    if int(card["trainer_telegram_id"]) != int(trainer_telegram_id):
+        return False
+    now = _trainer_now()
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            """
+            UPDATE trainer_cards SET archived = 1 WHERE player_id = ?
+            """,
+            (int(player_id),),
+        )
+        conn.execute(
+            """
+            UPDATE trainer_grants
+            SET active_player_id = NULL, updated_at = ?
+            WHERE telegram_user_id = ? AND active_player_id = ?
+            """,
+            (now, int(trainer_telegram_id), int(player_id)),
+        )
+        conn.commit()
+    return True
+
+
+def rename_trainer_card(
+    trainer_telegram_id: int, player_id: int, name: str
+) -> Optional[str]:
+    """'ok', 'missing' или 'taken'."""
+    card = get_trainer_card_by_player(player_id)
+    if (
+        not card
+        or int(card["archived"])
+        or int(card["trainer_telegram_id"]) != int(trainer_telegram_id)
+    ):
+        return "missing"
+    if trainer_name_taken(trainer_telegram_id, name, except_player_id=player_id):
+        return "taken"
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            "UPDATE trainer_cards SET name = ? WHERE player_id = ?",
+            (name, int(player_id)),
+        )
+        conn.execute(
+            "UPDATE players SET display_name = ? WHERE id = ?",
+            (name, int(player_id)),
+        )
+        conn.commit()
+    return "ok"
+
+
+def update_player_forum_title(user_id: int, forum_chat_id: int, title: str) -> None:
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            """
+            UPDATE player_forum_topics
+            SET title = ?
+            WHERE user_id = ? AND forum_chat_id = ?
+            """,
+            (title, int(user_id), int(forum_chat_id)),
+        )
+        conn.commit()

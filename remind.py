@@ -45,6 +45,27 @@ def _telegram_chat(player_id: int):
     return identity.telegram_id_for(int(player_id))
 
 
+def _practice_destination(player_id: int, row_lang: str):
+    """Чат доставки, подпись карточки и язык. None, если писать некому."""
+    chat_id = identity.telegram_id_for(int(player_id))
+    label = None
+    lang = _ui_lang(row_lang or "")
+    if chat_id is None:
+        card = storage.get_trainer_card_by_player(int(player_id))
+        if not card:
+            return None
+        chat_id = int(card["trainer_telegram_id"])
+        label = card["name"]
+        lang = _ui_lang(storage.get_user_language_code(chat_id) or row_lang or "")
+    return chat_id, label, lang
+
+
+def _with_card_label(label, text: str) -> str:
+    if not label:
+        return text
+    return f"{label}\n\n{text}"
+
+
 def _focus_drill(row: dict) -> tuple[str, str]:
     focus = (row.get("focus_text") or "").strip() or "—"
     drill = (row.get("drill_text") or "").strip() or "—"
@@ -133,20 +154,26 @@ async def run_practice_nudges() -> tuple[int, int]:
     if practice.should_send_pre_now():
         for row in storage.list_due_practice_pre(today):
             user_id = int(row["user_id"])
-            chat_id = _telegram_chat(user_id)
-            if chat_id is None:
+            dest = _practice_destination(user_id, row.get("language_code") or "")
+            if dest is None:
                 logger.warning(
                     "practice pre: нет telegram identity player_id=%s", user_id
                 )
                 continue
-            lang = _ui_lang(row.get("language_code") or "")
+            chat_id, label, lang = dest
             focus, drill = _focus_drill(row)
             try:
                 await bot.send_message(
                     chat_id=chat_id,
-                    text=t(lang, "practice_pre", focus=focus, drill=drill),
+                    text=_with_card_label(
+                        label, t(lang, "practice_pre", focus=focus, drill=drill)
+                    ),
                     parse_mode="Markdown",
-                    reply_markup=keyboard_pre_nudge(lang),
+                    reply_markup=(
+                        practice.markup_for_player(keyboard_pre_nudge(lang), user_id)
+                        if label
+                        else keyboard_pre_nudge(lang)
+                    ),
                 )
                 storage.mark_practice_pre_sent(int(row["id"]))
                 storage.log_event(user_id, EVENT_PRACTICE_PRE_SENT)
@@ -170,19 +197,23 @@ async def run_practice_nudges() -> tuple[int, int]:
     if practice.should_send_post_now():
         for row in storage.list_due_practice_post(today):
             user_id = int(row["user_id"])
-            chat_id = _telegram_chat(user_id)
-            if chat_id is None:
+            dest = _practice_destination(user_id, row.get("language_code") or "")
+            if dest is None:
                 logger.warning(
                     "practice post: нет telegram identity player_id=%s", user_id
                 )
                 continue
-            lang = _ui_lang(row.get("language_code") or "")
+            chat_id, label, lang = dest
             focus, drill = _focus_drill(row)
             try:
                 await bot.send_message(
                     chat_id=chat_id,
-                    text=t(lang, "practice_post", drill=drill),
-                    reply_markup=keyboard_post_checkin(lang),
+                    text=_with_card_label(label, t(lang, "practice_post", drill=drill)),
+                    reply_markup=(
+                        practice.markup_for_player(keyboard_post_checkin(lang), user_id)
+                        if label
+                        else keyboard_post_checkin(lang)
+                    ),
                 )
                 storage.mark_practice_post_sent(int(row["id"]))
                 storage.log_event(user_id, EVENT_PRACTICE_POST_SENT)

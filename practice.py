@@ -151,6 +151,22 @@ def keyboard_post_checkin(lang: str) -> InlineKeyboardMarkup:
     )
 
 
+def markup_for_player(
+    markup: InlineKeyboardMarkup, player_id: int
+) -> InlineKeyboardMarkup:
+    """Помечает кнопки p: карточкой, чтобы ответ не сел на аккаунт тренера."""
+    rows = []
+    for row in markup.inline_keyboard:
+        buttons = []
+        for button in row:
+            data = button.callback_data or ""
+            if data.startswith("p:"):
+                data = f"pc:{int(player_id)}:{data[2:]}"
+            buttons.append(InlineKeyboardButton(button.text, callback_data=data))
+        rows.append(buttons)
+    return InlineKeyboardMarkup(rows)
+
+
 def keyboard_after_date_set(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
