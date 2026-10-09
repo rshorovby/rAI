@@ -59,6 +59,20 @@ def test_junior_age_sets_the_yardstick():
     assert "взрослым чеклистом" in ctx
 
 
+def test_training_stage_stays_inside_the_age_standard():
+    profile = {
+        "level": "training",
+        "hand": "right",
+        "skipped": False,
+        "age_band": "y8_9",
+        "age_recorded_on": "2026-10-09",
+    }
+    ctx = build_player_context(profile, "ru")
+    assert "Тренируется" in ctx
+    assert "норму этого возраста" in ctx
+    assert "юниорские соревнования" not in ctx
+
+
 def test_adult_age_keeps_the_adult_yardstick():
     profile = {
         "level": "recreational",

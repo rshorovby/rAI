@@ -113,6 +113,7 @@ from onboarding import (
     get_onboarding_step,
     is_edit_profile_text,
     is_injuries_none_text,
+    is_junior_age,
     is_onboarding_active,
     is_reset_confirm_no,
     is_reset_confirm_yes,
@@ -487,8 +488,12 @@ async def _send_onboarding_question(
         parts.append(intro)
     n, total = step_progress(step, flow=onboarding_flow(user_data))
     parts.append(t(lang, "ob_progress", n=n, total=total))
-    parts.append(t(lang, f"ob_question_{step}"))
-    markup = onboarding_keyboard(lang, step)
+    age = (get_onboarding_answers(user_data) if user_data else {}).get("age")
+    question = f"ob_question_{step}"
+    if step == "level" and is_junior_age(age):
+        question = "ob_question_level_junior"
+    parts.append(t(lang, question))
+    markup = onboarding_keyboard(lang, step, age=age)
     if user_data is not None and trainer.wizard(user_data):
         markup = trainer.with_cancel(markup, lang)
     await message.reply_text(
@@ -701,9 +706,10 @@ async def _handle_onboarding_text(
         await _finish_onboarding_complete(update, context, lang, user_id)
         return
 
-    value = match_step_answer(lang, step, user_text)
+    age = get_onboarding_answers(context.user_data).get("age")
+    value = match_step_answer(lang, step, user_text, age=age)
     if not value:
-        markup = onboarding_keyboard(lang, step)
+        markup = onboarding_keyboard(lang, step, age=age)
         if trainer.wizard(context.user_data):
             markup = trainer.with_cancel(markup, lang)
         await message.reply_text(
@@ -1537,7 +1543,11 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             step = get_onboarding_step(context.user_data)
             await message.reply_text(
                 t(lang, "ob_in_progress_video"),
-                reply_markup=onboarding_keyboard(lang, step),
+                reply_markup=onboarding_keyboard(
+                    lang,
+                    step,
+                    age=get_onboarding_answers(context.user_data).get("age"),
+                ),
             )
             return
 

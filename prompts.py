@@ -431,6 +431,39 @@ def _backhand_rule(language_code: str, backhand: Optional[str]) -> str:
     )
 
 
+_JUNIOR_STAGE = {
+    "ru": {
+        "starting": (
+            "Этап «Начинает»: форма удара ещё не сложилась. "
+            "Смотри контакт и координацию, не требуй стабильной техники этого возраста."
+        ),
+        "training": (
+            "Этап «Тренируется»: обычные занятия. "
+            "Требуй норму этого возраста и не больше."
+        ),
+        "tournaments": (
+            "Этап «Играет турниры»: можно просить стабильность и розыгрыш очка. "
+            "Чеклист остаётся нормой этого возраста."
+        ),
+        "competitive": ("Уровень Pro — юниорские соревнования, не взрослый турнир."),
+    },
+    "en": {
+        "starting": (
+            "Stage “Just starting”: the swing shape is not formed yet. "
+            "Watch contact and coordination; do not require stable technique for this age."
+        ),
+        "training": (
+            "Stage “Training”: regular lessons. "
+            "Ask for this age’s standard and nothing beyond it."
+        ),
+        "tournaments": (
+            "Stage “Plays tournaments”: consistency and point play are fair to ask. "
+            "The checklist stays this age’s standard."
+        ),
+        "competitive": ("Pro here means junior competition, not an adult tournament."),
+    },
+}
+
 _JUNIOR_AGE_BANDS = frozenset({"u8", "y8_9", "y10_11", "y12_13", "y14_15", "y16_17"})
 
 _AGE_NORMS = {
@@ -499,10 +532,9 @@ def _age_rule(language_code: str, profile: dict) -> str:
                 "Упражнения без взрослой силовой нагрузки и без взрослого "
                 "объёма корзины."
             )
-            if profile.get("level") == "competitive":
-                parts.append(
-                    "Уровень Pro — юниорские соревнования, не взрослый турнир."
-                )
+            stage = _JUNIOR_STAGE["ru"].get(profile.get("level") or "")
+            if stage:
+                parts.append(stage)
         return " ".join(parts)
     parts = [norm]
     if recorded:
@@ -515,8 +547,9 @@ def _age_rule(language_code: str, profile: dict) -> str:
             "Years of experience are not an adult beginner scale. "
             "No adult strength work and no adult basket volume."
         )
-        if profile.get("level") == "competitive":
-            parts.append("Pro here means junior competition, not an adult tournament.")
+        stage = _JUNIOR_STAGE["en"].get(profile.get("level") or "")
+        if stage:
+            parts.append(stage)
     return " ".join(parts)
 
 

@@ -76,6 +76,40 @@ def test_trainer_flow_asks_age_first():
     assert "18+" in labels
 
 
+def test_junior_level_replaces_adult_scale():
+    from i18n import t
+
+    assert (
+        match_step_answer("ru", "level", t("ru", "ob_opt_level_training"), age="y8_9")
+        == "training"
+    )
+    assert (
+        match_step_answer(
+            "ru", "level", t("ru", "ob_opt_level_recreational"), age="y8_9"
+        )
+        is None
+    )
+    assert (
+        match_step_answer(
+            "ru", "level", t("ru", "ob_opt_level_recreational"), age="adult"
+        )
+        == "recreational"
+    )
+    labels = [
+        btn.text
+        for row in onboarding_keyboard("ru", "level", age="y10_11").keyboard
+        for btn in row
+    ]
+    assert labels[:3] == ["Начинает", "Тренируется", "Играет турниры"]
+    adult = [
+        btn.text
+        for row in onboarding_keyboard("ru", "level", age="adult").keyboard
+        for btn in row
+    ]
+    assert "🏆 Pro" in adult
+    assert "Тренируется" not in adult
+
+
 def test_match_level_answer_ru():
     from i18n import t
 

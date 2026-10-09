@@ -23,6 +23,7 @@ STEPS = (
 TRAINER_STEPS = ("age",) + STEPS
 
 LEVEL_KEYS = ("beginner", "recreational", "advanced", "competitive")
+JUNIOR_LEVEL_KEYS = ("starting", "training", "tournaments")
 HAND_KEYS = ("right", "left")
 BACKHAND_KEYS = ("one_handed", "two_handed")
 FREQUENCY_KEYS = ("1", "2", "3_4", "5_plus")
@@ -110,10 +111,25 @@ def is_injuries_none_text(lang: str, text: str) -> bool:
     return text == t(lang, "ob_injuries_none")
 
 
-def match_step_answer(lang: str, step: str, text: str) -> Optional[str]:
+def is_junior_age(age: Optional[str]) -> bool:
+    return bool(age) and age != "adult" and age in AGE_KEYS
+
+
+def level_option_keys(age: Optional[str] = None) -> tuple:
+    if is_junior_age(age):
+        return JUNIOR_LEVEL_KEYS
+    return LEVEL_KEYS
+
+
+def match_step_answer(
+    lang: str, step: str, text: str, *, age: Optional[str] = None
+) -> Optional[str]:
     if step == "injuries":
         return None
-    keys = _STEP_OPTIONS.get(step, ())
+    if step == "level":
+        keys = level_option_keys(age)
+    else:
+        keys = _STEP_OPTIONS.get(step, ())
     for key in keys:
         if text == t(lang, f"ob_opt_{step}_{key}"):
             return key
@@ -142,9 +158,14 @@ def _rows_of_two(
     return rows
 
 
-def _step_keyboard(lang: str, step: str) -> ReplyKeyboardMarkup:
+def _step_keyboard(
+    lang: str, step: str, *, age: Optional[str] = None
+) -> ReplyKeyboardMarkup:
     rows: list[list[KeyboardButton]] = []
-    keys = _STEP_OPTIONS.get(step)
+    if step == "level":
+        keys: Optional[tuple] = level_option_keys(age)
+    else:
+        keys = _STEP_OPTIONS.get(step)
     if keys:
         rows = _rows_of_two(lang, step, keys)
     elif step == "injuries":
@@ -154,8 +175,10 @@ def _step_keyboard(lang: str, step: str) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(rows, resize_keyboard=True, one_time_keyboard=True)
 
 
-def onboarding_keyboard(lang: str, step: str) -> ReplyKeyboardMarkup:
-    return _step_keyboard(lang, step)
+def onboarding_keyboard(
+    lang: str, step: str, *, age: Optional[str] = None
+) -> ReplyKeyboardMarkup:
+    return _step_keyboard(lang, step, age=age)
 
 
 def profile_actions_keyboard(
