@@ -113,7 +113,7 @@ def t(lang: str, key: str, **kwargs: Any) -> str:
 _MESSAGES: dict[str, dict[str, str]] = {
     "ru": {
         "welcome": (
-            "🎾 *Добро пожаловать в SwingSync.ai!*\n\n"
+            "🎾 *Добро пожаловать в AdvantAce!*\n\n"
             "Разбираем вашу технику по короткому видео вместе с *реальным тренером* "
             "с большим опытом.\n\n"
             "*Как это работает:*\n"
@@ -132,7 +132,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "🎾 Видео 10–30 сек → AI-разбор + фидбек опытного тренера. Нажмите «Старт»."
         ),
         "bot_description": (
-            "🎾 SwingSync.ai — разбор техники с AI и реальным тренером\n\n"
+            "🎾 AdvantAce — разбор техники с AI и реальным тренером\n\n"
             "Снимите 10–30 секунд игры (лучше сбоку или сзади) и отправьте сюда.\n\n"
             "Сначала AI за минуту разберёт удары, ноги и главные ошибки. "
             "Затем опытный тренер может дополнить разбор своим комментарием.\n\n"
@@ -165,7 +165,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "cmd_new": "Новый разбор",
         "cmd_history": "Мои прошлые разборы",
         "link_code": (
-            "Код для приложения SwingSync.ai (10 минут):\n\n`{code}`\n\n"
+            "Код для приложения AdvantAce (10 минут):\n\n`{code}`\n\n"
             "Введите его в приложении на экране привязки Telegram."
         ),
         "link_invalid": "Код не найден или истёк. Сгенерируйте новый в приложении.",
@@ -213,7 +213,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         ),
         "progress_header": "📈 *Прогресс за 90 дней*",
         "progress_last_focus": "Последний фокус: {focus}",
-        "invoice_title": "SwingSync.ai Pro — 1 месяц",
+        "invoice_title": "AdvantAce Pro — 1 месяц",
         "invoice_description": (
             "Больше разборов, фокус недели, память прогресса и упражнения."
         ),
@@ -776,7 +776,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
     },
     "en": {
         "welcome": (
-            "🎾 *Welcome to SwingSync.ai!*\n\n"
+            "🎾 *Welcome to AdvantAce!*\n\n"
             "We review your technique from a short video with a *real coach* "
             "who has years of experience.\n\n"
             "*How it works:*\n"
@@ -795,7 +795,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "🎾 10–30 sec video → AI review + feedback from an experienced coach. Tap Start."
         ),
         "bot_description": (
-            "🎾 SwingSync.ai — tennis technique review with AI and a real coach\n\n"
+            "🎾 AdvantAce — tennis technique review with AI and a real coach\n\n"
             "Record 10–30 seconds of your game (side or rear angle works best) and send "
             "it here.\n\n"
             "First, AI breaks down strokes, footwork, and key mistakes in about a minute. "
@@ -829,7 +829,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "cmd_new": "New analysis",
         "cmd_history": "My past analyses",
         "link_code": (
-            "Code for the SwingSync.ai app (10 minutes):\n\n`{code}`\n\n"
+            "Code for the AdvantAce app (10 minutes):\n\n`{code}`\n\n"
             "Enter it in the app on the Telegram link screen."
         ),
         "link_invalid": "Code not found or expired. Generate a new one in the app.",
@@ -875,7 +875,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         ),
         "progress_header": "📈 *Progress (90 days)*",
         "progress_last_focus": "Latest focus: {focus}",
-        "invoice_title": "SwingSync.ai Pro — 1 month",
+        "invoice_title": "AdvantAce Pro — 1 month",
         "invoice_description": (
             "More analyses, weekly focus, progress memory, and drills."
         ),
@@ -994,7 +994,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "survey_no_video_intro": (
             "Hi! 👋\n\n"
             "We noticed you haven't sent a video for technique analysis yet. "
-            "We want SwingSync.ai to be useful and easy — "
+            "We want AdvantAce to be useful and easy — "
             "*what's stopping you?*\n\n"
             "This takes less than 10 seconds and helps us improve.\n\n"
             "Please pick one or more options."
@@ -1018,7 +1018,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "survey_no_onboarding_intro": (
             "Hi! 👋\n\n"
             "We noticed you tapped /start but didn't finish the short profile quiz. "
-            "We want SwingSync.ai to be easy — *what stopped you?*\n\n"
+            "We want AdvantAce to be easy — *what stopped you?*\n\n"
             "This takes less than 10 seconds.\n\n"
             "Please pick one or more options."
         ),
