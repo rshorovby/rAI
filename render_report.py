@@ -164,17 +164,11 @@ def _categories(remarks: list) -> str:
     return "\n\n".join(blocks)
 
 
-def _span(item: dict) -> str:
-    start = str(item.get("t") or "")
-    end = str(item.get("t_end") or "")
-    return f"{start}–{end}" if start and end else start
-
-
 def _remark(item: dict) -> str:
     if item.get("certainty") == "insufficient":
         text = (item.get("observation") or item.get("why_it_matters") or "").strip()
-        return f"{_span(item)}\nНедостаточно данных: {text}"
-    lines = [_span(item)]
+        return f"{item.get('t')}\nНедостаточно данных: {text}"
+    lines = [str(item.get("t") or "").replace("-", "–")]
     observation = (item.get("observation") or "").strip()
     if item.get("certainty") == "likely":
         observation = f"{observation} (гипотеза)"

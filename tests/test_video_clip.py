@@ -73,10 +73,16 @@ def test_render_remark_span():
 
     text = _remark(
         {
-            "t": "00:01.000",
-            "t_end": "00:02.500",
+            "t": "00:01.000-00:02.500",
             "observation": "x",
             "why_it_matters": "y",
         }
     )
     assert text.startswith("00:01.000–00:02.500\n")
+
+
+def test_analysis_checks_accept_span():
+    from analysis_checks import TIMECODE_RE
+
+    assert TIMECODE_RE.match("00:01.000-00:02.500")
+    assert TIMECODE_RE.match("00:01–00:02")

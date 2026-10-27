@@ -13,11 +13,7 @@ from analysis_schema import (
     schema_errors,
     to_sdk_schema,
 )
-from analyzer import (
-    STRUCTURED_TEMPERATURE,
-    STRUCTURED_VIDEO_FPS,
-    _prepare_structured_video,
-)
+from analyzer import STRUCTURED_TEMPERATURE, STRUCTURED_VIDEO_FPS, _prepare_structured_video
 from focus_strokes import stroke_key
 from pricing import Usage
 from prompts import build_foci_block, build_scores_block
@@ -181,7 +177,6 @@ def test_serve_racket_face_does_not_reach_the_player():
         {
             "category": "technique",
             "t": "0:02",
-            "t_end": "0:04",
             "observation": "Ракетка в фазе замаха открывается струнами вверх («поднос официанта»).",
             "certainty": "seen",
             "why_it_matters": "Блокирует хлёсткий удар с пронацией.",

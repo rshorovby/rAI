@@ -10,7 +10,8 @@ from issue_tags import ISSUE_TAGS
 
 logger = logging.getLogger(__name__)
 
-TIMECODE_RE = re.compile(r"^\d{1,2}:\d{2}(?:\.\d{1,3})?$")
+_TS = r"\d{1,2}:\d{2}(?:\.\d{1,3})?"
+TIMECODE_RE = re.compile(rf"^{_TS}(?:\s*[-–]\s*{_TS})?$")
 _TIMECODE_IN_TEXT_RE = re.compile(r"\d{1,2}:\d{2}(?:\.\d{1,3})?")
 _AUTHORS = ("Николаев", "Джумок", "Feel Tennis")
 # «поднос» / waiter нельзя ни на каком ударе. Остальное — только подача:
@@ -241,7 +242,7 @@ def _timecodes(payload: dict, duration_sec: Optional[float], notes: list) -> Non
                 continue
             if duration_sec is None:
                 continue
-            if _seconds(stamp) > duration_sec + 1:
+            if _seconds(re.split(r"\s*[-–]\s*", stamp)[-1]) > duration_sec + 1:
                 notes.append(f"таймкод {stamp} длиннее ролика")
 
 
