@@ -51,3 +51,10 @@ def test_make_slowmo_clip(tmp_path):
         assert float(out.stdout) == pytest.approx(4.0, abs=0.3)
     finally:
         clip.unlink()
+
+
+def test_analysis_checks_accept_millis():
+    from analysis_checks import TIMECODE_RE, _seconds
+
+    assert TIMECODE_RE.match("00:03.125") and TIMECODE_RE.match("00:03")
+    assert _seconds("01:02.500") == 62.5

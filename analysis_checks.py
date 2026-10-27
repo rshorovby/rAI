@@ -10,8 +10,8 @@ from issue_tags import ISSUE_TAGS
 
 logger = logging.getLogger(__name__)
 
-TIMECODE_RE = re.compile(r"^\d{1,2}:\d{2}$")
-_TIMECODE_IN_TEXT_RE = re.compile(r"\d{1,2}:\d{2}")
+TIMECODE_RE = re.compile(r"^\d{1,2}:\d{2}(?:\.\d{1,3})?$")
+_TIMECODE_IN_TEXT_RE = re.compile(r"\d{1,2}:\d{2}(?:\.\d{1,3})?")
 _AUTHORS = ("Николаев", "Джумок", "Feel Tennis")
 # «поднос» / waiter нельзя ни на каком ударе. Остальное — только подача:
 # модель называет хватку и открытую струнную поверхность, даже когда блок это запрещает.
@@ -299,9 +299,9 @@ def _keep(values, allowed: set, kind: str, notes: list) -> list:
     return kept
 
 
-def _seconds(stamp: str) -> int:
+def _seconds(stamp: str) -> float:
     minutes, seconds = stamp.split(":")
-    return int(minutes) * 60 + int(seconds)
+    return int(minutes) * 60 + float(seconds)
 
 
 def _leak_slugs() -> list:
