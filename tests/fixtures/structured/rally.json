@@ -21,6 +21,7 @@
     {
       "category": "technique",
       "t": "0:03",
+      "t_end": "00:05.000",
       "observation": "Контакт близко к корпусу.",
       "certainty": "seen",
       "why_it_matters": "Мяч не выпускается вперёд.",
@@ -30,6 +31,7 @@
     {
       "category": "movement",
       "t": "0:01",
+      "t_end": "00:03.000",
       "observation": "Сплит-степ не виден.",
       "certainty": "insufficient",
       "why_it_matters": "По этому ракурсу шаг не оценить.",

@@ -2864,14 +2864,15 @@ async def _send_observation(
     """Карточка наблюдения: замедленный клип сверху, текст в подписи под ним."""
     text = format_error_card(lang, state)
     markup = keyboard_observation(lang, state, index)
-    clip, cleanup, center = await _build_observation_clip(
+    clip, cleanup, window = await _build_observation_clip(
         context, chat_id, state, index
     )
     if clip is None:
         await _reply_dialog(context, chat_id, text, markup)
         return
     try:
-        stamp = f"{int(center // 60):02d}:{center % 60:06.3f}"
+        (m0, s0), (m1, s1) = divmod(window[0], 60), divmod(window[1], 60)
+        stamp = f"{int(m0):02d}:{s0:06.3f}–{int(m1):02d}:{s1:06.3f}"
         slow = "🐢 Замедленно ×0,5" if lang == "ru" else "🐢 Slow motion ×0.5"
         caption_html = markdown_to_html(text)
         fits = len(caption_html) <= _CAPTION_LIMIT and len(text) <= _CAPTION_LIMIT
@@ -2916,12 +2917,12 @@ async def _build_observation_clip(
     file_id = state.get("video_file_id")
     remarks = state.get("sections", {}).get("remarks") or []
     if not file_id or index < 0 or index >= len(remarks):
-        return None, [], 0.0
+        return None, [], (0.0, 0.0)
     if remarks[index]["kind"] == "insufficient":
-        return None, [], 0.0
-    center = video_clip.find_timecode_sec(remarks[index]["card"])
-    if center is None:
-        return None, [], 0.0
+        return None, [], (0.0, 0.0)
+    window = video_clip.find_span_sec(remarks[index]["card"])
+    if window is None:
+        return None, [], (0.0, 0.0)
     suffix = _VIDEO_SUFFIXES.get(state.get("video_mime") or "", ".mp4")
     cleanup: list = []
     try:
@@ -2933,16 +2934,16 @@ async def _build_observation_clip(
             src = Path(tmp.name)
         cleanup.append(src)
         await telegram_file.download_to_drive(custom_path=str(src))
-        clip = await asyncio.to_thread(video_clip.make_slowmo_clip, src, center)
+        clip = await asyncio.to_thread(video_clip.make_slowmo_clip, src, *window)
         if clip is None:
-            return None, cleanup, center
+            return None, cleanup, window
         cleanup.append(clip)
-        return clip, cleanup, center
+        return clip, cleanup, window
     except Exception:
         logger.warning("observation clip failed chat_id=%s", chat_id, exc_info=True)
         for path in cleanup:
             path.unlink(missing_ok=True)
-        return None, [], center
+        return None, [], window
 
 
 async def _present_analysis_to_player(

@@ -11,12 +11,22 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 FFMPEG_TIMEOUT_SEC = 90
-CLIP_BEFORE_SEC = 1.0
-CLIP_AFTER_SEC = 1.0
+CLIP_PAD_SEC = 0.25
+DEFAULT_BEFORE_SEC = 1.0
+DEFAULT_AFTER_SEC = 2.5
+MIN_CLIP_SEC = 2.0
+MAX_CLIP_SEC = 6.0
 SLOWDOWN = 2.0
 MAX_CLIP_SIDE = 720
 
-_TIMECODE = re.compile(r"(?<![\d:])(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?(?![\d:])")
+_TS = r"(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?"
+_TIMECODE = re.compile(rf"(?<![\d:]){_TS}(?![\d:])")
+_SPAN = re.compile(rf"(?<![\d:]){_TS}\s*[–—-]\s*{_TS}(?![\d:])")
+
+
+def _to_sec(minutes: str, seconds: str, frac: Optional[str]) -> float:
+    millis = float(f"0.{frac}") if frac else 0.0
+    return int(minutes) * 60 + int(seconds) + millis
 
 
 def find_timecode_sec(text: str) -> Optional[float]:
@@ -24,19 +34,44 @@ def find_timecode_sec(text: str) -> Optional[float]:
     match = _TIMECODE.search(text or "")
     if not match:
         return None
-    minutes, seconds, frac = match.groups()
-    millis = float(f"0.{frac}") if frac else 0.0
-    return int(minutes) * 60 + int(seconds) + millis
+    return _to_sec(*match.groups())
 
 
-def make_slowmo_clip(src: Path, center_sec: float) -> Optional[Path]:
-    """mp4 без звука: [t-1с; t+1с] замедлено в 2 раза. Вызывающий удаляет файл."""
+def find_span_sec(text: str) -> Optional[tuple]:
+    """Окно показа (start, end) в секундах из «MM:SS.mmm–MM:SS.mmm» или одного таймкода."""
+    span = _SPAN.search(text or "")
+    if span:
+        g = span.groups()
+        start, end = _to_sec(*g[:3]), _to_sec(*g[3:])
+        if end > start:
+            return clip_window(start, end)
+    point = find_timecode_sec(text)
+    if point is None:
+        return None
+    return max(0.0, point - DEFAULT_BEFORE_SEC), point + DEFAULT_AFTER_SEC
+
+
+def clip_window(start: float, end: float) -> tuple:
+    """Отрезок модели с небольшим запасом; длина от 2 до 6 секунд."""
+    lo = max(0.0, start - CLIP_PAD_SEC)
+    hi = end + CLIP_PAD_SEC
+    if hi - lo < MIN_CLIP_SEC:
+        extra = (MIN_CLIP_SEC - (hi - lo)) / 2
+        lo = max(0.0, lo - extra)
+        hi = lo + MIN_CLIP_SEC
+    if hi - lo > MAX_CLIP_SEC:
+        hi = lo + MAX_CLIP_SEC
+    return lo, hi
+
+
+def make_slowmo_clip(src: Path, start_sec: float, end_sec: float) -> Optional[Path]:
+    """mp4 без звука: отрезок [start; end] замедлен в 2 раза. Вызывающий удаляет файл."""
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg or not Path(src).is_file():
         return None
 
-    start = max(0.0, center_sec - CLIP_BEFORE_SEC)
-    duration = CLIP_BEFORE_SEC + CLIP_AFTER_SEC
+    start = max(0.0, start_sec)
+    duration = max(0.5, end_sec - start)
     tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
     out = Path(tmp.name)
     tmp.close()
