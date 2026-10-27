@@ -39,6 +39,7 @@ import services
 import storage
 import survey
 import trainer
+import video_clip
 from analysis_dialog import (
     DIALOG_KEY,
     clear_dialog,
@@ -2227,6 +2228,7 @@ async def _handle_dialog_action(
             format_error_card(lang, state),
             keyboard_observation(lang, state, next_index),
         )
+        await _send_observation_clip(context, chat_id, lang, state, next_index)
         return
 
     if action == "focus":
@@ -2852,6 +2854,62 @@ async def _delete_tracked_messages(
             )
 
 
+_VIDEO_SUFFIXES = {"video/quicktime": ".mov", "video/webm": ".webm"}
+
+
+async def _send_observation_clip(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    lang: str,
+    state: dict,
+    index: int,
+) -> None:
+    """Замедленный отрезок вокруг таймкода наблюдения; сбой не ломает диалог."""
+    file_id = state.get("video_file_id")
+    remarks = state.get("sections", {}).get("remarks") or []
+    if not file_id or index < 0 or index >= len(remarks):
+        return
+    if remarks[index]["kind"] == "insufficient":
+        return
+    center = video_clip.find_timecode_sec(remarks[index]["card"])
+    if center is None:
+        return
+    suffix = _VIDEO_SUFFIXES.get(state.get("video_mime") or "", ".mp4")
+    src: Optional[Path] = None
+    clip: Optional[Path] = None
+    try:
+        await context.bot.send_chat_action(
+            chat_id=chat_id, action=ChatAction.UPLOAD_VIDEO
+        )
+        telegram_file = await context.bot.get_file(file_id)
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            src = Path(tmp.name)
+        await telegram_file.download_to_drive(custom_path=str(src))
+        clip = await asyncio.to_thread(video_clip.make_slowmo_clip, src, center)
+        if clip is None:
+            return
+        minutes, seconds = divmod(center, 60)
+        stamp = f"{int(minutes):02d}:{seconds:06.3f}"
+        caption = (
+            f"🐢 Замедленно ×0,5 · {stamp}"
+            if lang == "ru"
+            else f"🐢 Slow motion ×0.5 · {stamp}"
+        )
+        with clip.open("rb") as fh:
+            await context.bot.send_video(
+                chat_id=chat_id,
+                video=fh,
+                caption=caption,
+                supports_streaming=True,
+            )
+    except Exception:
+        logger.warning("observation clip failed chat_id=%s", chat_id, exc_info=True)
+    finally:
+        for path in (src, clip):
+            if path:
+                path.unlink(missing_ok=True)
+
+
 async def _present_analysis_to_player(
     context: ContextTypes.DEFAULT_TYPE,
     *,
@@ -2868,6 +2926,8 @@ async def _present_analysis_to_player(
     preface: Optional[str] = None,
     offer_coach_button: bool = True,
     create_practice: bool = True,
+    video_file_id: Optional[str] = None,
+    video_mime: Optional[str] = None,
 ) -> None:
     """Показывает AI-разбор игроку и включает диалог follow-up."""
     state = {
@@ -2879,6 +2939,8 @@ async def _present_analysis_to_player(
         "focus_text": focus_text or "",
         "drill_text": drill_text or "",
         "shown_count": 0,
+        "video_file_id": video_file_id or "",
+        "video_mime": video_mime or "",
     }
     payload = {
         "analysis": report,
@@ -2916,6 +2978,7 @@ async def _present_analysis_to_player(
             format_error_card(lang, state),
             keyboard_observation(lang, state, 0),
         )
+        await _send_observation_clip(context, chat_id, lang, state, 0)
         await asyncio.to_thread(storage.save_active_session, user_id, payload)
 
     card = await asyncio.to_thread(storage.get_trainer_card_by_player, user_id)
@@ -3258,6 +3321,8 @@ async def _run_video_analysis(
             preface=preface,
             offer_coach_button=True,
             create_practice=True,
+            video_file_id=video_file_id,
+            video_mime=mime_type,
         )
         await _log_event(user_id, EVENT_ANALYSIS_SUCCESS)
         if cabinet.same_focus(active_focus, focus_text):
