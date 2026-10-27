@@ -96,7 +96,7 @@ from analyzer import VideoAnalyzer
 from config import Settings
 from error_reporting import alert_admins, report_failure
 from errors import format_analysis_error, is_model_overloaded
-from formatting import markdown_to_html
+from formatting import cabinet_draft_to_html, markdown_to_html
 from i18n import (
     UI_LANGS,
     get_stored_lang,
@@ -2678,12 +2678,21 @@ async def _post_review_job_to_forum(
                 if i == last:
                     kwargs["reply_markup"] = review.coach_action_keyboard(job_id)
                     attached_actions = True
-                await context.bot.send_message(
-                    chat_id=forum_chat_id,
-                    message_thread_id=thread_id,
-                    text=chunk,
-                    **kwargs,
-                )
+                try:
+                    await context.bot.send_message(
+                        chat_id=forum_chat_id,
+                        message_thread_id=thread_id,
+                        text=cabinet_draft_to_html(chunk),
+                        parse_mode=ParseMode.HTML,
+                        **kwargs,
+                    )
+                except BadRequest:
+                    await context.bot.send_message(
+                        chat_id=forum_chat_id,
+                        message_thread_id=thread_id,
+                        text=chunk,
+                        **kwargs,
+                    )
         if not attached_actions:
             await context.bot.send_message(
                 chat_id=forum_chat_id,

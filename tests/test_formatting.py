@@ -28,3 +28,17 @@ def test_plain_text_unchanged():
 
 def test_emoji_preserved():
     assert "🔴" in markdown_to_html("Критичность: 🔴")
+
+
+def test_cabinet_draft_to_html():
+    from formatting import cabinet_draft_to_html
+
+    src = (
+        "## Что происходит\n- 00:00.500: Начало\n"
+        "### Техника\n00:03.125\n**Наблюдение:** рука <низко>\n"
+    )
+    out = cabinet_draft_to_html(src)
+    assert "<b>Что происходит</b>" in out
+    assert "• <code>00:00.500</code> Начало" in out
+    assert "⏱ <code>00:03.125</code>" in out
+    assert "👁 <b>Наблюдение:</b> рука &lt;низко&gt;" in out
