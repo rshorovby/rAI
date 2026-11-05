@@ -38,6 +38,19 @@ def test_backfill_from_existing_users_table(tmp_path):
         assert identity.player_id_for_telegram(7) == 7
 
 
+def test_trainer_card_without_telegram_is_not_a_chat(tmp_path):
+    with _tmp_db(tmp_path):
+        storage.grant_trainer(10)
+        storage.upsert_user(10, "coach", "Рустам", None, "ru")
+        card = storage.create_trainer_card(10, "Тренер")
+        player_id = card["player_id"]
+        storage.attach_telegram_identity(player_id, player_id)
+        assert identity.telegram_id_for(player_id) is None
+        assert identity.telegram_id_for(10) == 10
+        storage.attach_telegram_identity(player_id, 555)
+        assert identity.telegram_id_for(player_id) == 555
+
+
 def test_wal_enabled(tmp_path):
     with _tmp_db(tmp_path):
         storage.upsert_user(1, None, "A", None, "ru")

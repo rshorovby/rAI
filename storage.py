@@ -27,25 +27,6 @@ CHANNEL_IOS = "ios"
 LINK_TG_TO_IOS = "tg_to_ios"
 LINK_IOS_TO_TG = "ios_to_tg"
 
-_PLAYER_ID_COLUMNS = (
-    ("users", "user_id"),
-    ("player_sessions", "user_id"),
-    ("player_profiles", "user_id"),
-    ("events", "user_id"),
-    ("usage_log", "user_id"),
-    ("active_sessions", "user_id"),
-    ("subscriptions", "user_id"),
-    ("payments", "user_id"),
-    ("player_focus", "user_id"),
-    ("practice_plans", "user_id"),
-    ("player_notes", "user_id"),
-    ("player_forum_topics", "user_id"),
-    ("review_jobs", "user_id"),
-    ("survey_responses", "user_id"),
-    ("coach_evaluations", "player_id"),
-)
-
-
 # ---------------------------------------------------------------------------
 # Подключение / инициализация
 # ---------------------------------------------------------------------------
@@ -434,6 +415,7 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         if column not in cols:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {typedef}")
     _backfill_telegram_identities(conn)
+    _drop_synthetic_trainer_telegram_identities(conn)
 
 
 def _table_names(conn: sqlite3.Connection) -> set:
@@ -494,21 +476,12 @@ def _migrate_player_focus_per_segment(conn: sqlite3.Connection) -> None:
 
 
 def _backfill_telegram_identities(conn: sqlite3.Connection) -> None:
-    """Каждый существующий user_id игрока → player + identity telegram."""
-    tables = _table_names(conn)
-    ids = set()
-    for table, column in _PLAYER_ID_COLUMNS:
-        if table not in tables:
-            continue
-        cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
-        if column not in cols:
-            continue
-        for row in conn.execute(
-            f"SELECT DISTINCT {column} FROM {table} WHERE {column} IS NOT NULL"
-        ):
-            ids.add(int(row[0]))
+    """Реальные пользователи бота: users.user_id — это telegram id."""
+    if "users" not in _table_names(conn):
+        return
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    for uid in ids:
+    for row in conn.execute("SELECT user_id FROM users WHERE user_id IS NOT NULL"):
+        uid = int(row[0])
         conn.execute(
             "INSERT OR IGNORE INTO players (id, created_at) VALUES (?, ?)",
             (uid, now),
@@ -521,6 +494,23 @@ def _backfill_telegram_identities(conn: sqlite3.Connection) -> None:
             """,
             (uid, PROVIDER_TELEGRAM, str(uid), now),
         )
+
+
+def _drop_synthetic_trainer_telegram_identities(conn: sqlite3.Connection) -> None:
+    """Карточка ученика без Telegram не является чатом с id = player_id."""
+    tables = _table_names(conn)
+    if "trainer_cards" not in tables or "identities" not in tables:
+        return
+    conn.execute(
+        """
+        DELETE FROM identities
+        WHERE provider = ?
+          AND subject = CAST(player_id AS TEXT)
+          AND player_id IN (SELECT player_id FROM trainer_cards)
+          AND player_id NOT IN (SELECT user_id FROM users)
+        """,
+        (PROVIDER_TELEGRAM,),
+    )
 
 
 def get_or_create_telegram_player(telegram_user_id: int) -> int:
@@ -590,12 +580,28 @@ def telegram_id_for(player_id: int) -> Optional[int]:
             """,
             (int(player_id), PROVIDER_TELEGRAM),
         ).fetchone()
-    if not row:
-        return None
-    try:
-        return int(row["subject"])
-    except (TypeError, ValueError):
-        return None
+        if not row:
+            return None
+        try:
+            telegram_id = int(row["subject"])
+        except (TypeError, ValueError):
+            return None
+        if telegram_id != int(player_id):
+            return telegram_id
+        has_user = conn.execute(
+            "SELECT 1 FROM users WHERE user_id = ?",
+            (int(player_id),),
+        ).fetchone()
+        if has_user:
+            return telegram_id
+        if "trainer_cards" in _table_names(conn):
+            card = conn.execute(
+                "SELECT 1 FROM trainer_cards WHERE player_id = ?",
+                (int(player_id),),
+            ).fetchone()
+            if card:
+                return None
+        return telegram_id
 
 
 def _now_sql() -> str:
