@@ -3842,6 +3842,21 @@ async def handle_review_callback(
     settings: Settings = context.application.bot_data.get("settings")
     user_id = query.from_user.id
 
+    if query.data == "rvp:bot":
+        lang = _lang_from_update(update, context)
+        context.user_data.pop(review.COACH_REPLY_MODE_KEY, None)
+        context.user_data.pop(review.PLAYER_MSG_PENDING_KEY, None)
+        try:
+            await query.edit_message_reply_markup(reply_markup=None)
+        except BadRequest:
+            pass
+        await query.message.reply_text(t(lang, "review_continue_bot_ok"))
+        return
+
+    if query.data == "rvp:reply" or query.data.startswith("rvp:reply:"):
+        await _begin_coach_reply_mode(update, context, settings, user_id)
+        return
+
     # Игрок: написать тренеру (через тему кабинета, без привязки к open job)
     if query.data == "rvp:msg" or query.data.startswith("rvp:msg:"):
         lang = _lang_from_update(update, context)
@@ -4084,25 +4099,29 @@ async def _handle_coach_forum_message(
         await message.reply_text("⚠️ У игрока нет Telegram — сообщение не доставлено.")
         return True
 
+    hint = "\n\n" + t(lang, "review_coach_reply_hint")
+    markup = _reply_to_coach_keyboard(lang, player_id, chat_id)
     try:
         if message.text:
             user_text = message.text.strip()
             if not user_text:
                 return False
-            body = name_prefix + t(lang, "review_coach_message", text=user_text)
+            body = name_prefix + t(lang, "review_coach_message", text=user_text) + hint
             try:
                 await context.bot.send_message(
                     chat_id=chat_id,
                     text=body,
                     parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=markup,
                 )
             except BadRequest:
                 await context.bot.send_message(
                     chat_id=chat_id,
                     text=body,
+                    reply_markup=markup,
                 )
         else:
-            header = name_prefix + t(lang, "review_coach_media_header")
+            header = name_prefix + t(lang, "review_coach_media_header") + hint
             try:
                 await context.bot.send_message(
                     chat_id=chat_id,
@@ -4115,6 +4134,7 @@ async def _handle_coach_forum_message(
                 chat_id=chat_id,
                 from_chat_id=message.chat_id,
                 message_id=message.message_id,
+                reply_markup=markup,
             )
     except Exception:
         logger.exception(
@@ -4164,6 +4184,105 @@ async def _store_coach_ai_fix(message, job: dict, player_id: int) -> bool:
     return True
 
 
+def _reply_to_coach_keyboard(lang: str, player_id: int, recipient_id: int):
+    player_tg = _player_chat_id(player_id)
+    via_trainer = player_tg is None or int(recipient_id) != int(player_tg)
+    return review.keyboard_reply_to_coach(
+        lang, player_id=player_id, via_trainer=via_trainer
+    )
+
+
+async def _forward_player_text_to_coach(
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    reply_message,
+    from_user,
+    player_id: int,
+    text: str,
+    lang: str,
+    keep_bot_button: bool = False,
+) -> bool:
+    settings: Settings = context.application.bot_data.get("settings")
+    forum_chat_id = settings.coach_forum_chat_id if settings else None
+    markup = review.keyboard_continue_with_bot(lang) if keep_bot_button else None
+    if not forum_chat_id:
+        await reply_message.reply_text(t(lang, "review_no_topic"), reply_markup=markup)
+        return False
+    topic = await asyncio.to_thread(
+        storage.get_player_forum_topic, int(player_id), int(forum_chat_id)
+    )
+    if not topic:
+        await reply_message.reply_text(t(lang, "review_no_topic"), reply_markup=markup)
+        return False
+    uname = from_user.username or from_user.first_name or "player"
+    await context.bot.send_message(
+        chat_id=int(forum_chat_id),
+        message_thread_id=int(topic["message_thread_id"]),
+        text=(f"💬 Сообщение от игрока (@{uname} / {player_id}):\n\n{text}"),
+    )
+    await reply_message.reply_text(t(lang, "review_message_sent"), reply_markup=markup)
+    return True
+
+
+async def _begin_coach_reply_mode(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    settings: Optional[Settings],
+    user_id: int,
+) -> None:
+    query = update.callback_query
+    lang = _lang_from_update(update, context)
+    target_id = user_id
+    if query.data.startswith("rvp:reply:"):
+        try:
+            target_id = int(query.data.split(":", 2)[2])
+        except ValueError:
+            return
+        card = await asyncio.to_thread(storage.get_trainer_card_by_player, target_id)
+        if not card or int(card["trainer_telegram_id"]) != query.from_user.id:
+            await query.message.reply_text(t(lang, "tr_not_yours"))
+            return
+        if int(card["archived"]):
+            await query.message.reply_text(t(lang, "tr_need_card"))
+            return
+    else:
+        await _touch_user(update, context)
+        target_id = _get_user_id(context.user_data) or user_id
+    forum_chat_id = settings.coach_forum_chat_id if settings else None
+    topic = None
+    if forum_chat_id:
+        topic = await asyncio.to_thread(
+            storage.get_player_forum_topic, int(target_id), int(forum_chat_id)
+        )
+    if not topic:
+        await query.message.reply_text(t(lang, "review_no_topic"))
+        return
+    context.user_data[review.COACH_REPLY_MODE_KEY] = int(target_id)
+    context.user_data.pop(review.PLAYER_MSG_PENDING_KEY, None)
+    await query.message.reply_text(
+        t(lang, "review_coach_mode_prompt"),
+        reply_markup=review.keyboard_continue_with_bot(lang),
+    )
+
+
+async def _route_active_coach_reply(
+    message, context: ContextTypes.DEFAULT_TYPE, lang: str, user_text: str
+) -> bool:
+    player_id = context.user_data.get(review.COACH_REPLY_MODE_KEY)
+    if not isinstance(player_id, int):
+        return False
+    await _forward_player_text_to_coach(
+        context,
+        reply_message=message,
+        from_user=message.from_user,
+        player_id=player_id,
+        text=user_text,
+        lang=lang,
+        keep_bot_button=True,
+    )
+    return True
+
+
 async def _handle_player_coach_message(
     update: Update, context: ContextTypes.DEFAULT_TYPE, user_text: str
 ) -> bool:
@@ -4181,31 +4300,17 @@ async def _handle_player_coach_message(
     user_id = message.from_user.id
     context.user_data.pop(review.PLAYER_MSG_PENDING_KEY, None)
     if isinstance(pending, int):
-        user_id = pending
-
-    settings: Settings = context.application.bot_data.get("settings")
-    forum_chat_id = settings.coach_forum_chat_id if settings else None
-    if not forum_chat_id:
-        await message.reply_text(t(lang, "review_no_topic"))
-        return True
-    if isinstance(pending, int):
         player_id = pending
     else:
         player_id = _get_user_id(context.user_data) or user_id
-    topic = await asyncio.to_thread(
-        storage.get_player_forum_topic, player_id, int(forum_chat_id)
+    await _forward_player_text_to_coach(
+        context,
+        reply_message=message,
+        from_user=message.from_user,
+        player_id=player_id,
+        text=user_text,
+        lang=lang,
     )
-    if not topic:
-        await message.reply_text(t(lang, "review_no_topic"))
-        return True
-
-    uname = message.from_user.username or message.from_user.first_name or "player"
-    await context.bot.send_message(
-        chat_id=int(forum_chat_id),
-        message_thread_id=int(topic["message_thread_id"]),
-        text=(f"💬 Сообщение от игрока (@{uname} / {player_id}):\n\n{user_text}"),
-    )
-    await message.reply_text(t(lang, "review_message_sent"))
     return True
 
 
@@ -4452,6 +4557,9 @@ async def _trainer_on_text(
         await _handle_video_intake_text(update, context, lang, language_code, user_text)
         return
 
+    if await _route_active_coach_reply(message, context, lang, user_text):
+        return
+
     card = await asyncio.to_thread(storage.get_active_trainer_card, telegram_id)
     if not card:
         await _trainer_show_home(message, lang, telegram_id)
@@ -4570,6 +4678,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await _confirm_new_analysis(message, context, lang, user_text)
             return
         _clear_new_confirm_pending(context.user_data)
+
+    if await _route_active_coach_reply(message, context, lang, user_text):
+        return
 
     session = _get_session(context.user_data)
     analysis = session.get("analysis")

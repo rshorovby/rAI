@@ -483,6 +483,16 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "Мы уже видим ошибку в логах — при необходимости напишите нам."
         ),
         "review_btn_message_coach": "✉️ Написать тренеру",
+        "review_btn_reply_coach": "✉️ Ответить тренеру",
+        "review_btn_continue_bot": "💬 Продолжить общение с ботом",
+        "review_coach_reply_hint": (
+            "Кнопка ниже — ответить тренеру. Если напишете без неё, отвечу я."
+        ),
+        "review_coach_mode_prompt": (
+            "Пишите тренеру — перешлю в кабинет и отвечать не буду. "
+            "Чтобы снова говорить со мной, нажмите кнопку ниже."
+        ),
+        "review_continue_bot_ok": ("Снова общаемся здесь. Напишите вопрос по разбору."),
         "review_message_prompt": ("Напишите сообщение тренеру — перешлю в кабинет."),
         "review_message_sent": "✅ Передал тренеру.",
         "review_no_open_job": "Сначала отправьте видео — после разбора можно писать тренеру.",
@@ -1098,6 +1108,18 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "Please contact us if needed."
         ),
         "review_btn_message_coach": "✉️ Message the coach",
+        "review_btn_reply_coach": "✉️ Reply to the coach",
+        "review_btn_continue_bot": "💬 Continue with the bot",
+        "review_coach_reply_hint": (
+            "The button below replies to the coach. If you just write, I'll answer."
+        ),
+        "review_coach_mode_prompt": (
+            "Write to the coach — I'll forward it and won't answer myself. "
+            "To talk to me again, use the button below."
+        ),
+        "review_continue_bot_ok": (
+            "We're talking here again. Ask a question about the review."
+        ),
         "review_message_prompt": (
             "Write a message for the coach — I'll forward it to the cabinet."
         ),

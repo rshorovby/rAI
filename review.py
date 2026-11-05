@@ -41,6 +41,8 @@ _CABINET_DROP_HEADERS = (
 )
 
 PLAYER_MSG_PENDING_KEY = "player_coach_message_pending"
+# Пока ключ задан, текст игрока уходит тренеру, а не в диалог с ботом.
+COACH_REPLY_MODE_KEY = "coach_reply_mode"
 
 
 def compose_final_report(
@@ -71,6 +73,35 @@ def keyboard_message_coach(lang: str, player_id: int = 0) -> InlineKeyboardMarku
                 InlineKeyboardButton(
                     t(lang, "review_btn_message_coach"),
                     callback_data=data,
+                )
+            ]
+        ]
+    )
+
+
+def keyboard_reply_to_coach(
+    lang: str, *, player_id: int, via_trainer: bool
+) -> InlineKeyboardMarkup:
+    data = f"rvp:reply:{int(player_id)}" if via_trainer else "rvp:reply"
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    t(lang, "review_btn_reply_coach"),
+                    callback_data=data,
+                )
+            ]
+        ]
+    )
+
+
+def keyboard_continue_with_bot(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    t(lang, "review_btn_continue_bot"),
+                    callback_data="rvp:bot",
                 )
             ]
         ]

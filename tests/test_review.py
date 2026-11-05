@@ -9,6 +9,16 @@ def _tmp_db(tmp_path: Path):
     return patch.object(storage, "DB_PATH", tmp_path / "t.db")
 
 
+def test_reply_keyboards_split_coach_and_bot():
+    reply = review.keyboard_reply_to_coach("ru", player_id=5, via_trainer=False)
+    assert [btn.callback_data for btn in reply.inline_keyboard[0]] == ["rvp:reply"]
+    owned = review.keyboard_reply_to_coach("ru", player_id=5, via_trainer=True)
+    assert owned.inline_keyboard[0][0].callback_data == "rvp:reply:5"
+    cont = review.keyboard_continue_with_bot("ru")
+    assert cont.inline_keyboard[0][0].callback_data == "rvp:bot"
+    assert "ботом" in cont.inline_keyboard[0][0].text
+
+
 def test_compose_final_with_notes_and_fallback():
     text = review.compose_final_report(
         "DRAFT",

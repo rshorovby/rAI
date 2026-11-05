@@ -422,8 +422,16 @@ def test_coach_forum_text_goes_to_player():
 
     asyncio.run(_run())
     assert context.bot.send_message.await_count == 1
-    assert context.bot.send_message.await_args.kwargs["chat_id"] == 99
-    assert "кисть" in context.bot.send_message.await_args.kwargs["text"]
+    sent = context.bot.send_message.await_args.kwargs
+    assert sent["chat_id"] == 99
+    assert "кисть" in sent["text"]
+    assert "кнопка ниже" in sent["text"].lower()
+    callbacks = [
+        button.callback_data
+        for row in sent["reply_markup"].inline_keyboard
+        for button in row
+    ]
+    assert callbacks == ["rvp:reply"]
     assert context.bot.copy_message.await_count == 0
     update.message.reply_text.assert_awaited()
 
@@ -452,11 +460,119 @@ def test_coach_forum_photo_copied_to_player():
     asyncio.run(_run())
     assert context.bot.send_message.await_count == 1
     assert "тренера" in context.bot.send_message.await_args.kwargs["text"].lower()
-    context.bot.copy_message.assert_awaited_once_with(
-        chat_id=99,
-        from_chat_id=-100123,
-        message_id=555,
-    )
+    copied = context.bot.copy_message.await_args.kwargs
+    assert copied["chat_id"] == 99
+    assert copied["from_chat_id"] == -100123
+    assert copied["message_id"] == 555
+    callbacks = [
+        button.callback_data
+        for row in copied["reply_markup"].inline_keyboard
+        for button in row
+    ]
+    assert callbacks == ["rvp:reply"]
+
+
+def test_plain_text_still_goes_to_bot_until_reply_mode(tmp_path):
+    from bot import handle_text
+
+    with patch.object(storage, "DB_PATH", tmp_path / "bot-default.db"):
+        player_id = storage.upsert_user(7, "ann", "Ann", None, "ru")
+        storage.save_active_session(player_id, {"analysis": "отчёт", "history": []})
+        update = _player_update("куда смотреть кисть", user_id=player_id)
+        update.message.chat_id = player_id
+        context = MagicMock()
+        context.user_data = {}
+        context.application.bot_data = {"settings": None}
+        followup = AsyncMock()
+
+        async def _run():
+            with patch("bot._process_followup", new=followup):
+                await handle_text(update, context)
+
+        asyncio.run(_run())
+        followup.assert_awaited()
+        assert review.COACH_REPLY_MODE_KEY not in context.user_data
+
+
+def test_coach_reply_mode_forwards_text_and_skips_bot(tmp_path):
+    from bot import handle_text
+
+    with patch.object(storage, "DB_PATH", tmp_path / "coach-mode.db"):
+        player_id = storage.upsert_user(7, "ann", "Ann", None, "ru")
+        storage.save_player_forum_topic(player_id, -100123, 77, title="t")
+        storage.save_active_session(player_id, {"analysis": "отчёт", "history": []})
+        update = _player_update("спасибо, попробую", user_id=player_id)
+        update.message.chat_id = player_id
+        context = MagicMock()
+        context.user_data = {review.COACH_REPLY_MODE_KEY: player_id}
+        context.application.bot_data = {"settings": _coach_forum_settings()}
+        context.bot.send_message = AsyncMock()
+        followup = AsyncMock()
+
+        async def _run():
+            with patch("bot._process_followup", new=followup):
+                await handle_text(update, context)
+
+        asyncio.run(_run())
+        followup.assert_not_awaited()
+        sent = context.bot.send_message.await_args.kwargs
+        assert sent["chat_id"] == -100123
+        assert sent["message_thread_id"] == 77
+        assert "спасибо, попробую" in sent["text"]
+        button = update.message.reply_text.await_args.kwargs["reply_markup"]
+        assert button.inline_keyboard[0][0].callback_data == "rvp:bot"
+        assert context.user_data[review.COACH_REPLY_MODE_KEY] == player_id
+
+
+def test_reply_button_starts_coach_mode_and_continue_clears_it(tmp_path):
+    from bot import handle_review_callback
+
+    with patch.object(storage, "DB_PATH", tmp_path / "reply-btn.db"):
+        player_id = storage.upsert_user(7, "ann", "Ann", None, "ru")
+        storage.save_player_forum_topic(player_id, -100123, 77, title="t")
+        user = MagicMock()
+        user.id = player_id
+        user.username = "ann"
+        user.first_name = "Ann"
+        user.last_name = None
+        user.language_code = "ru"
+        query = MagicMock()
+        query.data = "rvp:reply"
+        query.from_user = user
+        query.answer = AsyncMock()
+        query.message.reply_text = AsyncMock()
+        query.message.chat_id = player_id
+        query.edit_message_reply_markup = AsyncMock()
+        update = MagicMock()
+        update.callback_query = query
+        update.message = None
+        update.effective_user = user
+        context = MagicMock()
+        context.user_data = {}
+        context.application.bot_data = {"settings": _coach_forum_settings()}
+
+        async def _start():
+            await handle_review_callback(update, context)
+
+        asyncio.run(_start())
+        assert context.user_data[review.COACH_REPLY_MODE_KEY] == player_id
+        assert review.PLAYER_MSG_PENDING_KEY not in context.user_data
+        prompt = query.message.reply_text.await_args
+        assert "тренеру" in prompt.args[0]
+        assert (
+            prompt.kwargs["reply_markup"].inline_keyboard[0][0].callback_data
+            == "rvp:bot"
+        )
+
+        query.data = "rvp:bot"
+        query.message.reply_text.reset_mock()
+
+        async def _back():
+            await handle_review_callback(update, context)
+
+        asyncio.run(_back())
+        assert review.COACH_REPLY_MODE_KEY not in context.user_data
+        assert "общаемся" in query.message.reply_text.await_args.args[0].lower()
 
 
 def test_handle_video_in_coach_forum_does_not_start_analysis():
