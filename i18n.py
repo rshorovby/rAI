@@ -486,11 +486,12 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "review_btn_reply_coach": "✉️ Ответить тренеру",
         "review_btn_continue_bot": "💬 Продолжить общение с ботом",
         "review_coach_reply_hint": (
-            "Кнопка ниже — ответить тренеру. Если напишете без неё, отвечу я."
+            "Кнопка ниже — ответить тренеру. Если напишете без неё, "
+            "ответит ИИ-ассистент."
         ),
         "review_coach_mode_prompt": (
             "Пишите тренеру — перешлю в кабинет и отвечать не буду. "
-            "Чтобы снова говорить со мной, нажмите кнопку ниже."
+            "Чтобы снова говорить с ИИ-ассистентом, нажмите кнопку ниже."
         ),
         "review_continue_bot_ok": ("Снова общаемся здесь. Напишите вопрос по разбору."),
         "review_message_prompt": ("Напишите сообщение тренеру — перешлю в кабинет."),
@@ -1111,11 +1112,12 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "review_btn_reply_coach": "✉️ Reply to the coach",
         "review_btn_continue_bot": "💬 Continue with the bot",
         "review_coach_reply_hint": (
-            "The button below replies to the coach. If you just write, I'll answer."
+            "The button below replies to the coach. If you write without it, "
+            "the AI assistant will answer."
         ),
         "review_coach_mode_prompt": (
-            "Write to the coach — I'll forward it and won't answer myself. "
-            "To talk to me again, use the button below."
+            "Write to the coach — I'll forward it and won't answer. "
+            "To talk to the AI assistant again, use the button below."
         ),
         "review_continue_bot_ok": (
             "We're talking here again. Ask a question about the review."
