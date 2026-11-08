@@ -1,4 +1,4 @@
-"""Админская рассылка произвольного текста всем пользователям с Telegram."""
+"""Админская рассылка: всем с Telegram или одному человеку по id."""
 
 import asyncio
 import logging
@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 AWAITING_KEY = "broadcast_awaiting"
 DRAFT_KEY = "broadcast_draft"
+TARGET_KEY = "broadcast_target"
 SEND_PAUSE_SEC = 0.05
 PREVIEW_LIMIT = 300
 TEXT_LIMIT = 4096
@@ -32,18 +33,37 @@ def busy() -> bool:
 def clear_state(user_data: dict) -> None:
     user_data.pop(AWAITING_KEY, None)
     user_data.pop(DRAFT_KEY, None)
+    user_data.pop(TARGET_KEY, None)
 
 
-def keyboard() -> InlineKeyboardMarkup:
+def usage_text() -> str:
+    return (
+        "Использование: /broadcast [id]\n"
+        "Без id — всем, у кого есть Telegram.\n"
+        "С id — только этому человеку. id из кабинета или Telegram.\n"
+        "Отмена: /broadcast cancel"
+    )
+
+
+def keyboard(single: bool = False) -> InlineKeyboardMarkup:
+    send = "Отправить" if single else "Отправить всем"
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("Отправить всем", callback_data="bc:send"),
+                InlineKeyboardButton(send, callback_data="bc:send"),
                 InlineKeyboardButton("Себе", callback_data="bc:me"),
             ],
             [InlineKeyboardButton("Отмена", callback_data="bc:cancel")],
         ]
     )
+
+
+def recipient_line(target: dict) -> str:
+    chat_id = int(target["chat_id"])
+    label = (target.get("label") or "").strip()
+    if not label or label.isdigit():
+        return f"id {chat_id}"
+    return f"{label}, id {chat_id}"
 
 
 def preview(text: str) -> str:
@@ -53,12 +73,14 @@ def preview(text: str) -> str:
     return cleaned[: PREVIEW_LIMIT - 1] + "…"
 
 
-def confirm_text(count: int, text: str) -> str:
-    return (
-        f"Получателей: {count} — все, у кого есть Telegram.\n\n"
-        f"{preview(text)}\n\n"
-        "Отправить всем?"
-    )
+def confirm_text(count: int, text: str, *, recipient: str = "") -> str:
+    if recipient:
+        header = f"Получатель: {recipient}."
+        question = "Отправить?"
+    else:
+        header = f"Получателей: {count} — все, у кого есть Telegram."
+        question = "Отправить всем?"
+    return f"{header}\n\n{preview(text)}\n\n{question}"
 
 
 def report_text(sent: int, blocked: int, failed: int) -> str:

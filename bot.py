@@ -1243,7 +1243,7 @@ async def _send_broadcast_message(bot, chat_id: int, text: str, entities) -> Non
 
 
 async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Админ: /broadcast — черновик сообщения всем пользователям с Telegram."""
+    """Админ: /broadcast [id] — черновик всем или одному пользователю с Telegram."""
     denied = _admin_gate(update, context)
     if denied:
         await update.message.reply_text(denied)
@@ -1252,20 +1252,40 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text("Рассылка запускается в личном чате с ботом.")
         return
 
-    args = [part.lower() for part in (context.args or [])]
-    if args[:1] == ["cancel"]:
+    raw_args = list(context.args or [])
+    if raw_args and raw_args[0].lower() == "cancel":
         broadcast.clear_state(context.user_data)
         await update.message.reply_text("Рассылка отменена.")
         return
+
+    target = None
+    if raw_args:
+        if len(raw_args) != 1 or not raw_args[0].isdigit():
+            await update.message.reply_text(broadcast.usage_text())
+            return
+        target = await asyncio.to_thread(
+            storage.resolve_broadcast_recipient, int(raw_args[0])
+        )
+        if not target:
+            await update.message.reply_text(
+                f"У id {raw_args[0]} нет Telegram — написать нельзя."
+            )
+            return
 
     had_draft = broadcast.AWAITING_KEY in context.user_data or (
         broadcast.DRAFT_KEY in context.user_data
     )
     context.user_data[broadcast.AWAITING_KEY] = True
     context.user_data.pop(broadcast.DRAFT_KEY, None)
+    if target:
+        context.user_data[broadcast.TARGET_KEY] = target
+        who = f"Получатель: {broadcast.recipient_line(target)}.\n"
+    else:
+        context.user_data.pop(broadcast.TARGET_KEY, None)
+        who = "Получатели: все, у кого есть Telegram.\n"
     prefix = "Предыдущий черновик сброшен.\n" if had_draft else ""
     await update.message.reply_text(
-        prefix + "Пришли текст рассылки следующим сообщением.\n"
+        prefix + who + "Пришли текст следующим сообщением.\n"
         "Форматирование Telegram сохранится.\n"
         "Отмена: /broadcast cancel"
     )
@@ -1287,8 +1307,20 @@ async def _consume_broadcast_text(
         )
         return True
     entities = tuple(message.entities or ())
-    context.user_data[broadcast.DRAFT_KEY] = {"text": text, "entities": entities}
+    target = context.user_data.get(broadcast.TARGET_KEY) or {}
+    draft = {"text": text, "entities": entities}
+    chat_id = target.get("chat_id")
+    if chat_id:
+        draft["chat_id"] = int(chat_id)
+        draft["label"] = target.get("label") or ""
+    context.user_data[broadcast.DRAFT_KEY] = draft
     context.user_data.pop(broadcast.AWAITING_KEY, None)
+    if chat_id:
+        await message.reply_text(
+            broadcast.confirm_text(1, text, recipient=broadcast.recipient_line(draft)),
+            reply_markup=broadcast.keyboard(single=True),
+        )
+        return True
     chat_ids = await asyncio.to_thread(storage.list_broadcast_chat_ids)
     await message.reply_text(
         broadcast.confirm_text(len(chat_ids), text),
@@ -1340,7 +1372,13 @@ async def handle_broadcast_callback(
 
     draft["sending"] = True
     await query.edit_message_text("Отправляю…")
-    chat_ids = await asyncio.to_thread(storage.list_broadcast_chat_ids)
+    chat_id = draft.get("chat_id")
+    if chat_id:
+        chat_ids = [int(chat_id)]
+        audience = f"telegram:{int(chat_id)}"
+    else:
+        chat_ids = await asyncio.to_thread(storage.list_broadcast_chat_ids)
+        audience = "all_telegram"
     try:
         result = await broadcast.deliver(
             lambda chat_id, body, ents: _send_broadcast_message(
@@ -1363,8 +1401,7 @@ async def handle_broadcast_callback(
         )
         return
 
-    context.user_data.pop(broadcast.DRAFT_KEY, None)
-    context.user_data.pop(broadcast.AWAITING_KEY, None)
+    broadcast.clear_state(context.user_data)
     await asyncio.to_thread(
         storage.record_broadcast,
         query.from_user.id,
@@ -1372,6 +1409,7 @@ async def handle_broadcast_callback(
         result["sent"],
         result["blocked"],
         result["failed"],
+        audience,
     )
     await query.edit_message_text(
         broadcast.report_text(result["sent"], result["blocked"], result["failed"])

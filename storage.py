@@ -2652,6 +2652,20 @@ def get_users_for_digest() -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def resolve_broadcast_recipient(raw_id: int) -> Optional[dict]:
+    """Личный адресат: telegram id или player_id. None — Telegram нет."""
+    raw_id = int(raw_id)
+    player_id = player_id_for_telegram(raw_id)
+    if player_id is not None:
+        chat_id = raw_id
+    else:
+        chat_id = telegram_id_for(raw_id)
+        if chat_id is None:
+            return None
+        player_id = player_id_for_telegram(chat_id) or raw_id
+    return {"chat_id": int(chat_id), "label": trainer_label(int(player_id))}
+
+
 def list_broadcast_chat_ids() -> list[int]:
     """Telegram chat id всех пользователей с привязкой Telegram."""
     with _connect() as conn:

@@ -226,9 +226,104 @@ def test_cancel_clears_draft():
     context = _context()
     context.user_data[broadcast.AWAITING_KEY] = True
     context.user_data[broadcast.DRAFT_KEY] = {"text": "нет", "entities": ()}
+    context.user_data[broadcast.TARGET_KEY] = {"chat_id": 7, "label": "Old"}
     update = _callback_update("bc:cancel")
     asyncio.run(handle_broadcast_callback(update, context))
     assert broadcast.DRAFT_KEY not in context.user_data
     assert broadcast.AWAITING_KEY not in context.user_data
+    assert broadcast.TARGET_KEY not in context.user_data
     text = update.callback_query.edit_message_text.await_args.args[0]
     assert text == "Рассылка отменена."
+
+
+def test_resolve_recipient_by_telegram_or_player_id(tmp_path):
+    with patch.object(storage, "DB_PATH", tmp_path / "broadcast.db"):
+        storage.upsert_user(7, "old", "Old", None, "ru")
+        apple = storage.get_or_create_apple_player("solo")
+        linked = storage.get_or_create_apple_player("linked")
+        storage.attach_telegram_identity(linked, 4242)
+
+        direct = storage.resolve_broadcast_recipient(7)
+        assert direct["chat_id"] == 7
+        assert direct["label"] == "Old"
+        assert storage.resolve_broadcast_recipient(apple) is None
+        assert storage.resolve_broadcast_recipient(linked)["chat_id"] == 4242
+        assert storage.resolve_broadcast_recipient(4242)["chat_id"] == 4242
+
+
+def test_bad_broadcast_id_does_not_start_draft():
+    context = _context()
+    context.args = ["abc"]
+    update = _text_update("/broadcast abc")
+    asyncio.run(broadcast_command(update, context))
+    reply = update.message.reply_text.await_args.args[0]
+    assert "Использование" in reply
+    assert broadcast.AWAITING_KEY not in context.user_data
+
+
+def test_unknown_id_does_not_start_draft(tmp_path):
+    with patch.object(storage, "DB_PATH", tmp_path / "broadcast.db"):
+        context = _context()
+        context.args = ["999"]
+        update = _text_update("/broadcast 999")
+        asyncio.run(broadcast_command(update, context))
+        reply = update.message.reply_text.await_args.args[0]
+        assert "нет Telegram" in reply
+        assert broadcast.AWAITING_KEY not in context.user_data
+
+
+def test_broadcast_without_id_clears_previous_target():
+    context = _context()
+    context.user_data[broadcast.TARGET_KEY] = {"chat_id": 7, "label": "Old"}
+    context.args = []
+    update = _text_update("/broadcast")
+    asyncio.run(broadcast_command(update, context))
+    assert broadcast.TARGET_KEY not in context.user_data
+    reply = update.message.reply_text.await_args.args[0]
+    assert "все, у кого есть Telegram" in reply
+
+
+def test_direct_broadcast_sends_only_to_that_id(tmp_path):
+    with patch.object(storage, "DB_PATH", tmp_path / "broadcast.db"):
+        storage.upsert_user(7, "old", "Old", None, "ru")
+        storage.upsert_user(8, "new", "New", None, "en")
+        context = _context()
+        context.args = ["7"]
+        start = _text_update("/broadcast 7")
+        asyncio.run(broadcast_command(start, context))
+        assert context.user_data[broadcast.TARGET_KEY]["chat_id"] == 7
+        prompt = start.message.reply_text.await_args.args[0]
+        assert "Old, id 7" in prompt
+
+        draft = _text_update("привет лично")
+        asyncio.run(handle_text(draft, context))
+        text = draft.message.reply_text.await_args.args[0]
+        assert "Получатель: Old, id 7." in text
+        assert "Получателей" not in text
+        markup = draft.message.reply_text.await_args.kwargs["reply_markup"]
+        assert markup.inline_keyboard[0][0].text == "Отправить"
+        assert context.user_data[broadcast.DRAFT_KEY]["chat_id"] == 7
+
+        context.bot.send_message = AsyncMock()
+        update = _callback_update("bc:send")
+
+        async def _run():
+            with patch("broadcast.asyncio.sleep", new=AsyncMock()):
+                await handle_broadcast_callback(update, context)
+
+        asyncio.run(_run())
+        sent = [
+            call.kwargs["chat_id"] for call in context.bot.send_message.await_args_list
+        ]
+        assert sent == [7]
+        assert (
+            "Отправлено: 1"
+            in update.callback_query.edit_message_text.await_args.args[0]
+        )
+        assert broadcast.DRAFT_KEY not in context.user_data
+        assert broadcast.TARGET_KEY not in context.user_data
+        with storage._connect() as conn:
+            row = conn.execute("SELECT * FROM broadcasts").fetchone()
+        assert row["audience"] == "telegram:7"
+        assert row["body"] == "привет лично"
+        assert row["sent_count"] == 1
