@@ -1,4 +1,5 @@
 from i18n import (
+    bot_language,
     language_instruction,
     normalize_language_code,
     resolve_ui_lang,
@@ -19,6 +20,13 @@ def test_resolve_ui_lang():
     assert resolve_ui_lang("en") == "en"
     assert resolve_ui_lang("de") == "en"
     assert resolve_ui_lang(None) == "en"
+
+
+def test_bot_language_defaults_to_russian():
+    assert bot_language(None) == "ru"
+    assert bot_language("") == "ru"
+    assert bot_language("en") == "en"
+    assert bot_language("ru") == "ru"
 
 
 def test_language_instruction_unknown():

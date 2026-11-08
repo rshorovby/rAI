@@ -101,6 +101,19 @@ def test_reset_player_data(tmp_path):
         assert profile is None
 
 
+def test_english_locale_without_choice_stays_russian(tmp_path):
+    with _tmp_db(tmp_path):
+        storage.upsert_user(1, "alice", "Alice", None, "en")
+
+        assert storage.get_user_language_code(1) == "ru"
+        text = storage.format_profile_for_user(1, "ru")
+        users = storage.get_users_for_digest()
+
+    assert "Русский" in text
+    assert "как в Telegram" not in text
+    assert users[0]["language_code"] == "ru"
+
+
 def test_preferred_language_overrides_device(tmp_path):
     with _tmp_db(tmp_path):
         storage.upsert_user(1, "alice", "Alice", None, "en")

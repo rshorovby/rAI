@@ -6,7 +6,9 @@ import re
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-from i18n import t
+import video_clip
+from analysis_dialog import parse_report
+from i18n import report_section_headers, t
 
 STATUS_QUEUED = "queued"
 STATUS_IN_REVIEW = "in_review"
@@ -159,6 +161,75 @@ def strip_cabinet_draft(text: str) -> str:
     if len(paras) >= 3:
         return "\n\n".join(paras[1:-1])
     return stripped or body
+
+
+def _cabinet_headers(report: str, language_code: str) -> dict:
+    for code in (language_code or "", "ru", "en"):
+        if not code:
+            continue
+        headers = report_section_headers(code)
+        marker = f"## {headers['video']}"
+        if marker in report or f"## {headers['categories']}" in report:
+            return headers
+    base = "ru" if (language_code or "").startswith("ru") else "en"
+    return report_section_headers(base)
+
+
+def _observation_window(chunk: str):
+    lowered = chunk.lower()
+    if "недостаточно данных" in lowered or "insufficient data" in lowered:
+        return None
+    if not (
+        "**наблюдение:**" in lowered
+        or "**критичность:**" in lowered
+        or "**observation:**" in lowered
+    ):
+        return None
+    return video_clip.find_span_sec(chunk)
+
+
+def cabinet_draft_parts(text: str, language_code: str = "ru") -> list:
+    """Сообщения черновика: видео, каждое наблюдение, топ-3.
+
+    Элемент: {"text": markdown, "window": (start, end) | None}.
+    window есть только у наблюдения, из которого можно вырезать клип.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return []
+    headers = _cabinet_headers(raw, language_code)
+    sections = parse_report(raw, language_code)
+    parts: list = []
+    video = (sections.get("video") or "").strip()
+    if video:
+        parts.append({"text": f"## {headers['video']}\n{video}", "window": None})
+
+    first_category = True
+    for category in sections.get("categories") or []:
+        title = (category.get("title") or "").strip()
+        body = (category.get("body") or "").strip()
+        chunks = [
+            chunk.strip() for chunk in re.split(r"\n\s*\n", body) if chunk.strip()
+        ]
+        for chunk in chunks:
+            lines = []
+            if first_category:
+                lines.append(f"## {headers['categories']}")
+                first_category = False
+            if title:
+                lines.append(f"### {title}")
+            lines.append(chunk)
+            parts.append(
+                {"text": "\n".join(lines), "window": _observation_window(chunk)}
+            )
+
+    top3 = (sections.get("top3") or "").strip()
+    if top3:
+        parts.append({"text": f"## {headers['top3']}\n{top3}", "window": None})
+    if parts:
+        return parts
+    fallback = strip_cabinet_draft(raw) or raw
+    return [{"text": fallback, "window": None}]
 
 
 def coach_action_keyboard(job_id: int, action: str = "") -> InlineKeyboardMarkup:

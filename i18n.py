@@ -65,6 +65,13 @@ def resolve_ui_lang(language_code: Optional[str]) -> str:
     return DEFAULT_LANG
 
 
+def bot_language(preferred: Optional[str]) -> str:
+    """Язык бота: явный выбор ru/en, иначе русский — локаль Telegram не учитывается."""
+    if preferred in UI_LANGS:
+        return preferred
+    return "ru"
+
+
 def language_name_for_model(language_code: str) -> str:
     base = normalize_language_code(language_code)
     return _LANGUAGE_NAMES.get(

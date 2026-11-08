@@ -1019,6 +1019,89 @@ def test_review_header_includes_acquisition_source(tmp_path):
         header = next(text for text in texts if text.startswith("🆕 Разбор"))
         assert "Источник: Минск-Мир" in header
         assert "Канал:" not in header
+        assert "Статус:" not in header
+        assert "Ответить игроку" not in header
+        assert "Поправить AI" not in header
+        assert "Видео —" not in header
+        assert "Черновик AI" not in "\n".join(texts)
+
+
+def test_post_review_sends_observations_with_slowmo(tmp_path):
+    import tempfile
+    from pathlib import Path
+
+    from bot import _ApplicationContext, _post_review_job_to_forum
+
+    report = (Path(__file__).parent / "fixtures/structured/rally.md").read_text(
+        encoding="utf-8"
+    )
+    created = {}
+
+    def _fake_clip(src, start, end):
+        handle = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+        handle.write(b"clip")
+        handle.close()
+        created["path"] = Path(handle.name)
+        created["src"] = Path(src)
+        created["window"] = (start, end)
+        return created["path"]
+
+    with patch.object(storage, "DB_PATH", tmp_path / "t.db"):
+        video = tmp_path / "rally.mp4"
+        video.write_bytes(b"mp4")
+        pid = storage.get_or_create_telegram_player(502)
+        job_id = storage.create_review_job(
+            pid,
+            video_file_id="ios:" + str(video),
+            draft_text=report,
+            focus_text="Контакт впереди",
+            drill_text="Пауза перед контактом",
+        )
+        settings = _coach_forum_settings()
+        application = MagicMock()
+        application.bot_data = {"settings": settings}
+        application.bot.send_message = AsyncMock()
+        application.bot.send_video = AsyncMock()
+
+        async def _run():
+            with (
+                patch(
+                    "bot.cabinet.ensure_player_topic", new=AsyncMock(return_value=77)
+                ),
+                patch("bot.video_clip.make_slowmo_clip", side_effect=_fake_clip),
+            ):
+                posted = await _post_review_job_to_forum(
+                    _ApplicationContext(application), job_id, pid
+                )
+                assert posted is True
+
+        asyncio.run(_run())
+
+        texts = [
+            call.kwargs["text"] for call in application.bot.send_message.await_args_list
+        ]
+        captions = [
+            call.kwargs.get("caption") or ""
+            for call in application.bot.send_video.await_args_list
+        ]
+        blob = "\n".join(texts + captions)
+        header = next(text for text in texts if text.startswith("🆕 Разбор"))
+        assert "Статус:" not in header
+        assert "Фокус: Контакт впереди" in header
+        assert "Упражнение: Пауза перед контактом" in header
+        assert "Черновик AI" not in blob
+        assert "Метаданные" not in blob
+        assert "Краткое резюме" not in blob
+        assert "Что происходит на видео" in blob
+        assert "Топ-3" in blob
+        assert "Контакт близко" in blob
+        assert application.bot.send_video.await_count == 2
+        assert created["src"] == video
+        assert created["window"][0] < created["window"][1]
+        assert not created["path"].exists()
+        last = application.bot.send_message.await_args_list[-1]
+        assert last.kwargs["reply_markup"] is not None
+        assert "Топ-3" in last.kwargs["text"]
 
 
 def test_post_ios_review_forum_fail_still_ai_sent(tmp_path):
@@ -1052,6 +1135,29 @@ def test_post_ios_review_forum_fail_still_ai_sent(tmp_path):
         assert job["status"] == review.STATUS_AI_SENT
         application.bot.send_message.assert_not_awaited()
         assert not Path(video).exists()
+
+
+def test_english_locale_does_not_switch_bot_language(tmp_path):
+    from bot import _lang_from_update
+
+    with patch.object(storage, "DB_PATH", tmp_path / "t.db"):
+        player_id = storage.upsert_user(7, "ann", "Ann", None, "en")
+        user = MagicMock()
+        user.id = 7
+        user.language_code = "en"
+        update = MagicMock()
+        update.effective_user = user
+        context = MagicMock()
+        context.user_data = {"player_id": player_id}
+
+        assert _lang_from_update(update, context) == "ru"
+        assert context.user_data["language_code"] == "ru"
+
+        storage.set_preferred_language(player_id, "en")
+        fresh = MagicMock()
+        fresh.user_data = {"player_id": player_id}
+        assert _lang_from_update(update, fresh) == "en"
+        assert fresh.user_data["language_code"] == "en"
 
 
 def test_profile_language_button_sets_bot_and_ai_lang(tmp_path):

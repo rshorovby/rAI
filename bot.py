@@ -100,6 +100,7 @@ from errors import format_analysis_error, is_model_overloaded
 from formatting import cabinet_draft_to_html, markdown_to_html
 from i18n import (
     UI_LANGS,
+    bot_language,
     get_stored_lang,
     get_stored_language_code,
     sync_user_lang,
@@ -288,7 +289,7 @@ async def _show_profile(
     await message.reply_text(
         text,
         parse_mode=ParseMode.MARKDOWN,
-        reply_markup=profile_actions_keyboard(lang, preferred or None),
+        reply_markup=profile_actions_keyboard(lang, preferred or "ru"),
     )
 
 
@@ -316,9 +317,8 @@ def _manual_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> str:
 
 
 def _lang_from_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> str:
-    device = update.effective_user.language_code if update.effective_user else None
     return sync_user_lang(
-        context.user_data, _manual_language(update, context) or device
+        context.user_data, bot_language(_manual_language(update, context))
     )
 
 
@@ -2562,6 +2562,151 @@ async def _post_intake_video_to_cabinet(
         return False
 
 
+def _slowmo_caption(window: tuple) -> str:
+    (m0, s0), (m1, s1) = divmod(window[0], 60), divmod(window[1], 60)
+    stamp = f"{int(m0):02d}:{s0:06.3f}–{int(m1):02d}:{s1:06.3f}"
+    return f"🐢 Замедленно ×0,5 · {stamp}"
+
+
+async def _review_video_path(bot, file_id: str, video_mime: str):
+    """Локальный файл ролика для нарезки. Второй флаг — удалить после отправки."""
+    file_id = (file_id or "").strip()
+    if not file_id:
+        return None, False
+    if file_id.startswith("ios:"):
+        path = Path(file_id[4:])
+        if path.is_file():
+            return path, False
+        logger.warning("review video missing path=%s", path)
+        return None, False
+    suffix = _VIDEO_SUFFIXES.get(video_mime or "", ".mp4")
+    dest = None
+    try:
+        telegram_file = await bot.get_file(file_id)
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            dest = Path(tmp.name)
+        await telegram_file.download_to_drive(custom_path=str(dest))
+        return dest, True
+    except Exception:
+        logger.warning("review video download failed", exc_info=True)
+        if dest is not None:
+            dest.unlink(missing_ok=True)
+        return None, False
+
+
+async def _send_forum_html(bot, chat_id: int, thread_id: int, text: str):
+    try:
+        await bot.send_message(
+            chat_id=chat_id,
+            message_thread_id=thread_id,
+            text=cabinet_draft_to_html(text),
+            parse_mode=ParseMode.HTML,
+        )
+    except BadRequest:
+        await bot.send_message(
+            chat_id=chat_id,
+            message_thread_id=thread_id,
+            text=text,
+        )
+
+
+async def _send_slowmo_caption(
+    bot,
+    chat_id: int,
+    thread_id: int,
+    clip: Path,
+    text: str,
+    window: tuple,
+) -> bool:
+    """True, если текст ушёл подписью к клипу и отдельно его слать не нужно."""
+    html_text = cabinet_draft_to_html(text)
+    fits = len(html_text) <= _CAPTION_LIMIT and len(text) <= _CAPTION_LIMIT
+    caption = html_text if fits else _slowmo_caption(window)
+    try:
+        with clip.open("rb") as handle:
+            await bot.send_video(
+                chat_id=chat_id,
+                message_thread_id=thread_id,
+                video=handle,
+                caption=caption,
+                parse_mode=ParseMode.HTML if fits else None,
+                supports_streaming=True,
+            )
+    except BadRequest:
+        if not fits:
+            return False
+        try:
+            with clip.open("rb") as handle:
+                await bot.send_video(
+                    chat_id=chat_id,
+                    message_thread_id=thread_id,
+                    video=handle,
+                    caption=text,
+                    supports_streaming=True,
+                )
+        except BadRequest:
+            logger.warning("slowmo caption failed chat_id=%s", chat_id, exc_info=True)
+            return False
+    return fits
+
+
+async def _send_cabinet_draft_parts(
+    bot,
+    chat_id: int,
+    thread_id: int,
+    parts: list,
+    *,
+    video_file_id: str,
+    video_mime: str,
+    reply_markup,
+) -> None:
+    if not parts:
+        await bot.send_message(
+            chat_id=chat_id,
+            message_thread_id=thread_id,
+            text="Действия по этому разбору:",
+            reply_markup=reply_markup,
+        )
+        return
+
+    src = None
+    delete_src = False
+    if any(part.get("window") for part in parts):
+        src, delete_src = await _review_video_path(bot, video_file_id, video_mime)
+    clips: list = []
+    try:
+        last = len(parts) - 1
+        for index, part in enumerate(parts):
+            markup = reply_markup if index == last else None
+            window = part.get("window")
+            clip = None
+            if window and src is not None:
+                clip = await asyncio.to_thread(
+                    video_clip.make_slowmo_clip, src, window[0], window[1]
+                )
+                if clip is not None:
+                    clips.append(clip)
+                    if await _send_slowmo_caption(
+                        bot, chat_id, thread_id, clip, part["text"], window, markup
+                    ):
+                        continue
+            chunks = _split_message(part["text"])
+            end = len(chunks) - 1
+            for chunk_index, chunk in enumerate(chunks):
+                await _send_forum_html(
+                    bot,
+                    chat_id,
+                    thread_id,
+                    chunk,
+                    markup if chunk_index == end else None,
+                )
+    finally:
+        for path in clips:
+            path.unlink(missing_ok=True)
+        if delete_src and src is not None:
+            src.unlink(missing_ok=True)
+
+
 async def _post_review_job_to_forum(
     context: ContextTypes.DEFAULT_TYPE,
     job_id: int,
@@ -2628,19 +2773,12 @@ async def _post_review_job_to_forum(
             f"{video_hint}"
         )
     else:
-        video_hint = "Видео — в теме выше.\n" if skip_video else ""
         header = (
             f"🆕 Разбор #{job_id}\n"
             f"user_id: {user_id}\n"
             f"{channel}"
             f"Фокус: {job.get('focus_text') or '—'}\n"
-            f"Упражнение: {job.get('drill_text') or '—'}\n"
-            f"Статус: черновик AI уже у игрока. Тренер — главный.\n\n"
-            f"{video_hint}"
-            f"💬 «Ответить игроку» — текст / голос / кружок. На AI не влияет.\n"
-            f"✏️ «Поправить AI» — скопируйте разбор ниже, поправьте "
-            f"и отправьте. Сохранится как эталон, игроку не уйдёт.\n"
-            f"✅ «ОК» — разбор компетентный, закрепляем."
+            f"Упражнение: {job.get('drill_text') or '—'}"
         )
     try:
         await context.bot.send_message(
@@ -2656,46 +2794,22 @@ async def _post_review_job_to_forum(
                 job["video_file_id"],
             )
         draft = (job.get("draft_text") or "").strip()
-        attached_actions = False
         if manual:
             note = draft or "AI не вернул разбор."
-            chunks = _split_message(f"⚠️ Сбой AI:\n\n{note}")
+            parts = [{"text": f"⚠️ Сбой AI:\n\n{note}", "window": None}]
         elif draft:
-            cabinet_draft = review.strip_cabinet_draft(draft) or draft
-            chunks = _split_message(
-                f"🤖 Черновик AI (помощник, уже у игрока):\n\n{cabinet_draft}"
-            )
+            parts = review.cabinet_draft_parts(draft, job.get("language_code") or "ru")
         else:
-            chunks = []
-        if chunks:
-            last = len(chunks) - 1
-            for i, chunk in enumerate(chunks):
-                kwargs = {}
-                if i == last:
-                    kwargs["reply_markup"] = review.coach_action_keyboard(job_id)
-                    attached_actions = True
-                try:
-                    await context.bot.send_message(
-                        chat_id=forum_chat_id,
-                        message_thread_id=thread_id,
-                        text=cabinet_draft_to_html(chunk),
-                        parse_mode=ParseMode.HTML,
-                        **kwargs,
-                    )
-                except BadRequest:
-                    await context.bot.send_message(
-                        chat_id=forum_chat_id,
-                        message_thread_id=thread_id,
-                        text=chunk,
-                        **kwargs,
-                    )
-        if not attached_actions:
-            await context.bot.send_message(
-                chat_id=forum_chat_id,
-                message_thread_id=thread_id,
-                text="Действия по этому разбору:",
-                reply_markup=review.coach_action_keyboard(job_id),
-            )
+            parts = []
+        await _send_cabinet_draft_parts(
+            context.bot,
+            forum_chat_id,
+            thread_id,
+            parts,
+            video_file_id=job.get("video_file_id") or "",
+            video_mime=job.get("video_mime") or "",
+            reply_markup=review.coach_action_keyboard(job_id),
+        )
         logger.info("Review job_id=%s posted to forum thread_id=%s", job_id, thread_id)
     except Exception:
         logger.exception(

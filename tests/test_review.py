@@ -166,6 +166,33 @@ def test_strip_cabinet_draft_fallback_drops_first_and_last_paragraphs():
     assert review.strip_cabinet_draft(text) == "середина разбора"
 
 
+def test_cabinet_draft_parts_splits_observations_and_drops_extra():
+    report = (Path(__file__).parent / "fixtures/structured/rally.md").read_text(
+        encoding="utf-8"
+    )
+    parts = review.cabinet_draft_parts(report, "ru")
+    texts = [part["text"] for part in parts]
+    joined = "\n".join(texts)
+    assert "Краткое резюме" not in joined
+    assert "Метаданные" not in joined
+    assert "Следующее видео" not in joined
+    assert "footwork" not in joined
+    assert texts[0].startswith("## Что происходит на видео")
+    assert "форхенд" in texts[0].lower()
+    assert texts[1].startswith("## Разбор по категориям\n### Техника удара")
+    assert "**Рекомендация:**" in texts[1]
+    assert parts[1]["window"] is not None
+    assert any(part["text"].startswith("### Передвижение") for part in parts)
+    footwork = next(part for part in parts if "Передвижение" in part["text"])
+    assert footwork["window"] is None
+    assert "недостаточно данных" in footwork["text"].lower()
+    balance = next(part for part in parts if "Позиционирование" in part["text"])
+    assert balance["window"] is None
+    assert "не в приоритете" in balance["text"].lower()
+    assert texts[-1].startswith("## Топ-3 приоритета для тренировки")
+    assert all(part["window"] is None for part in parts if part is not parts[1])
+
+
 def test_coach_evaluation_triple(tmp_path):
     with _tmp_db(tmp_path):
         job_id = storage.create_review_job(

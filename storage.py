@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
-from i18n import DEFAULT_LANG, report_section_headers, t
+from i18n import DEFAULT_LANG, bot_language, report_section_headers, t
 
 DB_PATH = Path(__file__).parent / "data" / "rally.db"
 MAX_HISTORY_SESSIONS = 5  # без фильтра по удару
@@ -867,6 +867,13 @@ def get_or_create_apple_player(apple_sub: str) -> int:
 
 def player_has_telegram(player_id: int) -> bool:
     return telegram_id_for(player_id) is not None
+
+
+def _bot_language_sql(alias: str = "u") -> str:
+    return (
+        f"CASE WHEN {alias}.preferred_language IN ('ru', 'en') "
+        f"THEN {alias}.preferred_language ELSE 'ru' END"
+    )
 
 
 def player_language_code(player_id: int) -> str:
@@ -1991,10 +1998,10 @@ def get_users_for_reminder(days: int = 7) -> list[dict]:
     with _connect() as conn:
         _init_db(conn)
         rows = conn.execute(
-            """
+            f"""
             SELECT
                 u.user_id,
-                u.language_code,
+                {_bot_language_sql()} AS language_code,
                 (
                     SELECT ps.next_video
                     FROM player_sessions ps
@@ -2044,8 +2051,8 @@ def get_users_for_no_video_survey(hours: int = 24) -> list[dict]:
     with _connect() as conn:
         _init_db(conn)
         rows = conn.execute(
-            """
-            SELECT u.user_id, u.language_code
+            f"""
+            SELECT u.user_id, {_bot_language_sql()} AS language_code
             FROM users u
             INNER JOIN player_profiles pp ON pp.user_id = u.user_id
             WHERE u.no_video_survey_sent_at IS NULL
@@ -2084,8 +2091,8 @@ def get_users_for_no_onboarding_survey(hours: int = 24) -> list[dict]:
     with _connect() as conn:
         _init_db(conn)
         rows = conn.execute(
-            """
-            SELECT u.user_id, u.language_code
+            f"""
+            SELECT u.user_id, {_bot_language_sql()} AS language_code
             FROM users u
             WHERE u.no_onboarding_survey_sent_at IS NULL
               AND NOT EXISTS (
@@ -2624,10 +2631,10 @@ def get_users_for_digest() -> list[dict]:
     with _connect() as conn:
         _init_db(conn)
         rows = conn.execute(
-            """
+            f"""
             SELECT
                 u.user_id,
-                u.language_code,
+                {_bot_language_sql()} AS language_code,
                 COALESCE(u.streak_weeks, 0) AS streak_weeks,
                 (
                     SELECT COUNT(*) FROM player_sessions s
@@ -2911,8 +2918,8 @@ def list_due_practice_pre(practice_on: str) -> list[dict]:
     with _connect() as conn:
         _init_db(conn)
         rows = conn.execute(
-            """
-            SELECT pp.*, u.language_code
+            f"""
+            SELECT pp.*, {_bot_language_sql()} AS language_code
             FROM practice_plans pp
             LEFT JOIN users u ON u.user_id = pp.user_id
             WHERE pp.status = 'scheduled'
@@ -2932,8 +2939,8 @@ def list_due_practice_post(practice_on: str) -> list[dict]:
     with _connect() as conn:
         _init_db(conn)
         rows = conn.execute(
-            """
-            SELECT pp.*, u.language_code
+            f"""
+            SELECT pp.*, {_bot_language_sql()} AS language_code
             FROM practice_plans pp
             LEFT JOIN users u ON u.user_id = pp.user_id
             WHERE pp.status IN ('scheduled', 'pre_done')
@@ -3013,12 +3020,9 @@ def set_preferred_language(user_id: int, lang: str) -> None:
 
 
 def _profile_language_label(user_id: int, ui_lang: str) -> str:
-    preferred = get_preferred_language(user_id)
-    if preferred == "ru":
-        return t(ui_lang, "profile_lang_name_ru")
-    if preferred == "en":
+    if get_preferred_language(user_id) == "en":
         return t(ui_lang, "profile_lang_name_en")
-    return t(ui_lang, "profile_lang_device")
+    return t(ui_lang, "profile_lang_name_ru")
 
 
 def get_user_language_code(user_id: int) -> str:
@@ -3033,10 +3037,7 @@ def get_user_language_code(user_id: int) -> str:
         ).fetchone()
     if not row:
         return ""
-    preferred = row["preferred_language"] or ""
-    if preferred in ("ru", "en"):
-        return preferred
-    return row["language_code"] or ""
+    return bot_language(row["preferred_language"] or "")
 
 
 def save_player_forum_topic(
