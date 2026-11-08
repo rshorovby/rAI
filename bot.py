@@ -2658,15 +2658,8 @@ async def _send_cabinet_draft_parts(
     *,
     video_file_id: str,
     video_mime: str,
-    reply_markup,
 ) -> None:
     if not parts:
-        await bot.send_message(
-            chat_id=chat_id,
-            message_thread_id=thread_id,
-            text="Действия по этому разбору:",
-            reply_markup=reply_markup,
-        )
         return
 
     src = None
@@ -2675,9 +2668,7 @@ async def _send_cabinet_draft_parts(
         src, delete_src = await _review_video_path(bot, video_file_id, video_mime)
     clips: list = []
     try:
-        last = len(parts) - 1
-        for index, part in enumerate(parts):
-            markup = reply_markup if index == last else None
+        for part in parts:
             window = part.get("window")
             clip = None
             if window and src is not None:
@@ -2687,19 +2678,11 @@ async def _send_cabinet_draft_parts(
                 if clip is not None:
                     clips.append(clip)
                     if await _send_slowmo_caption(
-                        bot, chat_id, thread_id, clip, part["text"], window, markup
+                        bot, chat_id, thread_id, clip, part["text"], window
                     ):
                         continue
-            chunks = _split_message(part["text"])
-            end = len(chunks) - 1
-            for chunk_index, chunk in enumerate(chunks):
-                await _send_forum_html(
-                    bot,
-                    chat_id,
-                    thread_id,
-                    chunk,
-                    markup if chunk_index == end else None,
-                )
+            for chunk in _split_message(part["text"]):
+                await _send_forum_html(bot, chat_id, thread_id, chunk)
     finally:
         for path in clips:
             path.unlink(missing_ok=True)
@@ -2808,7 +2791,6 @@ async def _post_review_job_to_forum(
             parts,
             video_file_id=job.get("video_file_id") or "",
             video_mime=job.get("video_mime") or "",
-            reply_markup=review.coach_action_keyboard(job_id),
         )
         logger.info("Review job_id=%s posted to forum thread_id=%s", job_id, thread_id)
     except Exception:
@@ -4045,8 +4027,7 @@ async def handle_coach_eval_callback(
 
     if kind in ("r", "t"):
         await query.answer(
-            "Кнопки устарели. Используйте «Ответить игроку», "
-            "«Поправить AI» или «ОК».",
+            "Кнопки устарели. Пишите в тему свободно — сообщение уйдёт игроку.",
             show_alert=True,
         )
         return

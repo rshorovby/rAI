@@ -1099,9 +1099,13 @@ def test_post_review_sends_observations_with_slowmo(tmp_path):
         assert created["src"] == video
         assert created["window"][0] < created["window"][1]
         assert not created["path"].exists()
-        last = application.bot.send_message.await_args_list[-1]
-        assert last.kwargs["reply_markup"] is not None
-        assert "Топ-3" in last.kwargs["text"]
+        assert "Ответить игроку" not in blob
+        assert "Поправить AI" not in blob
+        assert "Действия по этому разбору" not in blob
+        for call in application.bot.send_message.await_args_list:
+            assert call.kwargs.get("reply_markup") is None
+        for call in application.bot.send_video.await_args_list:
+            assert call.kwargs.get("reply_markup") is None
 
 
 def test_post_ios_review_forum_fail_still_ai_sent(tmp_path):
