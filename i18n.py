@@ -124,16 +124,16 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "• ошибки по критичности 🔴🟠🟡\n"
             "• топ-3 приоритета на тренировку\n"
             "• комментарии тренера, когда захочет уточнить или усилить разбор\n\n"
-            "*Как начать:* видео 10–30 сек (лучше сбоку или сзади). "
+            "*Как начать:* видео до 20 сек (лучше сбоку или сзади). "
             "Можно подпись: «болит локоть», «это форхенд».\n\n"
             "👇 *Отправьте первое видео прямо сейчас*"
         ),
         "bot_short_description": (
-            "🎾 Видео 10–30 сек → AI-разбор + фидбек опытного тренера. Нажмите «Старт»."
+            "🎾 Видео до 20 сек → AI-разбор + фидбек опытного тренера. Нажмите «Старт»."
         ),
         "bot_description": (
             "🎾 AdvantAce — разбор техники с AI и реальным тренером\n\n"
-            "Снимите 10–30 секунд игры (лучше сбоку или сзади) и отправьте сюда.\n\n"
+            "Снимите до 20 секунд одного элемента (лучше сбоку или сзади) и отправьте сюда.\n\n"
             "Сначала AI за минуту разберёт удары, ноги и главные ошибки. "
             "Затем опытный тренер может дополнить разбор своим комментарием.\n\n"
             "Анализирует ваши видео, запоминает стиль игры, цели, историю общения "
@@ -144,7 +144,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "help": (
             "📋 *Справка*\n\n"
             "• Принимаются видео до 20 МБ\n"
-            "• Оптимальная длительность: 10–30 секунд\n"
+            "• Длительность: до 20 секунд, хватит 2–3 повторений одного удара\n"
             "• Лучшие ракурсы: сбоку, сзади-сбоку, иногда сверху\n"
             "• На видео должен быть виден игрок и его удары/движение\n"
             "• К видео можно добавить подпись: «это форхенд сверху», «болит локоть» и т.п.\n\n"
@@ -182,7 +182,9 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "Оплата через Telegram Stars — одним нажатием."
         ),
         "video_too_long": (
-            "Видео длиннее {max_sec} сек. Обрежьте ролик и пришлите снова."
+            "Видео длиннее {max_sec} сек. Бот анализирует технику конкретного "
+            "элемента, поэтому хватит 2–3 повторений удара. "
+            "Обрежьте ролик и пришлите снова."
         ),
         "plan_status": (
             "📦 *Тариф: {plan}*\n\n"
@@ -533,7 +535,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "или задайте вопрос текстом."
         ),
         "unsupported": (
-            "Отправьте видео с теннисистом (10–30 сек) или задайте текстовый вопрос "
+            "Отправьте видео с теннисистом (до 20 сек) или задайте текстовый вопрос "
             "после разбора. Документы и фото пока не поддерживаются."
         ),
         "no_session_internal": "Нет активного разбора. Отправьте видео.",
@@ -603,12 +605,12 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "Хорошо, настройку пропустили.\n\n"
             "⚠️ Без профиля разбор будет более общим — ИИ не знает ваш уровень "
             "и цели. Вы всегда можете заполнить профиль через /profile.\n\n"
-            "👇 Отправьте видео 10–30 сек, чтобы начать."
+            "👇 Отправьте видео до 20 сек, чтобы начать."
         ),
         "ob_complete": (
             "✅ *Профиль сохранён!*\n\n"
             "Теперь разборы будут точнее — с учётом вашего уровня и бэкхенда.\n\n"
-            "👇 *Отправьте первое видео* (10–30 сек, лучше сбоку или сзади)."
+            "👇 *Отправьте первое видео* (до 20 сек, лучше сбоку или сзади)."
         ),
         "ob_injuries_none": "Нет",
         "ob_edit_profile": "✏️ Изменить профиль",
@@ -798,16 +800,16 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "• mistakes ranked by severity 🔴🟠🟡\n"
             "• top 3 training priorities\n"
             "• coach comments when they want to sharpen or expand the review\n\n"
-            "*To start:* send a 10–30 sec video (side or rear angle works best). "
+            "*To start:* send a video up to 20 sec (side or rear angle works best). "
             'Add a caption if you like: "elbow hurts", "this is my forehand".\n\n'
             "👇 *Send your first video now*"
         ),
         "bot_short_description": (
-            "🎾 10–30 sec video → AI review + feedback from an experienced coach. Tap Start."
+            "🎾 Video up to 20 sec → AI review + feedback from an experienced coach. Tap Start."
         ),
         "bot_description": (
             "🎾 AdvantAce — tennis technique review with AI and a real coach\n\n"
-            "Record 10–30 seconds of your game (side or rear angle works best) and send "
+            "Record up to 20 seconds of one element (side or rear angle works best) and send "
             "it here.\n\n"
             "First, AI breaks down strokes, footwork, and key mistakes in about a minute. "
             "Then an experienced coach may add their own comment.\n\n"
@@ -819,7 +821,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "help": (
             "📋 *Help*\n\n"
             "• Videos up to 20 MB are accepted\n"
-            "• Optimal length: 10–30 seconds\n"
+            "• Length: up to 20 seconds, 2–3 repetitions of one stroke are enough\n"
             "• Best angles: side, rear-side, sometimes overhead\n"
             "• The player and their strokes/movement must be visible\n"
             '• You can add a caption: "overhead forehand", "elbow hurts", etc.\n\n'
@@ -856,7 +858,11 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "Pro unlocks more analyses, weekly focus, and progress memory.\n\n"
             "Pay with Telegram Stars in one tap."
         ),
-        "video_too_long": ("Video is longer than {max_sec}s. Trim it and send again."),
+        "video_too_long": (
+            "Video is longer than {max_sec}s. The bot analyzes the technique of "
+            "one specific element, so 2–3 repetitions of the stroke are enough. "
+            "Trim the clip and send it again."
+        ),
         "plan_status": (
             "📦 *Plan: {plan}*\n\n"
             "• Analyses this month: {used}/{limit} ({left} left)\n"
@@ -1204,7 +1210,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "or ask your question in text."
         ),
         "unsupported": (
-            "Send a video of a tennis player (10–30 sec) or ask a text question "
+            "Send a video of a tennis player (up to 20 sec) or ask a text question "
             "after an analysis. Documents and photos are not supported yet."
         ),
         "no_session_internal": "No active analysis. Send a video.",
@@ -1273,12 +1279,12 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "OK, setup skipped.\n\n"
             "⚠️ Without a profile, analysis will be more generic — the AI doesn't "
             "know your level or goals. You can always fill your profile via /profile.\n\n"
-            "👇 Send a 10–30 sec video to get started."
+            "👇 Send a video up to 20 sec to get started."
         ),
         "ob_complete": (
             "✅ *Profile saved!*\n\n"
             "Analyses will now be more accurate — tailored to your level and backhand.\n\n"
-            "👇 *Send your first video* (10–30 sec, side or rear angle works best)."
+            "👇 *Send your first video* (up to 20 sec, side or rear angle works best)."
         ),
         "ob_injuries_none": "No",
         "ob_edit_profile": "✏️ Edit profile",

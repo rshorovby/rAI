@@ -19,11 +19,12 @@ PROVIDER_STARS = "stars"
 PROVIDER_WEB = "web"
 PROVIDER_ADMIN = "admin"
 
-# Лимиты P0 (подтверждены планом)
+# Лимиты P0 (подтверждены планом).
+# Длина ролика — один элемент: 2–3 повторения удара.
 FREE_ANALYSES_PER_MONTH = 2
 PRO_ANALYSES_PER_MONTH = 30
-FREE_MAX_VIDEO_SECONDS = 30
-PRO_MAX_VIDEO_SECONDS = 60
+FREE_MAX_VIDEO_SECONDS = 20
+PRO_MAX_VIDEO_SECONDS = 20
 GRACE_DAYS = 3
 PRO_MONTHS_DEFAULT = 1
 
