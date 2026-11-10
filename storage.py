@@ -22,6 +22,8 @@ ACTIVE_SESSION_TTL_DAYS = 7
 
 PROVIDER_TELEGRAM = "telegram"
 PROVIDER_APPLE = "apple"
+PROVIDER_GUEST = "guest"
+_GUEST_SUBJECT = re.compile(r"^[A-Za-z0-9-]{16,80}$")
 CHANNEL_TELEGRAM = "telegram"
 CHANNEL_IOS = "ios"
 LINK_TG_TO_IOS = "tg_to_ios"
@@ -720,6 +722,23 @@ def set_acquisition_source_if_empty(player_id: int, code: str) -> Optional[str]:
     return code
 
 
+def guest_placeholder_name(player_id: int, language_code: str = "") -> str:
+    word = "Игрок" if (language_code or "").lower().startswith("ru") else "Player"
+    return f"{word} {int(player_id)}"
+
+
+def is_guest_placeholder_name(player_id: int, name: str) -> bool:
+    cleaned = (name or "").strip()
+    pid = str(int(player_id))
+    return cleaned == f"Игрок {pid}" or cleaned == f"Player {pid}"
+
+
+def seed_guest_display_name_if_unset(player_id: int, language_code: str = "") -> None:
+    if get_stored_display_name(player_id) is not None:
+        return
+    set_player_display_name(player_id, guest_placeholder_name(player_id, language_code))
+
+
 def seed_display_name_if_unset(
     player_id: int, given: str = "", family: str = ""
 ) -> None:
@@ -735,8 +754,11 @@ def carry_display_name_on_telegram_link(from_player_id: int, to_player_id: int) 
     if int(from_player_id) == int(to_player_id):
         return
     source = get_stored_display_name(from_player_id)
-    if source is not None and source.strip():
-        set_player_display_name(to_player_id, source.strip())
+    if source is None or not source.strip():
+        return
+    if is_guest_placeholder_name(from_player_id, source):
+        return
+    set_player_display_name(to_player_id, source.strip())
 
 
 def list_scale_jobs(player_id: int) -> list:
@@ -831,6 +853,38 @@ def set_player_ntrp(
             values,
         )
         conn.commit()
+
+
+def get_or_create_guest_player(subject: str) -> int:
+    key = (subject or "").strip()
+    if not _GUEST_SUBJECT.fullmatch(key):
+        raise ValueError("invalid guest subject")
+    now = _now_sql()
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            """
+            SELECT player_id FROM identities
+            WHERE provider = ? AND subject = ?
+            """,
+            (PROVIDER_GUEST, key),
+        ).fetchone()
+        if row:
+            return int(row["player_id"])
+        cur = conn.execute(
+            "INSERT INTO players (created_at) VALUES (?)",
+            (now,),
+        )
+        player_id = int(cur.lastrowid)
+        conn.execute(
+            """
+            INSERT INTO identities (player_id, provider, subject, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (player_id, PROVIDER_GUEST, key, now),
+        )
+        conn.commit()
+    return player_id
 
 
 def get_or_create_apple_player(apple_sub: str) -> int:
@@ -1033,6 +1087,21 @@ def attach_apple_identity(player_id: int, apple_sub: str) -> None:
         conn.commit()
 
 
+def guest_subject_for(player_id: int) -> Optional[str]:
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            """
+            SELECT subject FROM identities
+            WHERE player_id = ? AND provider = ?
+            """,
+            (int(player_id), PROVIDER_GUEST),
+        ).fetchone()
+    if not row:
+        return None
+    return str(row["subject"])
+
+
 def apple_subject_for(player_id: int) -> Optional[str]:
     with _connect() as conn:
         _init_db(conn)
@@ -1046,6 +1115,32 @@ def apple_subject_for(player_id: int) -> Optional[str]:
     if not row:
         return None
     return str(row["subject"])
+
+
+def move_guest_identity(from_player_id: int, to_player_id: int) -> None:
+    """Пустой гость принимает историю Telegram: ключ устройства едет на telegram player_id."""
+    subject = guest_subject_for(from_player_id)
+    if not subject:
+        raise ValueError("no guest identity")
+    now = _now_sql()
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            "DELETE FROM identities WHERE player_id = ? AND provider = ?",
+            (int(from_player_id), PROVIDER_GUEST),
+        )
+        conn.execute(
+            """
+            INSERT INTO identities (player_id, provider, subject, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (int(to_player_id), PROVIDER_GUEST, subject, now),
+        )
+        conn.execute(
+            "DELETE FROM api_sessions WHERE player_id = ?", (int(from_player_id),)
+        )
+        conn.execute("DELETE FROM players WHERE id = ?", (int(from_player_id),))
+        conn.commit()
 
 
 def move_apple_identity(from_player_id: int, to_player_id: int) -> None:

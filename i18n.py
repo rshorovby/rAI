@@ -173,8 +173,9 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "cmd_history": "Мои прошлые разборы",
         "link_code": (
             "Код для приложения AdvantAce (10 минут):\n\n`{code}`\n\n"
-            "Введите его в приложении на экране привязки Telegram."
+            "Откройте приложение кнопкой ниже."
         ),
+        "btn_open_app": "Открыть в приложении",
         "link_invalid": "Код не найден или истёк. Сгенерируйте новый в приложении.",
         "link_telegram_not_empty": (
             "У этого Telegram уже есть разборы. Привязка кода из приложения "
@@ -850,8 +851,9 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "cmd_history": "My past analyses",
         "link_code": (
             "Code for the AdvantAce app (10 minutes):\n\n`{code}`\n\n"
-            "Enter it in the app on the Telegram link screen."
+            "Open the app with the button below."
         ),
+        "btn_open_app": "Open in app",
         "link_invalid": "Code not found or expired. Generate a new one in the app.",
         "link_telegram_not_empty": (
             "This Telegram account already has reviews. An app code can only "

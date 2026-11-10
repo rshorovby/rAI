@@ -1289,3 +1289,33 @@ def test_present_analysis_sends_summary_then_first_observation(tmp_path):
     assert callbacks == ["d:err:deep:0", "d:obs:next:0"]
     assert context.user_data["analysis_dialog"]["shown_count"] == 1
     assert context.user_data["analysis_dialog"]["focus_text"] == "Опустить локоть"
+
+
+def test_app_link_keyboard_carries_code_in_universal_link():
+    from bot import APP_LINK_BASE, _app_link_keyboard
+
+    markup = _app_link_keyboard("ru", "ABCD1234")
+    button = markup.inline_keyboard[0][0]
+    assert button.url == "https://advantace.app/l/ABCD1234"
+    assert button.url == APP_LINK_BASE + "ABCD1234"
+    assert button.text == "Открыть в приложении"
+
+
+def test_link_command_sends_code_with_open_app_button():
+    from bot import link_command
+
+    update = MagicMock()
+    update.message.reply_text = AsyncMock()
+    update.message.from_user.id = 7
+    context = MagicMock()
+    context.args = []
+    with patch("bot._lang_from_update", return_value="en"), patch(
+        "bot._touch_user", new=AsyncMock(return_value=5)
+    ), patch("storage.is_trainer", return_value=False), patch(
+        "storage.create_link_code", return_value="ZZZZ9999"
+    ):
+        asyncio.run(link_command(update, context))
+
+    args, kwargs = update.message.reply_text.call_args
+    assert "ZZZZ9999" in args[0]
+    assert kwargs["reply_markup"].inline_keyboard[0][0].url == "https://advantace.app/l/ZZZZ9999"

@@ -365,6 +365,16 @@ def _save_analysis(user_data: dict, report: str, stroke: Optional[str] = None) -
     _persist_session(user_data)
 
 
+APP_LINK_BASE = "https://advantace.app/l/"
+
+
+def _app_link_keyboard(lang: str, code: str) -> InlineKeyboardMarkup:
+    """Кнопка открывает приложение по Universal Link с кодом привязки (lock #162/#167)."""
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton(t(lang, "btn_open_app"), url=APP_LINK_BASE + code)]]
+    )
+
+
 def _paywall_keyboard(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [[InlineKeyboardButton(t(lang, "btn_upgrade_pro"), callback_data="pay:pro")]]
@@ -1000,7 +1010,10 @@ async def link_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         code = await asyncio.to_thread(
             storage.create_link_code, player_id, storage.LINK_TG_TO_IOS
         )
-        await message.reply_text(t(lang, "link_code", code=code))
+        await message.reply_text(
+            t(lang, "link_code", code=code),
+            reply_markup=_app_link_keyboard(lang, code),
+        )
         return
     ios_player = await asyncio.to_thread(
         storage.consume_link_code, args[0], storage.LINK_IOS_TO_TG

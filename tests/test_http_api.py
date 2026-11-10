@@ -77,6 +77,12 @@ def test_link_telegram_rejects_nonempty_ios(tmp_path):
             headers={"Authorization": "Bearer " + token},
         )
         assert linked.status_code == 409
+        again = client.post(
+            "/v1/link/telegram",
+            json={"code": code},
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert again.status_code == 409
 
 
 def test_ios_jobs_do_not_cancel_each_other_or_telegram(tmp_path):
@@ -550,6 +556,121 @@ def test_link_telegram_imports_display_name(tmp_path):
         )
         assert linked.status_code == 200
         assert linked.json()["display_name"] == "Ann Tg"
+
+
+def test_guest_auth_keeps_player_and_seeds_name_once(tmp_path):
+    with _tmp_db(tmp_path):
+        client = _client()
+        subject = "11111111-1111-1111-1111-111111111111"
+        first = client.post(
+            "/v1/auth/guest",
+            json={"subject": subject, "language_code": "ru"},
+        )
+        assert first.status_code == 200
+        player_id = first.json()["player_id"]
+        assert first.json()["display_name"] == f"Игрок {player_id}"
+        assert first.json()["profile"] is None
+        second = client.post(
+            "/v1/auth/guest",
+            json={"subject": subject, "language_code": "en"},
+        )
+        assert second.json()["player_id"] == player_id
+        assert second.json()["display_name"] == f"Игрок {player_id}"
+        english = client.post(
+            "/v1/auth/guest",
+            json={
+                "subject": "22222222-2222-2222-2222-222222222222",
+                "language_code": "en",
+            },
+        )
+        assert english.json()["display_name"] == f"Player {english.json()['player_id']}"
+        bad = client.post("/v1/auth/guest", json={"subject": "short"})
+        assert bad.status_code == 400
+
+
+def test_guest_link_keeps_telegram_name_until_renamed(tmp_path):
+    with _tmp_db(tmp_path):
+        tg = storage.get_or_create_telegram_player(2005)
+        storage.upsert_user(2005, "ann", "Ann", "Tg", "ru")
+        code = storage.create_link_code(tg, storage.LINK_TG_TO_IOS)
+        client = _client()
+        subject = "33333333-3333-3333-3333-333333333333"
+        auth = client.post(
+            "/v1/auth/guest",
+            json={"subject": subject, "language_code": "ru"},
+        )
+        token = auth.json()["token"]
+        linked = client.post(
+            "/v1/link/telegram",
+            json={"code": code},
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert linked.status_code == 200
+        assert linked.json()["player_id"] == tg
+        assert linked.json()["display_name"] == "Ann Tg"
+        again = client.post(
+            "/v1/auth/guest",
+            json={"subject": subject, "language_code": "ru"},
+        )
+        assert again.json()["player_id"] == tg
+
+        renamed_tg = storage.get_or_create_telegram_player(2006)
+        storage.upsert_user(2006, "bob", "Bob", "Tg", "ru")
+        renamed_code = storage.create_link_code(renamed_tg, storage.LINK_TG_TO_IOS)
+        renamed_auth = client.post(
+            "/v1/auth/guest",
+            json={
+                "subject": "44444444-4444-4444-4444-444444444444",
+                "language_code": "ru",
+            },
+        )
+        renamed_token = renamed_auth.json()["token"]
+        client.patch(
+            "/v1/me/display-name",
+            json={"display_name": "Маша"},
+            headers={"Authorization": "Bearer " + renamed_token},
+        )
+        renamed = client.post(
+            "/v1/link/telegram",
+            json={"code": renamed_code},
+            headers={"Authorization": "Bearer " + renamed_token},
+        )
+        assert renamed.status_code == 200
+        assert renamed.json()["display_name"] == "Маша"
+
+
+def test_guest_with_history_does_not_burn_link_code(tmp_path):
+    with _tmp_db(tmp_path):
+        tg = storage.get_or_create_telegram_player(2007)
+        code = storage.create_link_code(tg, storage.LINK_TG_TO_IOS)
+        client = _client()
+        auth = client.post(
+            "/v1/auth/guest",
+            json={
+                "subject": "55555555-5555-5555-5555-555555555555",
+                "language_code": "ru",
+            },
+        )
+        token = auth.json()["token"]
+        storage.create_review_job(
+            auth.json()["player_id"],
+            video_file_id="ios:guest",
+            source_channel=storage.CHANNEL_IOS,
+        )
+        blocked = client.post(
+            "/v1/link/telegram",
+            json={"code": code},
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert blocked.status_code == 409
+        apple = client.post("/v1/auth/apple", json={"identity_token": "sub-after-guest"})
+        linked = client.post(
+            "/v1/link/telegram",
+            json={"code": code},
+            headers={"Authorization": "Bearer " + apple.json()["token"]},
+        )
+        assert linked.status_code == 200
+        assert linked.json()["player_id"] == tg
 
 
 def test_elaboration_is_saved_on_the_job(tmp_path):

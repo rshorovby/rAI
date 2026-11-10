@@ -272,6 +272,29 @@ def create_app(
         payload["token"] = session
         return JSONResponse(payload)
 
+    async def auth_guest(request: Request) -> Response:
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"error": "invalid json"}, status_code=400)
+        if not isinstance(body, dict):
+            return JSONResponse({"error": "invalid json"}, status_code=400)
+        subject = body.get("subject") if isinstance(body.get("subject"), str) else ""
+        language_code = (
+            body.get("language_code")
+            if isinstance(body.get("language_code"), str)
+            else ""
+        )
+        try:
+            player_id = storage.get_or_create_guest_player(subject)
+        except ValueError:
+            return JSONResponse({"error": "invalid subject"}, status_code=400)
+        storage.seed_guest_display_name_if_unset(player_id, language_code)
+        session = storage.create_api_session(player_id)
+        payload = _me_json(player_id, language_code)
+        payload["token"] = session
+        return JSONResponse(payload)
+
     async def me(request: Request) -> Response:
         try:
             player_id = _bearer_player(request)
@@ -302,14 +325,17 @@ def create_app(
             return JSONResponse({"error": str(exc)}, status_code=401)
         body = await request.json()
         code = body.get("code") or ""
+        if storage.has_player_history(ios_player):
+            return JSONResponse({"error": "ios account not empty"}, status_code=409)
         telegram_player = storage.consume_link_code(code, storage.LINK_TG_TO_IOS)
         if telegram_player is None:
             return JSONResponse({"error": "invalid code"}, status_code=400)
-        if storage.has_player_history(ios_player):
-            return JSONResponse({"error": "ios account not empty"}, status_code=409)
         if ios_player != telegram_player:
             storage.carry_profile_on_telegram_link(ios_player, telegram_player)
-            storage.move_apple_identity(ios_player, telegram_player)
+            if storage.guest_subject_for(ios_player):
+                storage.move_guest_identity(ios_player, telegram_player)
+            else:
+                storage.move_apple_identity(ios_player, telegram_player)
         session = storage.create_api_session(telegram_player)
         payload = _me_json(telegram_player)
         payload["token"] = session
@@ -526,6 +552,7 @@ def create_app(
 
     routes = [
         Route("/v1/auth/apple", auth_apple, methods=["POST"]),
+        Route("/v1/auth/guest", auth_guest, methods=["POST"]),
         Route("/v1/me", me, methods=["GET"]),
         Route("/v1/me/logout", logout, methods=["POST"]),
         Route("/v1/me", delete_me, methods=["DELETE"]),
