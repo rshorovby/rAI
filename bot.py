@@ -3328,7 +3328,11 @@ async def _run_video_analysis(
         if video_context:
             stroke = (video_context.get("stroke") or "") or ""
             intake_strokes = video_context.get("strokes")
-        pose_task = asyncio.create_task(_measure_pose(temp_path, stroke, user_id))
+        profile = await asyncio.to_thread(storage.get_player_profile, user_id) or {}
+        hand = str(profile.get("hand") or "")
+        if hand not in ("left", "right"):
+            hand = ""
+        pose_task = asyncio.create_task(_measure_pose(temp_path, stroke, user_id, hand))
         analysis_ctx = await asyncio.to_thread(
             services.load_analysis_context, user_id, stroke, intake_strokes
         )
@@ -3667,15 +3671,18 @@ def _progress_body(lang: str, preflight, extra: Optional[str], watching: bool) -
     return "\n".join(parts)
 
 
-async def _measure_pose(path: Path, stroke: str, user_id: int) -> dict:
+async def _measure_pose(path: Path, stroke: str, user_id: int, hand: str) -> dict:
     try:
         measured = await asyncio.wait_for(
-            asyncio.to_thread(_run_pose, path, stroke, user_id),
+            asyncio.to_thread(pose_runtime.measure, path, stroke, hand),
             timeout=POSE_TIMEOUT_SEC,
         )
     except asyncio.TimeoutError:
         logger.warning("pose: таймаут user_id=%s", user_id)
         return {"contacts": [], "error": "timeout"}
+    except Exception:
+        logger.exception("pose: сбой user_id=%s", user_id)
+        return {"contacts": [], "error": "failed"}
     logger.info(
         "pose user_id=%s contacts=%s arms=%s error=%s",
         user_id,
@@ -3687,12 +3694,6 @@ async def _measure_pose(path: Path, stroke: str, user_id: int) -> dict:
         measured.get("error"),
     )
     return measured
-
-
-def _run_pose(path: Path, stroke: str, user_id: int) -> dict:
-    profile = storage.get_player_profile(user_id) or {}
-    hand = str(profile.get("hand") or "")
-    return pose_runtime.measure(path, stroke, hand)
 
 
 async def _send_progress(context: ContextTypes.DEFAULT_TYPE, chat_id: int, text: str):
