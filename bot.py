@@ -3670,19 +3670,29 @@ def _progress_body(lang: str, preflight, extra: Optional[str], watching: bool) -
 async def _measure_pose(path: Path, stroke: str, user_id: int) -> dict:
     try:
         measured = await asyncio.wait_for(
-            asyncio.to_thread(pose_runtime.measure, path, stroke),
+            asyncio.to_thread(_run_pose, path, stroke, user_id),
             timeout=POSE_TIMEOUT_SEC,
         )
     except asyncio.TimeoutError:
         logger.warning("pose: таймаут user_id=%s", user_id)
         return {"contacts": [], "error": "timeout"}
     logger.info(
-        "pose user_id=%s contacts=%s error=%s",
+        "pose user_id=%s contacts=%s arms=%s error=%s",
         user_id,
         [item.get("t") for item in measured.get("contacts") or []],
+        [
+            "skip" if row.get("arm_skipped") else "arm"
+            for row in (measured.get("metrics") or {}).get("contacts") or []
+        ],
         measured.get("error"),
     )
     return measured
+
+
+def _run_pose(path: Path, stroke: str, user_id: int) -> dict:
+    profile = storage.get_player_profile(user_id) or {}
+    hand = str(profile.get("hand") or "")
+    return pose_runtime.measure(path, stroke, hand)
 
 
 async def _send_progress(context: ContextTypes.DEFAULT_TYPE, chat_id: int, text: str):

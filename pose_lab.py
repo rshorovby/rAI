@@ -21,6 +21,7 @@ SHOULDER = {"left": 11, "right": 12}
 ELBOW = {"left": 13, "right": 14}
 WRIST = {"left": 15, "right": 16}
 HIP = {"left": 23, "right": 24}
+KNEE = {"left": 25, "right": 26}
 ANKLE = {"left": 27, "right": 28}
 
 MIN_VISIBILITY = 0.5
@@ -428,6 +429,116 @@ def _peak_above_head(track: PoseTrack, index: int, side: str, scale: float) -> f
     )
     heights = [_above_head(track, i, side, scale) for i in near]
     return max((h for h in heights if h is not None), default=-1.0)
+
+
+def other_side(side: str) -> str:
+    return "right" if side == "left" else "left"
+
+
+def joint_angle(a, b, c) -> Optional[float]:
+    """Угол в точке b, градусы. 180 — конечность прямая."""
+    if np.any(np.isnan(a)) or np.any(np.isnan(b)) or np.any(np.isnan(c)):
+        return None
+    ba = np.asarray(a, dtype=float) - np.asarray(b, dtype=float)
+    bc = np.asarray(c, dtype=float) - np.asarray(b, dtype=float)
+    denom = float(np.linalg.norm(ba) * np.linalg.norm(bc))
+    if denom < 1e-6:
+        return None
+    cos = float(np.clip(np.dot(ba, bc) / denom, -1.0, 1.0))
+    return float(np.degrees(np.arccos(cos)))
+
+
+def measure_contacts(
+    track: PoseTrack, times: list, hand: str, scale: float, stroke: str = ""
+) -> dict:
+    """Углы и высоты на заданной руке. hand — «left» или «right» из профиля."""
+    if hand not in ("left", "right") or not scale:
+        return {"hand": hand, "contacts": [], "spread": {}}
+    rows = []
+    for t in times:
+        index = int(np.argmin(np.abs(track.times - t)))
+        row = {
+            "t": round(float(t), 3),
+            "elbow": _limb_angle(track, index, hand, SHOULDER, ELBOW, WRIST),
+            "elbow_other": _limb_angle(
+                track, index, other_side(hand), SHOULDER, ELBOW, WRIST
+            ),
+            "knee_left": _limb_angle(track, index, "left", HIP, KNEE, ANKLE),
+            "knee_right": _limb_angle(track, index, "right", HIP, KNEE, ANKLE),
+            "stance": _stance(track, index, scale),
+            "contact_above_head": _visible_height(track, index, hand, scale),
+            "other_above_head": _visible_height(track, index, other_side(hand), scale),
+        }
+        if stroke == "serve":
+            row["toss_above_head"] = _toss_height(track, t, other_side(hand), scale)
+            row["knee_load"] = _deepest_knee(track, t)
+        rows.append(row)
+    keys = ("elbow", "knee_left", "knee_right", "stance", "contact_above_head")
+    if stroke == "serve":
+        keys = keys + ("toss_above_head", "knee_load")
+    spread = {}
+    for key in keys:
+        values = [row[key] for row in rows if row.get(key) is not None]
+        if len(values) >= 2:
+            spread[key] = round(max(values) - min(values), 2)
+    return {"hand": hand, "contacts": rows, "spread": spread}
+
+
+def _limb_angle(track, index, side, proximal, middle, distal) -> Optional[float]:
+    points = [_xy(track, index, joint[side]) for joint in (proximal, middle, distal)]
+    if any(point is None for point in points):
+        return None
+    angle = joint_angle(*points)
+    return round(angle, 1) if angle is not None else None
+
+
+def _xy(track, index, landmark):
+    point = track.points[index, landmark]
+    if not (point[2] >= MIN_VISIBILITY) or np.isnan(point[0]):
+        return None
+    return point[:2]
+
+
+def _stance(track, index, scale) -> Optional[float]:
+    left = _xy(track, index, ANKLE["left"])
+    right = _xy(track, index, ANKLE["right"])
+    if left is None or right is None:
+        return None
+    return round(float(np.linalg.norm(left - right)) / scale, 2)
+
+
+def _visible_height(track, index, side, scale) -> Optional[float]:
+    if _xy(track, index, WRIST[side]) is None or _xy(track, index, NOSE) is None:
+        return None
+    return _above_head(track, index, side, scale)
+
+
+def _toss_height(track, contact_t, toss_side, scale) -> Optional[float]:
+    window = (track.times >= contact_t - 2.5) & (track.times <= contact_t - 0.2)
+    if not np.any(window):
+        return None
+    best = None
+    for index in np.flatnonzero(window):
+        height = _visible_height(track, int(index), toss_side, scale)
+        if height is None:
+            continue
+        if best is None or height > best:
+            best = height
+    return best
+
+
+def _deepest_knee(track, contact_t) -> Optional[float]:
+    """Минимальный угол колена за 0,6 с до контакта. Меньше — глубже присед."""
+    window = (track.times >= contact_t - 0.6) & (track.times <= contact_t)
+    angles = []
+    for index in np.flatnonzero(window):
+        for side in ("left", "right"):
+            angle = _limb_angle(track, int(index), side, HIP, KNEE, ANKLE)
+            if angle is not None:
+                angles.append(angle)
+    if not angles:
+        return None
+    return round(min(angles), 1)
 
 
 def _above_head(track: PoseTrack, index: int, side: str, scale: float):
