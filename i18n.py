@@ -274,6 +274,27 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "status_analyzing_comment": (
             "⏳ Видео и комментарий получены. Анализирую — это может занять до минуты..."
         ),
+        "pf_checking": "🔍 Проверяю видео…",
+        "pf_video": "📹 Видео: {facts}",
+        "pf_unit_sec": "{n} с",
+        "pf_unit_fps": "{n} кадров/с",
+        "pf_watching": "🧠 Смотрю технику — обычно до минуты…",
+        "pf_tips_header": "Совет к следующей съёмке:",
+        "pf_tip_low_fps": (
+            "• {fps} кадров/с — быстрые движения смазываются. Если телефон умеет, "
+            "снимайте в 60 кадров/с или slow-mo."
+        ),
+        "pf_tip_low_res": (
+            "• Разрешение {resolution} — детали техники видно хуже. "
+            "Снимайте хотя бы в 720p."
+        ),
+        "pf_tip_dark": (
+            "• Видео тёмное — суставы и ракетку видно хуже. "
+            "Снимайте при хорошем свете и не против солнца."
+        ),
+        "pose_scanning": "🎯 Ищу удары по движению и звуку…",
+        "pose_found": "Нашёл ударов: {n}. Контакт: {times} с.",
+        "pose_none": "Отдельные удары не выделил. Дальше разбор по видео.",
         "dialog_ready": "*Кратко по видео*",
         "dialog_section_empty": "_В отчёте нет этой секции._",
         "dialog_title_video": "📹 *Подробнее про видео*",
@@ -951,6 +972,27 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "status_analyzing_comment": (
             "⏳ Video and caption received. Analyzing — this may take up to a minute..."
         ),
+        "pf_checking": "🔍 Checking the video…",
+        "pf_video": "📹 Video: {facts}",
+        "pf_unit_sec": "{n} s",
+        "pf_unit_fps": "{n} fps",
+        "pf_watching": "🧠 Watching your technique — usually under a minute…",
+        "pf_tips_header": "Tip for your next recording:",
+        "pf_tip_low_fps": (
+            "• {fps} fps — fast movements get blurry. If your phone supports it, "
+            "record at 60 fps or in slow-mo."
+        ),
+        "pf_tip_low_res": (
+            "• {resolution} resolution — technique details are harder to see. "
+            "Record at least in 720p."
+        ),
+        "pf_tip_dark": (
+            "• The video is dark — joints and the racket are harder to see. "
+            "Record in good light and not against the sun."
+        ),
+        "pose_scanning": "🎯 Finding strokes from movement and sound…",
+        "pose_found": "Strokes found: {n}. Contact: {times} s.",
+        "pose_none": "No separate strokes stood out. The review will use the video.",
         "dialog_ready": "*Brief take on the video*",
         "dialog_section_empty": "_This section is missing from the report._",
         "dialog_title_video": "📹 *More about the video*",

@@ -33,6 +33,7 @@ import broadcast
 import cabinet
 import drills
 import identity
+import pose_runtime
 import practice
 import review
 import services
@@ -40,6 +41,7 @@ import storage
 import survey
 import trainer
 import video_clip
+import video_preflight
 from analysis_dialog import (
     DIALOG_KEY,
     clear_dialog,
@@ -153,6 +155,7 @@ from video_intake import (
 logger = logging.getLogger(__name__)
 
 MAX_VIDEO_SIZE_MB = 20
+POSE_TIMEOUT_SEC = 120
 SUPPORTED_MIME_TYPES = {
     "video/mp4",
     "video/quicktime",
@@ -2976,6 +2979,12 @@ def _remember_cleanup(user_data: dict, message_id) -> None:
         ids.append(message_id)
 
 
+def _forget_cleanup(user_data: dict, message_id) -> None:
+    ids = user_data.get(_CLEANUP_KEY) or []
+    if message_id in ids:
+        ids.remove(message_id)
+
+
 async def _delete_tracked_messages(
     context: ContextTypes.DEFAULT_TYPE, chat_id: int
 ) -> None:
@@ -3282,6 +3291,9 @@ async def _run_video_analysis(
         suffix = ".webm"
 
     temp_path: Optional[Path] = None
+    progress = None
+    preflight = None
+    pose_task = None
     try:
         telegram_file = await context.bot.get_file(video_file_id)
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
@@ -3304,11 +3316,19 @@ async def _run_video_analysis(
             )
             return
 
+        progress = await _send_progress(context, chat_id, t(lang, "pf_checking"))
+        preflight = await asyncio.to_thread(video_preflight.check_video, temp_path)
+        logger.info("preflight user_id=%s %s", user_id, preflight)
+        await _edit_progress(
+            progress, _progress_body(lang, preflight, t(lang, "pose_scanning"), False)
+        )
+
         stroke = ""
         intake_strokes = None
         if video_context:
             stroke = (video_context.get("stroke") or "") or ""
             intake_strokes = video_context.get("strokes")
+        pose_task = asyncio.create_task(_measure_pose(temp_path, stroke, user_id))
         analysis_ctx = await asyncio.to_thread(
             services.load_analysis_context, user_id, stroke, intake_strokes
         )
@@ -3335,6 +3355,15 @@ async def _run_video_analysis(
         if settings and model_override and model_override == settings.gemini_model_free:
             fallback_model = None
 
+        measured = await pose_task
+        pose_task = None
+        pose_line = pose_runtime.player_line(measured, lang)
+        gemini_context = dict(video_context or {})
+        brief = pose_runtime.prompt_text(measured, language_code)
+        if brief:
+            gemini_context["pose_brief"] = brief
+        await _edit_progress(progress, _progress_body(lang, preflight, pose_line, True))
+
         used_simple = False
         try:
             result = await _analyze_video_once(
@@ -3344,7 +3373,7 @@ async def _run_video_analysis(
                 player_history=player_history,
                 language_code=language_code,
                 player_profile=player_profile,
-                video_context=video_context,
+                video_context=gemini_context,
                 use_model=use_model,
                 active_focus=active_focus,
                 drills_catalog=drills_catalog,
@@ -3382,7 +3411,7 @@ async def _run_video_analysis(
                     player_history=player_history,
                     language_code=language_code,
                     player_profile=player_profile,
-                    video_context=video_context,
+                    video_context=gemini_context,
                     use_model=fallback_model,
                     active_focus=active_focus,
                     drills_catalog=drills_catalog,
@@ -3429,6 +3458,7 @@ async def _run_video_analysis(
                     error=fallback_exc,
                     skip_video=cabinet_video_sent,
                 )
+                await _settle_progress(context, chat_id, progress, preflight, lang)
                 await _edit_or_reply_status(
                     context,
                     chat_id,
@@ -3438,7 +3468,7 @@ async def _run_video_analysis(
                 )
                 return
 
-        prepared = services.prepare_report(result, video_context)
+        prepared = services.prepare_report(result, gemini_context)
         report = prepared.text
         stroke = prepared.stroke or None
         video_seconds = pending.get("duration")
@@ -3477,6 +3507,12 @@ async def _run_video_analysis(
             top_items = sections.get("top3_items") or []
             drill_text = (top_items[0] if top_items else focus_text) or ""
 
+        if progress is not None and preflight is not None and preflight.tips():
+            _forget_cleanup(context.user_data, progress.message_id)
+            await _edit_progress(
+                progress,
+                video_preflight.progress_text(lang, preflight, watching=False),
+            )
         await _delete_tracked_messages(context, chat_id)
         preface = t(lang, "analysis_used_simple_model") if used_simple else None
         if subject_name:
@@ -3559,6 +3595,8 @@ async def _run_video_analysis(
                 )
 
     except Exception as exc:
+        if pose_task is not None:
+            pose_task.cancel()
         # Сбой без успешного AI (в т.ч. primary без fallback) — видео всё равно в кабинет.
         logger.exception("Ошибка анализа видео для user_id=%s", user_id)
         report_failure(exc)
@@ -3595,6 +3633,7 @@ async def _run_video_analysis(
                     f"Ошибка анализа user_id={user_id}: "
                     f"{type(exc).__name__}: {exc}"[:500],
                 )
+        await _settle_progress(context, chat_id, progress, preflight, lang)
         await _edit_or_reply_status(
             context,
             chat_id,
@@ -3610,6 +3649,80 @@ async def _run_video_analysis(
     finally:
         if temp_path and temp_path.exists():
             temp_path.unlink(missing_ok=True)
+
+
+def _progress_body(lang: str, preflight, extra: Optional[str], watching: bool) -> str:
+    parts = []
+    base = video_preflight.progress_text(lang, preflight, watching=False)
+    if base:
+        parts.append(base)
+    if extra:
+        if parts:
+            parts.append("")
+        parts.append(extra)
+    if watching:
+        if parts:
+            parts.append("")
+        parts.append(t(lang, "pf_watching"))
+    return "\n".join(parts)
+
+
+async def _measure_pose(path: Path, stroke: str, user_id: int) -> dict:
+    try:
+        measured = await asyncio.wait_for(
+            asyncio.to_thread(pose_runtime.measure, path, stroke),
+            timeout=POSE_TIMEOUT_SEC,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("pose: таймаут user_id=%s", user_id)
+        return {"contacts": [], "error": "timeout"}
+    logger.info(
+        "pose user_id=%s contacts=%s error=%s",
+        user_id,
+        [item.get("t") for item in measured.get("contacts") or []],
+        measured.get("error"),
+    )
+    return measured
+
+
+async def _send_progress(context: ContextTypes.DEFAULT_TYPE, chat_id: int, text: str):
+    """Отдельное сообщение этапов: сообщение с reply-клавиатурой Telegram не правит."""
+    try:
+        sent = await context.bot.send_message(chat_id=chat_id, text=text)
+    except Exception:
+        logger.warning("Не удалось отправить статус этапов chat_id=%s", chat_id)
+        return None
+    _remember_cleanup(context.user_data, getattr(sent, "message_id", None))
+    return sent
+
+
+async def _edit_progress(progress, text: str) -> None:
+    if progress is None or not text:
+        return
+    try:
+        await progress.edit_text(text)
+    except Exception:
+        logger.warning("Не удалось обновить статус этапов", exc_info=True)
+
+
+async def _settle_progress(
+    context: ContextTypes.DEFAULT_TYPE, chat_id: int, progress, preflight, lang: str
+) -> None:
+    """После сбоя: факты о видео без «смотрю технику», а без фактов — убрать."""
+    if progress is None:
+        return
+    if preflight is not None:
+        await _edit_progress(
+            progress, video_preflight.progress_text(lang, preflight, watching=False)
+        )
+        return
+    _forget_cleanup(context.user_data, progress.message_id)
+    try:
+        await context.bot.delete_message(
+            chat_id=chat_id, message_id=progress.message_id
+        )
+    except Exception:
+        logger.warning("Не удалось удалить статус этапов", exc_info=True)
 
 
 async def _edit_or_reply_status(

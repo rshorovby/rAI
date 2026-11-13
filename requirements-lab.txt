@@ -1,0 +1,3 @@
+-r requirements-dev.txt
+mediapipe==1.2.3
+numpy==2.0.2

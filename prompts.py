@@ -1165,6 +1165,10 @@ def build_analysis_prompt(
     if ctx:
         parts.append(ctx)
 
+    brief = ((video_context or {}).get("pose_brief") or "").strip()
+    if brief:
+        parts.append(brief)
+
     if user_comment and user_comment.strip():
         comment_label = (
             "Player comment on the video (consider in the analysis)"
