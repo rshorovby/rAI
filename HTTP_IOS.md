@@ -26,6 +26,8 @@
 | GET | `/v1/jobs` | `?open=1` — `queued` / `in_review` / `ai_sent`. Иначе `ai_sent` / `sent_coach` / `sent_fallback`. |
 | GET | `/v1/jobs/{id}` | Заявка + `markdown` / `scores` / `focus` / `drills` / `stroke` / `summary` / `next_video` / `findings` (≤3: `problem`, `recommendation`, `detail`, `practice`, `drill_ids`, `drills`) / `elaborations` (`lane`, `key`, `text`). |
 | POST | `/v1/jobs/{id}/elaborations` | Углубление пункта. Тело: `lane` (`observation` / `priority`), `key` (текст карточки, подстрока markdown этой заявки). `text` — JSON `why`, `ideal`, `steps[{title,detail}]`. Уже валидный JSON отдаётся без модели. Сплошной старый текст заменяется новым ответом. |
+| GET | `/v1/jobs/{id}/messages` | Лента уточнений по заявке, последние 10 пар `{role, text}` (`user` / `assistant`). Нет отчёта или чужая заявка — `404`. |
+| POST | `/v1/jobs/{id}/messages` | Новый вопрос. Тело: `text` (1…2000 после trim), `language_code` (`ru` / `en`). Ответ — всё окно. `400` пустой или длинный текст, плохой язык. `409`, если ход по этой заявке уже считается. `502` — модель не ответила, в ленту ничего не пишется. |
 | GET | `/v1/dossier` | Прогресс и изученность игрока и 6 сегментов: pending / committed (`progress_*`, `familiarity_*`, `coverage_*` = алиас изученности), `ntrp`, `job_count_*`, `progress_mean_*`, `focus`, `focus_status` (`supervision` / `agreed`), слоты (внутренние), `next_to_film`, `goals_unlocked`. Канон формул на сервере. |
 | GET | `/v1/progress` | Ряды scores, как `/progress`. |
 | POST | `/v1/device-tokens` | Тело: `token`. APNs. |

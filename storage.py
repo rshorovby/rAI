@@ -308,6 +308,16 @@ def _init_db(conn: sqlite3.Connection) -> None:
             PRIMARY KEY (job_id, lane, item_key)
         );
 
+        CREATE TABLE IF NOT EXISTS job_messages (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id     INTEGER NOT NULL,
+            role       TEXT    NOT NULL,
+            body       TEXT    NOT NULL,
+            created_at TEXT    NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_job_messages_job
+            ON job_messages (job_id, id);
+
         CREATE TABLE IF NOT EXISTS coverage_contributions (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             player_id   INTEGER NOT NULL,
@@ -3291,6 +3301,72 @@ def save_job_elaboration(job_id: int, lane: str, item_key: str, body: str) -> st
         ).fetchone()
         conn.commit()
     return str(row["body"]) if row else body
+
+
+JOB_CHAT_TURNS = 10
+
+
+def list_job_messages(job_id: int) -> list:
+    with _connect() as conn:
+        _init_db(conn)
+        rows = conn.execute(
+            """
+            SELECT role, body FROM job_messages
+            WHERE job_id = ?
+            ORDER BY id ASC
+            """,
+            (int(job_id),),
+        ).fetchall()
+    return [{"role": row["role"], "text": row["body"]} for row in rows]
+
+
+def job_chat_history(job_id: int) -> list:
+    """Пары для `analyzer.chat`: последние десять ходов."""
+    pairs = []
+    user = None
+    for item in list_job_messages(job_id):
+        if item["role"] == "user":
+            user = item["text"]
+        elif item["role"] == "assistant" and user is not None:
+            pairs.append({"user": user, "assistant": item["text"]})
+            user = None
+    return pairs[-JOB_CHAT_TURNS:]
+
+
+def append_job_chat_turn(job_id: int, user_text: str, assistant_text: str) -> list:
+    created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    keep = JOB_CHAT_TURNS * 2
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            """
+            INSERT INTO job_messages (job_id, role, body, created_at)
+            VALUES (?, 'user', ?, ?)
+            """,
+            (int(job_id), user_text, created_at),
+        )
+        conn.execute(
+            """
+            INSERT INTO job_messages (job_id, role, body, created_at)
+            VALUES (?, 'assistant', ?, ?)
+            """,
+            (int(job_id), assistant_text, created_at),
+        )
+        conn.execute(
+            """
+            DELETE FROM job_messages
+            WHERE job_id = ?
+              AND id NOT IN (
+                SELECT id FROM job_messages
+                WHERE job_id = ?
+                ORDER BY id DESC
+                LIMIT ?
+              )
+            """,
+            (int(job_id), int(job_id), keep),
+        )
+        conn.commit()
+    return list_job_messages(job_id)
 
 
 def list_job_elaborations(job_id: int) -> list:

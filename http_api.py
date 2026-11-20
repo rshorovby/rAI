@@ -76,6 +76,25 @@ class AuthError(Exception):
     pass
 
 
+class JobChatGate:
+    """Один ход Gemini на заявку. Проверка и захват без await, поэтому на event loop это атомарно."""
+
+    def __init__(self) -> None:
+        self._busy: set[int] = set()
+
+    def try_enter(self, job_id: int) -> bool:
+        if job_id in self._busy:
+            return False
+        self._busy.add(job_id)
+        return True
+
+    def leave(self, job_id: int) -> None:
+        self._busy.discard(job_id)
+
+
+_CHAT_TEXT_LIMIT = 2000
+
+
 def _bearer_player(request: Request) -> int:
     header = request.headers.get("authorization") or ""
     if not header.lower().startswith("bearer "):
@@ -235,6 +254,8 @@ def create_app(
     enqueue_ios_job: Optional[Callable] = None,
     after_ios_job: Optional[Callable] = None,
     elaborate: Optional[Callable] = None,
+    chat: Optional[Callable] = None,
+    chat_gate: Optional[JobChatGate] = None,
 ) -> Starlette:
     if verify_apple is None:
         from apple_auth import verify_apple_identity_token
@@ -550,6 +571,85 @@ def create_app(
         stored = storage.save_job_elaboration(job_id, lane, key, text)
         return JSONResponse({"text": stored})
 
+    gate = chat_gate or JobChatGate()
+
+    def _job_for_player(request: Request, player_id: int):
+        job_id = int(request.path_params["job_id"])
+        job = storage.get_review_job(job_id)
+        if not job or int(job["user_id"]) != player_id:
+            return None
+        return job
+
+    async def list_job_messages(request: Request) -> Response:
+        try:
+            player_id = _bearer_player(request)
+        except AuthError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=401)
+        job = _job_for_player(request, player_id)
+        if not job:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        report = (job.get("final_text") or "").strip() or (
+            job.get("draft_text") or ""
+        ).strip()
+        if not report:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return JSONResponse({"messages": storage.list_job_messages(int(job["id"]))})
+
+    async def post_job_message(request: Request) -> Response:
+        try:
+            player_id = _bearer_player(request)
+        except AuthError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=401)
+        job = _job_for_player(request, player_id)
+        if not job:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"error": "json required"}, status_code=400)
+        if not isinstance(body, dict):
+            return JSONResponse({"error": "json required"}, status_code=400)
+        raw = body.get("text")
+        if not isinstance(raw, str):
+            return JSONResponse({"error": "text required"}, status_code=400)
+        text = raw.strip()
+        if not text or len(text) > _CHAT_TEXT_LIMIT:
+            return JSONResponse({"error": "text required"}, status_code=400)
+        language = (body.get("language_code") or "").strip().lower()
+        if language not in ("ru", "en"):
+            return JSONResponse({"error": "language_code required"}, status_code=400)
+        report = (job.get("final_text") or "").strip() or (
+            job.get("draft_text") or ""
+        ).strip()
+        if not report:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        job_id = int(job["id"])
+        if not gate.try_enter(job_id):
+            return JSONResponse({"error": "busy"}, status_code=409)
+        try:
+            history = storage.job_chat_history(job_id)
+            runner = chat or services.answer_job_followup
+            try:
+                reply = await asyncio.to_thread(
+                    runner,
+                    player_id,
+                    report,
+                    history,
+                    text,
+                    language,
+                    job.get("stroke") or "",
+                )
+            except Exception:
+                logger.exception("job chat failed job=%s", job_id)
+                return JSONResponse({"error": "chat failed"}, status_code=502)
+            reply = (reply or "").strip()
+            if not reply:
+                return JSONResponse({"error": "chat failed"}, status_code=502)
+            messages = storage.append_job_chat_turn(job_id, text, reply)
+            return JSONResponse({"messages": messages})
+        finally:
+            gate.leave(job_id)
+
     routes = [
         Route("/v1/auth/apple", auth_apple, methods=["POST"]),
         Route("/v1/auth/guest", auth_guest, methods=["POST"]),
@@ -565,6 +665,8 @@ def create_app(
         Route("/v1/jobs", list_jobs, methods=["GET"]),
         Route("/v1/jobs/{job_id:int}", get_job, methods=["GET"]),
         Route("/v1/jobs/{job_id:int}/elaborations", elaborate_job, methods=["POST"]),
+        Route("/v1/jobs/{job_id:int}/messages", list_job_messages, methods=["GET"]),
+        Route("/v1/jobs/{job_id:int}/messages", post_job_message, methods=["POST"]),
         Route("/v1/dossier", dossier, methods=["GET"]),
         Route("/v1/progress", progress, methods=["GET"]),
         Route("/v1/device-tokens", device_tokens, methods=["POST"]),

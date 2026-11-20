@@ -842,3 +842,61 @@ def elaborate_report(
             cost_for_usage(result.usage, result.model),
         )
     return result.text
+
+
+def answer_job_followup(
+    player_id,
+    report: str,
+    history: list,
+    user_text: str,
+    language_code: str,
+    stroke: str,
+    analyzer=None,
+) -> str:
+    """Follow-up по одному разбору. Всегда scoped, без кабинета и без заметок игрока."""
+    from config import load_settings
+    from i18n import resolve_ui_lang, t
+    from pricing import cost_for_usage
+    from prompts import follow_up_player_text
+
+    settings = load_settings()
+    if analyzer is None:
+        analyzer = VideoAnalyzer(settings.gemini_api_key, settings.gemini_model)
+    ctx = load_analysis_context(player_id, stroke or None) if player_id else {}
+    ctx = dict(ctx or {})
+    ctx["omit_chat_notes"] = True
+    use_model = (
+        settings.model_for(billing.is_pro(player_id))
+        if player_id
+        else settings.gemini_model
+    )
+    result = analyzer.chat(
+        report,
+        history,
+        user_text,
+        ctx.get("history") or [],
+        language_code or "ru",
+        ctx.get("profile"),
+        stroke or None,
+        use_model,
+        ctx.get("corrections") or [],
+        ctx or None,
+        scoped=True,
+    )
+    reply = follow_up_player_text(
+        result.text, t(resolve_ui_lang(language_code), "followup_out_of_scope")
+    ).strip()
+    if not reply:
+        raise RuntimeError("empty follow-up")
+    if player_id:
+        storage.log_usage(
+            player_id,
+            "chat",
+            result.model,
+            result.usage.input_tokens,
+            result.usage.output_tokens,
+            result.usage.thinking_tokens,
+            None,
+            cost_for_usage(result.usage, result.model),
+        )
+    return reply
