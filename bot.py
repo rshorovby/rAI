@@ -967,6 +967,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         ),
         user=user,
     )
+    if acquisition.is_ios_waitlist(clicked):
+        ack_lang = "en" if clicked == "web_ios_en" else lang
+        await update.message.reply_text(
+            t(ack_lang, "ios_waitlist_ack"),
+            parse_mode=ParseMode.MARKDOWN,
+        )
+
     if not has_record:
         await _begin_onboarding(context, player_id, is_new_user=True)
         await _send_onboarding_question(

@@ -182,6 +182,12 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "нужна для пустого Telegram."
         ),
         "link_ok": "Telegram привязан к приложению.",
+        "ios_waitlist_ack": (
+            "📱 *Записали вас в ранний доступ к приложению для iPhone.*\n\n"
+            "Напишем сюда, как только откроем доступ. А пока можно разбирать "
+            "удары прямо в этом боте — вся история потом перенесётся в приложение "
+            "через /link."
+        ),
         "btn_upgrade_pro": "⭐ Открыть Pro",
         "paywall_text": (
             "🔒 *Лимит разборов исчерпан*\n\n"
@@ -881,6 +887,12 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "link an empty Telegram account."
         ),
         "link_ok": "Telegram is linked to the app.",
+        "ios_waitlist_ack": (
+            "📱 *You're on the early-access list for the iPhone app.*\n\n"
+            "We'll message you here as soon as it opens. In the meantime, you can "
+            "send clips right in this bot — your full history will transfer to the "
+            "app via /link."
+        ),
         "btn_upgrade_pro": "⭐ Unlock Pro",
         "paywall_text": (
             "🔒 *Analysis limit reached*\n\n"
