@@ -12,9 +12,10 @@ from typing import Callable, Optional
 
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import FileResponse, JSONResponse, Response
 from starlette.routing import Route
 
+import coach_media
 import drills
 import services
 import storage
@@ -143,6 +144,7 @@ def _job_json(job: dict) -> dict:
         row = dict(item)
         row["drills"] = drills.cards_for_ids(row.get("drill_ids"), lang)
         findings.append(row)
+    coach_summary = storage.job_coach_summary(job["id"])
     return {
         "id": job["id"],
         "status": job["status"],
@@ -158,6 +160,8 @@ def _job_json(job: dict) -> dict:
         "next_video": parsed.get("next_video") or "",
         "coverage": services.job_coverage_payload(job["id"]),
         "elaborations": storage.list_job_elaborations(job["id"]),
+        "coach_messages_count": coach_summary["count"],
+        "last_coach_message_id": coach_summary["last_id"],
     }
 
 
@@ -256,6 +260,7 @@ def create_app(
     elaborate: Optional[Callable] = None,
     chat: Optional[Callable] = None,
     chat_gate: Optional[JobChatGate] = None,
+    forward_to_coach: Optional[Callable] = None,
 ) -> Starlette:
     if verify_apple is None:
         from apple_auth import verify_apple_identity_token
@@ -618,12 +623,29 @@ def create_app(
         language = (body.get("language_code") or "").strip().lower()
         if language not in ("ru", "en"):
             return JSONResponse({"error": "language_code required"}, status_code=400)
+        target = (body.get("target") or "ai").strip().lower()
+        if target not in ("ai", "coach"):
+            return JSONResponse({"error": "invalid target"}, status_code=400)
         report = (job.get("final_text") or "").strip() or (
             job.get("draft_text") or ""
         ).strip()
         if not report:
             return JSONResponse({"error": "not found"}, status_code=404)
         job_id = int(job["id"])
+        if target == "coach":
+            if forward_to_coach is None:
+                return JSONResponse({"error": "coach unavailable"}, status_code=503)
+            try:
+                tg_msg_id = await forward_to_coach(player_id, job_id, text)
+            except Exception:
+                logger.exception("forward to coach failed job=%s", job_id)
+                return JSONResponse({"error": "coach delivery failed"}, status_code=502)
+            messages = storage.append_player_coach_message(
+                job_id,
+                text,
+                telegram_message_id=tg_msg_id if isinstance(tg_msg_id, int) else None,
+            )
+            return JSONResponse({"messages": messages})
         if not gate.try_enter(job_id):
             return JSONResponse({"error": "busy"}, status_code=409)
         try:
@@ -650,6 +672,26 @@ def create_app(
         finally:
             gate.leave(job_id)
 
+    async def get_job_media(request: Request) -> Response:
+        try:
+            player_id = _bearer_player(request)
+        except AuthError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=401)
+        job = _job_for_player(request, player_id)
+        if not job:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        message_id = int(request.path_params["message_id"])
+        msg = storage.get_job_message(int(job["id"]), message_id)
+        if not msg or (msg.get("kind") or "") != "voice":
+            return JSONResponse({"error": "not found"}, status_code=404)
+        file_path = coach_media.resolve_media_path(msg.get("media_path") or "")
+        if file_path is None:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return FileResponse(
+            str(file_path),
+            media_type=msg.get("media_mime") or "audio/mp4",
+        )
+
     routes = [
         Route("/v1/auth/apple", auth_apple, methods=["POST"]),
         Route("/v1/auth/guest", auth_guest, methods=["POST"]),
@@ -667,6 +709,11 @@ def create_app(
         Route("/v1/jobs/{job_id:int}/elaborations", elaborate_job, methods=["POST"]),
         Route("/v1/jobs/{job_id:int}/messages", list_job_messages, methods=["GET"]),
         Route("/v1/jobs/{job_id:int}/messages", post_job_message, methods=["POST"]),
+        Route(
+            "/v1/jobs/{job_id:int}/media/{message_id:int}",
+            get_job_media,
+            methods=["GET"],
+        ),
         Route("/v1/dossier", dossier, methods=["GET"]),
         Route("/v1/progress", progress, methods=["GET"]),
         Route("/v1/device-tokens", device_tokens, methods=["POST"]),

@@ -309,14 +309,30 @@ def _init_db(conn: sqlite3.Connection) -> None:
         );
 
         CREATE TABLE IF NOT EXISTS job_messages (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            job_id     INTEGER NOT NULL,
-            role       TEXT    NOT NULL,
-            body       TEXT    NOT NULL,
-            created_at TEXT    NOT NULL
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id              INTEGER NOT NULL,
+            role                TEXT    NOT NULL,
+            body                TEXT    NOT NULL,
+            created_at          TEXT    NOT NULL,
+            target              TEXT    NOT NULL DEFAULT 'ai',
+            kind                TEXT    NOT NULL DEFAULT 'text',
+            media_path          TEXT    NOT NULL DEFAULT '',
+            media_mime          TEXT    NOT NULL DEFAULT '',
+            duration_sec        INTEGER NOT NULL DEFAULT 0,
+            waveform_json       TEXT    NOT NULL DEFAULT '',
+            telegram_message_id INTEGER
         );
         CREATE INDEX IF NOT EXISTS idx_job_messages_job
             ON job_messages (job_id, id);
+
+        CREATE TABLE IF NOT EXISTS forum_job_messages (
+            forum_chat_id INTEGER NOT NULL,
+            message_id    INTEGER NOT NULL,
+            job_id        INTEGER NOT NULL,
+            PRIMARY KEY (forum_chat_id, message_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_forum_job_messages_job
+            ON forum_job_messages (job_id);
 
         CREATE TABLE IF NOT EXISTS coverage_contributions (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -404,6 +420,13 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         ("players", "acquisition_source", "TEXT"),
         ("drills", "url", "TEXT NOT NULL DEFAULT ''"),
         ("users", "preferred_language", "TEXT"),
+        ("job_messages", "target", "TEXT NOT NULL DEFAULT 'ai'"),
+        ("job_messages", "kind", "TEXT NOT NULL DEFAULT 'text'"),
+        ("job_messages", "media_path", "TEXT NOT NULL DEFAULT ''"),
+        ("job_messages", "media_mime", "TEXT NOT NULL DEFAULT ''"),
+        ("job_messages", "duration_sec", "INTEGER NOT NULL DEFAULT 0"),
+        ("job_messages", "waveform_json", "TEXT NOT NULL DEFAULT ''"),
+        ("job_messages", "telegram_message_id", "INTEGER"),
     )
     for table, column, typedef in migrations:
         tables = {
@@ -998,9 +1021,25 @@ def delete_api_session(token: str) -> None:
 
 
 def delete_player_account(player_id: int) -> None:
+    import shutil
+
     pid = int(player_id)
     with _connect() as conn:
         _init_db(conn)
+        conn.execute(
+            """
+            DELETE FROM job_messages
+            WHERE job_id IN (SELECT id FROM review_jobs WHERE user_id = ?)
+            """,
+            (pid,),
+        )
+        conn.execute(
+            """
+            DELETE FROM forum_job_messages
+            WHERE job_id IN (SELECT id FROM review_jobs WHERE user_id = ?)
+            """,
+            (pid,),
+        )
         conn.execute("DELETE FROM api_sessions WHERE player_id = ?", (pid,))
         conn.execute("DELETE FROM link_codes WHERE player_id = ?", (pid,))
         conn.execute("DELETE FROM device_tokens WHERE player_id = ?", (pid,))
@@ -1008,6 +1047,9 @@ def delete_player_account(player_id: int) -> None:
         conn.execute("DELETE FROM coverage_contributions WHERE player_id = ?", (pid,))
         conn.execute("DELETE FROM players WHERE id = ?", (pid,))
         conn.commit()
+    media_dir = DB_PATH.parent / "coach_media" / str(pid)
+    if media_dir.is_dir():
+        shutil.rmtree(media_dir, ignore_errors=True)
 
 
 def create_link_code(player_id: int, direction: str, ttl_seconds: int = 600) -> str:
@@ -3306,25 +3348,71 @@ def save_job_elaboration(job_id: int, lane: str, item_key: str, body: str) -> st
 JOB_CHAT_TURNS = 10
 
 
+def _serialize_job_message(row) -> dict:
+    role = row["role"]
+    target = (row["target"] or "").strip() or ("coach" if role == "coach" else "ai")
+    kind = (row["kind"] or "").strip() or "text"
+    item = {
+        "id": int(row["id"]),
+        "role": role,
+        "target": target,
+        "kind": kind,
+        "text": row["body"] or "",
+        "created_at": row["created_at"] or "",
+    }
+    if kind == "voice" and (row["media_path"] or ""):
+        waveform = []
+        raw_wf = row["waveform_json"] or ""
+        if raw_wf:
+            try:
+                parsed = json.loads(raw_wf)
+                if isinstance(parsed, list):
+                    waveform = [round(float(x), 3) for x in parsed]
+            except (ValueError, TypeError):
+                waveform = []
+        item["audio"] = {
+            "duration_sec": int(row["duration_sec"] or 0),
+            "waveform": waveform,
+        }
+    return item
+
+
 def list_job_messages(job_id: int) -> list:
     with _connect() as conn:
         _init_db(conn)
         rows = conn.execute(
             """
-            SELECT role, body FROM job_messages
+            SELECT id, role, body, created_at, target, kind,
+                   media_path, media_mime, duration_sec, waveform_json
+            FROM job_messages
             WHERE job_id = ?
             ORDER BY id ASC
             """,
             (int(job_id),),
         ).fetchall()
-    return [{"role": row["role"], "text": row["body"]} for row in rows]
+    return [_serialize_job_message(row) for row in rows]
+
+
+def get_job_message(job_id: int, message_id: int) -> Optional[dict]:
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            """
+            SELECT * FROM job_messages
+            WHERE job_id = ? AND id = ?
+            """,
+            (int(job_id), int(message_id)),
+        ).fetchone()
+    return dict(row) if row else None
 
 
 def job_chat_history(job_id: int) -> list:
-    """Пары для `analyzer.chat`: последние десять ходов."""
+    """Пары для `analyzer.chat`: последние десять AI-ходов (сообщения тренера не входят)."""
     pairs = []
     user = None
     for item in list_job_messages(job_id):
+        if item.get("target") != "ai":
+            continue
         if item["role"] == "user":
             user = item["text"]
         elif item["role"] == "assistant" and user is not None:
@@ -3340,15 +3428,15 @@ def append_job_chat_turn(job_id: int, user_text: str, assistant_text: str) -> li
         _init_db(conn)
         conn.execute(
             """
-            INSERT INTO job_messages (job_id, role, body, created_at)
-            VALUES (?, 'user', ?, ?)
+            INSERT INTO job_messages (job_id, role, body, created_at, target, kind)
+            VALUES (?, 'user', ?, ?, 'ai', 'text')
             """,
             (int(job_id), user_text, created_at),
         )
         conn.execute(
             """
-            INSERT INTO job_messages (job_id, role, body, created_at)
-            VALUES (?, 'assistant', ?, ?)
+            INSERT INTO job_messages (job_id, role, body, created_at, target, kind)
+            VALUES (?, 'assistant', ?, ?, 'ai', 'text')
             """,
             (int(job_id), assistant_text, created_at),
         )
@@ -3356,9 +3444,13 @@ def append_job_chat_turn(job_id: int, user_text: str, assistant_text: str) -> li
             """
             DELETE FROM job_messages
             WHERE job_id = ?
+              AND target = 'ai'
+              AND role IN ('user', 'assistant')
               AND id NOT IN (
                 SELECT id FROM job_messages
                 WHERE job_id = ?
+                  AND target = 'ai'
+                  AND role IN ('user', 'assistant')
                 ORDER BY id DESC
                 LIMIT ?
               )
@@ -3367,6 +3459,130 @@ def append_job_chat_turn(job_id: int, user_text: str, assistant_text: str) -> li
         )
         conn.commit()
     return list_job_messages(job_id)
+
+
+def append_coach_message(
+    job_id: int,
+    *,
+    kind: str = "text",
+    text: str = "",
+    media_path: str = "",
+    media_mime: str = "",
+    duration_sec: int = 0,
+    waveform: Optional[list] = None,
+    telegram_message_id: Optional[int] = None,
+) -> int:
+    created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    wf_json = json.dumps(waveform) if waveform else ""
+    with _connect() as conn:
+        _init_db(conn)
+        if telegram_message_id is not None:
+            existing = conn.execute(
+                """
+                SELECT id FROM job_messages
+                WHERE job_id = ? AND role = 'coach' AND telegram_message_id = ?
+                """,
+                (int(job_id), int(telegram_message_id)),
+            ).fetchone()
+            if existing:
+                return int(existing["id"])
+        cur = conn.execute(
+            """
+            INSERT INTO job_messages (
+                job_id, role, body, created_at, target, kind,
+                media_path, media_mime, duration_sec, waveform_json,
+                telegram_message_id
+            )
+            VALUES (?, 'coach', ?, ?, 'coach', ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                int(job_id),
+                text or "",
+                created_at,
+                kind or "text",
+                media_path or "",
+                media_mime or "",
+                int(duration_sec or 0),
+                wf_json,
+                int(telegram_message_id) if telegram_message_id is not None else None,
+            ),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+
+
+def append_player_coach_message(
+    job_id: int,
+    text: str,
+    *,
+    telegram_message_id: Optional[int] = None,
+) -> list:
+    created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            """
+            INSERT INTO job_messages (
+                job_id, role, body, created_at, target, kind, telegram_message_id
+            )
+            VALUES (?, 'user', ?, ?, 'coach', 'text', ?)
+            """,
+            (
+                int(job_id),
+                text,
+                created_at,
+                int(telegram_message_id) if telegram_message_id is not None else None,
+            ),
+        )
+        conn.commit()
+    return list_job_messages(job_id)
+
+
+def job_coach_summary(job_id: int) -> dict:
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS cnt, MAX(id) AS last_id
+            FROM job_messages
+            WHERE job_id = ? AND role = 'coach'
+            """,
+            (int(job_id),),
+        ).fetchone()
+    if not row:
+        return {"count": 0, "last_id": None}
+    return {
+        "count": int(row["cnt"] or 0),
+        "last_id": int(row["last_id"]) if row["last_id"] is not None else None,
+    }
+
+
+def save_forum_job_message(forum_chat_id: int, message_id: int, job_id: int) -> None:
+    with _connect() as conn:
+        _init_db(conn)
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO forum_job_messages (forum_chat_id, message_id, job_id)
+            VALUES (?, ?, ?)
+            """,
+            (int(forum_chat_id), int(message_id), int(job_id)),
+        )
+        conn.commit()
+
+
+def get_job_id_by_forum_message(
+    forum_chat_id: int, message_id: int
+) -> Optional[int]:
+    with _connect() as conn:
+        _init_db(conn)
+        row = conn.execute(
+            """
+            SELECT job_id FROM forum_job_messages
+            WHERE forum_chat_id = ? AND message_id = ?
+            """,
+            (int(forum_chat_id), int(message_id)),
+        ).fetchone()
+    return int(row["job_id"]) if row else None
 
 
 def list_job_elaborations(job_id: int) -> list:

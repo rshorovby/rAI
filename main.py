@@ -2,7 +2,11 @@ import asyncio
 import logging
 import os
 
-from bot import build_application, post_ios_review_to_forum
+from bot import (
+    build_application,
+    forward_ios_message_to_coach,
+    post_ios_review_to_forum,
+)
 from config import load_settings
 from error_reporting import init_sentry
 
@@ -39,11 +43,15 @@ async def _run_bot_and_http(application, port_raw: str) -> None:
     async def after_ios_job(job_id, player_id, path):
         await post_ios_review_to_forum(application, job_id, player_id, path)
 
+    async def forward_to_coach(player_id, job_id, text):
+        return await forward_ios_message_to_coach(application, player_id, job_id, text)
+
     host = os.getenv("HTTP_HOST", "127.0.0.1").strip() or "127.0.0.1"
     port = int(port_raw)
     http_app = create_app(
         enqueue_ios_job=enqueue_ios_job_live,
         after_ios_job=after_ios_job,
+        forward_to_coach=forward_to_coach,
     )
     await application.initialize()
     await application.start()

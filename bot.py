@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 import tempfile
 from pathlib import Path
 from typing import Callable, Optional
@@ -31,6 +32,7 @@ import acquisition
 import billing
 import broadcast
 import cabinet
+import coach_media
 import drills
 import identity
 import pose_runtime
@@ -2526,18 +2528,42 @@ async def _ensure_player_forum_topic(
     return await cabinet.ensure_player_topic(context.bot, forum_chat_id, user_id)
 
 
+async def _remember_forum_job_message(
+    forum_chat_id: int, sent_message, job_id: Optional[int]
+) -> None:
+    if not job_id:
+        return
+    msg_id = getattr(sent_message, "message_id", None)
+    if not isinstance(msg_id, int):
+        return
+    try:
+        await asyncio.to_thread(
+            storage.save_forum_job_message, int(forum_chat_id), msg_id, int(job_id)
+        )
+    except Exception:
+        logger.warning(
+            "save_forum_job_message failed job_id=%s msg_id=%s", job_id, msg_id
+        )
+
+
 async def _send_forum_video(
-    bot, forum_chat_id: int, thread_id: int, file_id: str
+    bot,
+    forum_chat_id: int,
+    thread_id: int,
+    file_id: str,
+    *,
+    job_id: Optional[int] = None,
 ) -> bool:
     if file_id.startswith("ios:"):
         path = file_id[4:]
         try:
             with open(path, "rb") as handle:
-                await bot.send_video(
+                sent = await bot.send_video(
                     chat_id=forum_chat_id,
                     message_thread_id=thread_id,
                     video=handle,
                 )
+            await _remember_forum_job_message(forum_chat_id, sent, job_id)
             return True
         except OSError:
             logger.exception("ios video file missing path=%s", path)
@@ -2545,20 +2571,22 @@ async def _send_forum_video(
             logger.exception("send_video ios file to forum failed")
         return False
     try:
-        await bot.send_video(
+        sent = await bot.send_video(
             chat_id=forum_chat_id,
             message_thread_id=thread_id,
             video=file_id,
         )
+        await _remember_forum_job_message(forum_chat_id, sent, job_id)
         return True
     except BadRequest:
         logger.exception("send_video to forum failed, trying video_note")
     try:
-        await bot.send_video_note(
+        sent = await bot.send_video_note(
             chat_id=forum_chat_id,
             message_thread_id=thread_id,
             video_note=file_id,
         )
+        await _remember_forum_job_message(forum_chat_id, sent, job_id)
         return True
     except BadRequest:
         logger.exception("send_video_note to forum failed")
@@ -2657,14 +2685,14 @@ async def _review_video_path(bot, file_id: str, video_mime: str):
 
 async def _send_forum_html(bot, chat_id: int, thread_id: int, text: str):
     try:
-        await bot.send_message(
+        return await bot.send_message(
             chat_id=chat_id,
             message_thread_id=thread_id,
             text=cabinet_draft_to_html(text),
             parse_mode=ParseMode.HTML,
         )
     except BadRequest:
-        await bot.send_message(
+        return await bot.send_message(
             chat_id=chat_id,
             message_thread_id=thread_id,
             text=text,
@@ -2678,6 +2706,8 @@ async def _send_slowmo_caption(
     clip: Path,
     text: str,
     window: tuple,
+    *,
+    job_id: Optional[int] = None,
 ) -> bool:
     """True, если текст ушёл подписью к клипу и отдельно его слать не нужно."""
     html_text = cabinet_draft_to_html(text)
@@ -2685,7 +2715,7 @@ async def _send_slowmo_caption(
     caption = html_text if fits else _slowmo_caption(window)
     try:
         with clip.open("rb") as handle:
-            await bot.send_video(
+            sent = await bot.send_video(
                 chat_id=chat_id,
                 message_thread_id=thread_id,
                 video=handle,
@@ -2693,18 +2723,20 @@ async def _send_slowmo_caption(
                 parse_mode=ParseMode.HTML if fits else None,
                 supports_streaming=True,
             )
+        await _remember_forum_job_message(chat_id, sent, job_id)
     except BadRequest:
         if not fits:
             return False
         try:
             with clip.open("rb") as handle:
-                await bot.send_video(
+                sent = await bot.send_video(
                     chat_id=chat_id,
                     message_thread_id=thread_id,
                     video=handle,
                     caption=text,
                     supports_streaming=True,
                 )
+            await _remember_forum_job_message(chat_id, sent, job_id)
         except BadRequest:
             logger.warning("slowmo caption failed chat_id=%s", chat_id, exc_info=True)
             return False
@@ -2719,6 +2751,7 @@ async def _send_cabinet_draft_parts(
     *,
     video_file_id: str,
     video_mime: str,
+    job_id: Optional[int] = None,
 ) -> None:
     if not parts:
         return
@@ -2739,11 +2772,12 @@ async def _send_cabinet_draft_parts(
                 if clip is not None:
                     clips.append(clip)
                     if await _send_slowmo_caption(
-                        bot, chat_id, thread_id, clip, part["text"], window
+                        bot, chat_id, thread_id, clip, part["text"], window, job_id=job_id
                     ):
                         continue
             for chunk in _split_message(part["text"]):
-                await _send_forum_html(bot, chat_id, thread_id, chunk)
+                sent = await _send_forum_html(bot, chat_id, thread_id, chunk)
+                await _remember_forum_job_message(chat_id, sent, job_id)
     finally:
         for path in clips:
             path.unlink(missing_ok=True)
@@ -2825,17 +2859,19 @@ async def _post_review_job_to_forum(
             f"Упражнение: {job.get('drill_text') or '—'}"
         )
     try:
-        await context.bot.send_message(
+        sent_header = await context.bot.send_message(
             chat_id=forum_chat_id,
             message_thread_id=thread_id,
             text=header,
         )
+        await _remember_forum_job_message(forum_chat_id, sent_header, job_id)
         if not skip_video:
             await _send_forum_video(
                 context.bot,
                 forum_chat_id,
                 thread_id,
                 job["video_file_id"],
+                job_id=job_id,
             )
         draft = (job.get("draft_text") or "").strip()
         if manual:
@@ -2852,6 +2888,7 @@ async def _post_review_job_to_forum(
             parts,
             video_file_id=job.get("video_file_id") or "",
             video_mime=job.get("video_mime") or "",
+            job_id=job_id,
         )
         logger.info("Review job_id=%s posted to forum thread_id=%s", job_id, thread_id)
     except Exception:
@@ -2869,6 +2906,45 @@ class _ApplicationContext:
     def __init__(self, application):
         self.application = application
         self.bot = application.bot
+
+
+async def forward_ios_message_to_coach(
+    application,
+    player_id: int,
+    job_id: int,
+    text: str,
+) -> Optional[int]:
+    """Пересылает сообщение игрока из iOS-чата разбора в тему тренера в Forum."""
+    settings: Settings = application.bot_data.get("settings")
+    if not settings or not settings.coach_forum_chat_id:
+        raise RuntimeError("coach forum not configured")
+    forum_chat_id = int(settings.coach_forum_chat_id)
+    display_name = (
+        await asyncio.to_thread(storage.public_display_name, int(player_id)) or ""
+    )
+    thread_id = await cabinet.ensure_player_topic(
+        application.bot,
+        forum_chat_id,
+        int(player_id),
+        first_name=display_name,
+    )
+    if thread_id is None:
+        raise RuntimeError("player forum topic unavailable")
+    label = cabinet.player_label(int(player_id), display_name)
+    body = (
+        f"💬 Сообщение игрока по разбору #{int(job_id)}\n"
+        f"{label} · id: {int(player_id)}\n"
+        f"Канал: iOS\n\n"
+        f"{text}"
+    )
+    sent = await application.bot.send_message(
+        chat_id=forum_chat_id,
+        message_thread_id=thread_id,
+        text=body,
+    )
+    await _remember_forum_job_message(forum_chat_id, sent, int(job_id))
+    msg_id = getattr(sent, "message_id", None)
+    return msg_id if isinstance(msg_id, int) else None
 
 
 async def post_ios_review_to_forum(application, job_id, player_id, path) -> None:
@@ -4320,6 +4396,126 @@ async def _resolve_coach_forum_player(
     return int(topic["user_id"])
 
 
+_JOB_REF_RE = re.compile(r"#(\d+)")
+
+
+async def _resolve_coach_reply_job_id(
+    message,
+    forum_chat_id: int,
+    thread_id: int,
+    player_id: int,
+    pending_job: Optional[dict],
+) -> Optional[int]:
+    reply = getattr(message, "reply_to_message", None)
+    reply_msg_id = getattr(reply, "message_id", None) if reply else None
+    if isinstance(reply_msg_id, int):
+        mapped = await asyncio.to_thread(
+            storage.get_job_id_by_forum_message, forum_chat_id, reply_msg_id
+        )
+        if mapped:
+            job = await asyncio.to_thread(storage.get_review_job, mapped)
+            if (
+                job
+                and int(job["user_id"]) == int(player_id)
+                and job.get("status") != review.STATUS_CANCELLED
+            ):
+                return int(job["id"])
+        raw_reply_text = getattr(reply, "text", None) or getattr(reply, "caption", None)
+        if isinstance(raw_reply_text, str):
+            match = _JOB_REF_RE.search(raw_reply_text)
+            if match:
+                candidate_id = int(match.group(1))
+                job = await asyncio.to_thread(storage.get_review_job, candidate_id)
+                if (
+                    job
+                    and int(job["user_id"]) == int(player_id)
+                    and job.get("status") != review.STATUS_CANCELLED
+                ):
+                    return int(job["id"])
+
+    if pending_job and pending_job.get("id"):
+        return int(pending_job["id"])
+
+    latest = await asyncio.to_thread(
+        storage.get_latest_review_job_for_thread, forum_chat_id, thread_id
+    )
+    if latest and int(latest["user_id"]) == int(player_id):
+        return int(latest["id"])
+    return None
+
+
+async def _save_coach_message_to_job(
+    context: ContextTypes.DEFAULT_TYPE,
+    message,
+    player_id: int,
+    job_id: int,
+) -> tuple[bool, bool]:
+    """Сохраняет сообщение тренера (текст или голос/аудио) в ленту разбора.
+
+    Возвращает `(saved, supported)`.
+    """
+    msg_id = getattr(message, "message_id", None)
+    tg_msg_id = msg_id if isinstance(msg_id, int) else None
+
+    if isinstance(message.text, str) and message.text.strip():
+        await asyncio.to_thread(
+            storage.append_coach_message,
+            int(job_id),
+            kind="text",
+            text=message.text.strip(),
+            telegram_message_id=tg_msg_id,
+        )
+        return True, True
+
+    media = message.voice or message.audio
+    if media is not None:
+        file_id = getattr(media, "file_id", None)
+        if not isinstance(file_id, str) or not file_id.strip():
+            return False, True
+        duration_raw = getattr(media, "duration", 0)
+        duration_hint = int(duration_raw) if isinstance(duration_raw, (int, float)) else 0
+        caption = message.caption.strip() if isinstance(message.caption, str) else ""
+        suffix = ".ogg" if message.voice is not None else ".audio"
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+        tmp_path = Path(tmp.name)
+        tmp.close()
+        try:
+            tg_file = await context.bot.get_file(file_id)
+            await tg_file.download_to_drive(custom_path=str(tmp_path))
+            key = str(tg_msg_id or "voice")
+            meta = await asyncio.to_thread(
+                coach_media.transcode_voice_to_m4a,
+                tmp_path,
+                player_id=int(player_id),
+                job_id=int(job_id),
+                message_key=key,
+                duration_hint=duration_hint,
+            )
+            await asyncio.to_thread(
+                storage.append_coach_message,
+                int(job_id),
+                kind="voice",
+                text=caption,
+                media_path=meta["media_path"],
+                media_mime=meta["media_mime"],
+                duration_sec=meta["duration_sec"],
+                waveform=meta["waveform"],
+                telegram_message_id=tg_msg_id,
+            )
+            return True, True
+        except Exception:
+            logger.exception(
+                "Не удалось сохранить голосовое тренера player_id=%s job_id=%s",
+                player_id,
+                job_id,
+            )
+            return False, True
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+    return False, False
+
+
 async def _handle_coach_forum_message(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> bool:
@@ -4357,14 +4553,26 @@ async def _handle_coach_forum_message(
                 await message.reply_text(t(lang, "survey_coach_failed"))
             return True
 
+    forum_chat_id = int(settings.coach_forum_chat_id)
+    thread_id = int(message.message_thread_id)
     pending_job = await asyncio.to_thread(
         storage.get_pending_review_job_for_thread,
-        int(settings.coach_forum_chat_id),
-        int(message.message_thread_id),
+        forum_chat_id,
+        thread_id,
     )
     pending_action = (pending_job or {}).get("pending_coach_action") or ""
     if pending_action in review.FIX_AI_PENDING:
         return await _store_coach_ai_fix(message, pending_job, player_id)
+
+    target_job_id = await _resolve_coach_reply_job_id(
+        message, forum_chat_id, thread_id, player_id, pending_job
+    )
+    saved_to_app = False
+    supported_in_app = False
+    if target_job_id is not None:
+        saved_to_app, supported_in_app = await _save_coach_message_to_job(
+            context, message, player_id, target_job_id
+        )
 
     chat_id = _player_chat_id(player_id)
     name_prefix = ""
@@ -4372,6 +4580,21 @@ async def _handle_coach_forum_message(
         chat_id = int(card["trainer_telegram_id"])
         name_prefix = f"{card['name']}\n\n"
     if chat_id is None:
+        if saved_to_app:
+            await message.reply_text(
+                f"✅ Доставлено в приложение iOS (разбор #{target_job_id})."
+            )
+            return True
+        if target_job_id is not None and not supported_in_app:
+            await message.reply_text(
+                "⚠️ У игрока нет Telegram, а в приложении iOS пока поддерживаются только текст и голосовые сообщения."
+            )
+            return True
+        if target_job_id is not None and supported_in_app:
+            await message.reply_text(
+                "⚠️ Не удалось сохранить сообщение для приложения iOS. Попробуйте ещё раз."
+            )
+            return True
         logger.warning("coach message: нет telegram identity player_id=%s", player_id)
         await message.reply_text("⚠️ У игрока нет Telegram — сообщение не доставлено.")
         return True
@@ -4417,10 +4640,18 @@ async def _handle_coach_forum_message(
         logger.exception(
             "Не удалось отправить сообщение тренера игроку user_id=%s", player_id
         )
+        if saved_to_app:
+            await message.reply_text(
+                f"⚠️ В Telegram не доставлено, но сохранено в приложении iOS (разбор #{target_job_id})."
+            )
+            return True
         await message.reply_text("⚠️ Не удалось доставить игроку. Попробуйте ещё раз.")
         return True
 
-    await message.reply_text("✅ Отправлено игроку.")
+    if saved_to_app:
+        await message.reply_text(f"✅ Отправлено игроку (разбор #{target_job_id}).")
+    else:
+        await message.reply_text("✅ Отправлено игроку.")
     return True
 
 
