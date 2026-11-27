@@ -8,7 +8,12 @@ from google import genai
 from google.genai import types
 
 from analysis_schema import build_response_schema, drill_ids_from_catalog, to_sdk_schema
-from config import focus_evidence_required
+from config import (
+    focus_evidence_required,
+    gemini_service_tier,
+    gemini_thinking_level,
+    is_gemini4_model,
+)
 from i18n import DEFAULT_LANG, normalize_language_code, t
 from pricing import Usage, usage_from_response
 from prompts import (
@@ -28,6 +33,7 @@ PROCESSING_TIMEOUT_SEC = 120
 PROCESSING_POLL_INTERVAL_SEC = 2
 # HTTP-таймаут generate/upload (мс). Без него generate_content может висеть минутами.
 HTTP_TIMEOUT_MS = 180_000
+FLEX_HTTP_TIMEOUT_MS = 600_000
 
 MAX_GENERATE_RETRIES = 2
 RETRY_BACKOFF_SEC = 3
@@ -45,10 +51,72 @@ _NO_AFC = types.AutomaticFunctionCallingConfig(disable=True)
 
 STRUCTURED_VIDEO_FPS = 8.0
 STRUCTURED_TEMPERATURE = 0.3
+GEMINI4_MAX_OUTPUT_TOKENS = 65536
+
+
+def _thinking_config(
+    model: str, *, for_chat: bool = False
+) -> Optional[types.ThinkingConfig]:
+    level_name = gemini_thinking_level(model, for_chat=for_chat)
+    if not level_name:
+        return None
+    enum_cls = getattr(types, "ThinkingLevel", None)
+    if enum_cls is None:
+        return None
+    level = getattr(enum_cls, level_name.upper(), None)
+    if level is None:
+        return None
+    return types.ThinkingConfig(thinking_level=level)
+
+
+def _service_tier_value():
+    tier_name = gemini_service_tier()
+    if not tier_name:
+        return None
+    enum_cls = getattr(types, "ServiceTier", None)
+    if enum_cls is not None:
+        resolved = getattr(enum_cls, tier_name.upper(), None)
+        if resolved is not None:
+            return resolved
+    return tier_name
+
+
+def _build_generate_config(
+    model: str,
+    *,
+    system_instruction: str,
+    legacy_temperature: float,
+    for_chat: bool = False,
+    response_mime_type: Optional[str] = None,
+    response_schema=None,
+    media_resolution=None,
+) -> types.GenerateContentConfig:
+    kwargs = {
+        "system_instruction": system_instruction,
+        "automatic_function_calling": _NO_AFC,
+    }
+    if is_gemini4_model(model):
+        # Gemini 4: temperature не передавать; явно задаём thinking_level и max_output_tokens.
+        kwargs["max_output_tokens"] = GEMINI4_MAX_OUTPUT_TOKENS
+        thinking = _thinking_config(model, for_chat=for_chat)
+        if thinking is not None:
+            kwargs["thinking_config"] = thinking
+    else:
+        kwargs["temperature"] = legacy_temperature
+    tier = _service_tier_value()
+    if tier is not None:
+        kwargs["service_tier"] = tier
+    if response_mime_type is not None:
+        kwargs["response_mime_type"] = response_mime_type
+    if response_schema is not None:
+        kwargs["response_schema"] = response_schema
+    if media_resolution is not None:
+        kwargs["media_resolution"] = media_resolution
+    return types.GenerateContentConfig(**kwargs)
 
 
 def _prepare_structured_video(part) -> None:
-    """Разбор v2 всегда смотрит 8 кадров/с в высоком разрешении. Thinking не задаём."""
+    """Разбор v2 всегда смотрит 8 кадров/с в высоком разрешении."""
     if "fps" not in getattr(types.VideoMetadata, "model_fields", {}):
         raise RuntimeError("Нужен google-genai с VideoMetadata.fps.")
     part.video_metadata = types.VideoMetadata(fps=STRUCTURED_VIDEO_FPS)
@@ -76,9 +144,12 @@ class AnalysisResult:
 
 class VideoAnalyzer:
     def __init__(self, api_key: str, model: str) -> None:
+        timeout = (
+            FLEX_HTTP_TIMEOUT_MS if gemini_service_tier() == "flex" else HTTP_TIMEOUT_MS
+        )
         self._client = genai.Client(
             api_key=api_key,
-            http_options=types.HttpOptions(timeout=HTTP_TIMEOUT_MS),
+            http_options=types.HttpOptions(timeout=timeout),
         )
         self._model = model
 
@@ -151,13 +222,13 @@ class VideoAnalyzer:
                                 ],
                             )
                         ],
-                        config=types.GenerateContentConfig(
+                        config=_build_generate_config(
+                            use_model,
                             system_instruction=system_prompt,
-                            temperature=STRUCTURED_TEMPERATURE,
+                            legacy_temperature=STRUCTURED_TEMPERATURE,
                             response_mime_type="application/json",
                             response_schema=sdk_schema,
                             media_resolution=types.MediaResolution.MEDIA_RESOLUTION_HIGH,
-                            automatic_function_calling=_NO_AFC,
                         ),
                     )
                     return (
@@ -200,10 +271,10 @@ class VideoAnalyzer:
                         ],
                     )
                 ],
-                config=types.GenerateContentConfig(
+                config=_build_generate_config(
+                    use_model,
                     system_instruction=system_prompt,
-                    temperature=0.4,
-                    automatic_function_calling=_NO_AFC,
+                    legacy_temperature=0.4,
                 ),
             )
         finally:
@@ -315,7 +386,8 @@ class VideoAnalyzer:
         response = self._generate_with_retry(
             model=use_model,
             contents=contents,
-            config=types.GenerateContentConfig(
+            config=_build_generate_config(
+                use_model,
                 system_instruction=build_follow_up_system_prompt(
                     language_code,
                     player_history,
@@ -325,8 +397,8 @@ class VideoAnalyzer:
                     prompt_context=prompt_context,
                     scoped=scoped,
                 ),
-                temperature=0.5,
-                automatic_function_calling=_NO_AFC,
+                legacy_temperature=0.5,
+                for_chat=True,
             ),
         )
         text = self._extract_text(response)

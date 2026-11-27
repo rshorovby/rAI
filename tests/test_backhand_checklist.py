@@ -65,6 +65,7 @@ def test_forehand_rubric_stays_when_only_backhand_checklist_is_on(monkeypatch):
 def test_v2_prompt_ends_with_the_backhand_checklist(monkeypatch):
     monkeypatch.delenv("BACKHAND_CHECKLIST", raising=False)
     monkeypatch.setenv("STRUCTURED_ANALYSIS_V2", "1")
+    monkeypatch.setenv("COMPACT_PROMPT_V3", "0")
     system = build_system_prompt("ru", stroke="backhand")
     assert system.index("## БЭКХЕНД") < system.index(_HEADER)
     assert "a loss of balance." in system

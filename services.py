@@ -814,9 +814,13 @@ def elaborate_report(
     analyzer = VideoAnalyzer(settings.gemini_api_key, settings.gemini_model)
     ctx = load_analysis_context(player_id, stroke or None) if player_id else {}
     use_model = (
-        settings.model_for(billing.is_pro(player_id))
-        if player_id
-        else settings.gemini_model
+        settings.chat_model()
+        if hasattr(settings, "chat_model")
+        else (
+            settings.model_for(billing.is_pro(player_id))
+            if player_id
+            else settings.gemini_model
+        )
     )
     result = analyzer.chat(
         report,
@@ -866,9 +870,13 @@ def answer_job_followup(
     ctx = dict(ctx or {})
     ctx["omit_chat_notes"] = True
     use_model = (
-        settings.model_for(billing.is_pro(player_id))
-        if player_id
-        else settings.gemini_model
+        settings.chat_model()
+        if hasattr(settings, "chat_model")
+        else (
+            settings.model_for(billing.is_pro(player_id))
+            if player_id
+            else settings.gemini_model
+        )
     )
     result = analyzer.chat(
         report,

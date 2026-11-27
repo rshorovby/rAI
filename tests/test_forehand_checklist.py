@@ -89,6 +89,7 @@ def test_english_report_keeps_its_sections_and_the_same_checklist(monkeypatch):
 def test_v2_prompt_gets_the_same_checklist_last(monkeypatch):
     monkeypatch.setenv("FOREHAND_CHECKLIST", "1")
     monkeypatch.setenv("STRUCTURED_ANALYSIS_V2", "1")
+    monkeypatch.setenv("COMPACT_PROMPT_V3", "0")
     system = build_system_prompt("ru", stroke="forehand")
     assert system.index("## ФОРХЕНД") < system.index(_HEADER)
     assert "a quick return to position." in system

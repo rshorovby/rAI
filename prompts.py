@@ -802,6 +802,7 @@ def build_system_prompt(
             drills_catalog,
             strokes,
             prompt_context,
+            experiment_v2=experiment_v2,
         )
     from wiki_context import build_knowledge_block
 
@@ -843,11 +844,37 @@ def _build_system_prompt_v2(
     drills_catalog: Optional[str],
     strokes: Optional[list],
     prompt_context: Optional[dict],
+    experiment_v2: bool = False,
 ) -> str:
+    from config import compact_prompt_v3_enabled
+
+    ctx = prompt_context or {}
+    if compact_prompt_v3_enabled() and not experiment_v2:
+        from compact_prompt import build_compact_system_prompt
+
+        parts = [
+            build_compact_system_prompt(
+                player_profile=player_profile,
+                stroke=stroke,
+                strokes=strokes,
+                drills_catalog=drills_catalog,
+            )
+        ]
+        _append_personal(
+            parts,
+            language_code,
+            player_history,
+            active_focus,
+            ctx,
+            include_status_rules=False,
+            include_stroke_key=True,
+            label_serve_leg_drive=True,
+        )
+        return "\n\n".join(parts)
+
     from stroke_blocks import load_general_rules, load_stroke_blocks
     from wiki_context import build_knowledge_block
 
-    ctx = prompt_context or {}
     parts = [
         SYSTEM_PROMPT_V2.strip(),
         language_instruction(language_code),

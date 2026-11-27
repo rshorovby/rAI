@@ -862,9 +862,13 @@ async def _process_followup(
 
     settings: Settings = context.application.bot_data.get("settings")
     use_model = (
-        settings.model_for(billing.is_pro(user_id))
-        if settings and user_id
-        else analyzer._model
+        settings.chat_model()
+        if settings and hasattr(settings, "chat_model")
+        else (
+            settings.model_for(billing.is_pro(user_id))
+            if settings and user_id
+            else analyzer._model
+        )
     )
     if user_id:
         await _cabinet_notify(
