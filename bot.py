@@ -98,7 +98,7 @@ from analytics import (
     format_daly_report,
 )
 from analyzer import VideoAnalyzer
-from config import Settings
+from config import Settings, pose_prepass_enabled
 from error_reporting import alert_admins, report_failure
 from errors import format_analysis_error, is_model_overloaded
 from formatting import cabinet_draft_to_html, markdown_to_html
@@ -3406,20 +3406,26 @@ async def _run_video_analysis(
         progress = await _send_progress(context, chat_id, t(lang, "pf_checking"))
         preflight = await asyncio.to_thread(video_preflight.check_video, temp_path)
         logger.info("preflight user_id=%s %s", user_id, preflight)
-        await _edit_progress(
-            progress, _progress_body(lang, preflight, t(lang, "pose_scanning"), False)
-        )
 
         stroke = ""
         intake_strokes = None
         if video_context:
             stroke = (video_context.get("stroke") or "") or ""
             intake_strokes = video_context.get("strokes")
-        profile = await asyncio.to_thread(storage.get_player_profile, user_id) or {}
-        hand = str(profile.get("hand") or "")
-        if hand not in ("left", "right"):
-            hand = ""
-        pose_task = asyncio.create_task(_measure_pose(temp_path, stroke, user_id, hand))
+        if pose_prepass_enabled():
+            await _edit_progress(
+                progress,
+                _progress_body(lang, preflight, t(lang, "pose_scanning"), False),
+            )
+            profile = await asyncio.to_thread(storage.get_player_profile, user_id) or {}
+            hand = str(profile.get("hand") or "")
+            if hand not in ("left", "right"):
+                hand = ""
+            pose_task = asyncio.create_task(
+                _measure_pose(temp_path, stroke, user_id, hand)
+            )
+        else:
+            await _edit_progress(progress, _progress_body(lang, preflight, None, True))
         analysis_ctx = await asyncio.to_thread(
             services.load_analysis_context, user_id, stroke, intake_strokes
         )
@@ -3446,14 +3452,17 @@ async def _run_video_analysis(
         if settings and model_override and model_override == settings.gemini_model_free:
             fallback_model = None
 
-        measured = await pose_task
-        pose_task = None
-        pose_line = pose_runtime.player_line(measured, lang)
         gemini_context = dict(video_context or {})
-        brief = pose_runtime.prompt_text(measured, language_code)
-        if brief:
-            gemini_context["pose_brief"] = brief
-        await _edit_progress(progress, _progress_body(lang, preflight, pose_line, True))
+        if pose_task is not None:
+            measured = await pose_task
+            pose_task = None
+            pose_line = pose_runtime.player_line(measured, lang)
+            brief = pose_runtime.prompt_text(measured, language_code)
+            if brief:
+                gemini_context["pose_brief"] = brief
+            await _edit_progress(
+                progress, _progress_body(lang, preflight, pose_line, True)
+            )
 
         used_simple = False
         try:

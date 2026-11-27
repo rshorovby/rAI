@@ -171,3 +171,9 @@ def focus_evidence_required() -> bool:
     """improved/worse без таймкода в evidence понижается до not_visible."""
     raw = os.getenv("FOCUS_EVIDENCE_REQUIRED", "1").strip().lower()
     return raw in ("1", "true", "yes", "on")
+
+
+def pose_prepass_enabled() -> bool:
+    """Предварительный поиск ударов (MediaPipe + звук) до Gemini. По умолчанию выкл."""
+    raw = os.getenv("POSE_PREPASS", "0").strip().lower()
+    return raw in ("1", "true", "yes", "on")

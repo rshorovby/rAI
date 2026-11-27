@@ -84,3 +84,16 @@ def test_missing_required_vars_raise(env):
 
     with pytest.raises(RuntimeError, match="GEMINI_API_KEY"):
         load_settings()
+
+
+def test_pose_prepass_disabled_by_default(monkeypatch):
+    from config import pose_prepass_enabled
+
+    monkeypatch.delenv("POSE_PREPASS", raising=False)
+    assert not pose_prepass_enabled()
+
+    monkeypatch.setenv("POSE_PREPASS", "1")
+    assert pose_prepass_enabled()
+
+    monkeypatch.setenv("POSE_PREPASS", "0")
+    assert not pose_prepass_enabled()

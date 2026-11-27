@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Tennison × AdvantAce — коммерческое предложение</title>
+<style>
+  @page { size: A4; margin: 0; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Helvetica Neue", Arial, sans-serif;
+    font-size: 10.5pt;
+    line-height: 1.5;
+    color: #1b2430;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .page {
+    width: 210mm;
+    height: 297mm;
+    padding: 18mm 18mm 16mm;
+    page-break-after: always;
+    position: relative;
+    overflow: hidden;
+  }
+  .page:last-child { page-break-after: auto; }
+
+  .cover {
+    background: linear-gradient(160deg, #0b2a3a 0%, #0f4c5c 60%, #1d7a6b 100%);
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 24mm 20mm 20mm;
+  }
+  .cover .tag {
+    font-size: 9pt; letter-spacing: 2.5pt; text-transform: uppercase;
+    color: #bfe9d8; font-weight: 600;
+  }
+  .cover h1 { font-size: 38pt; line-height: 1.1; margin: 10mm 0 6mm; font-weight: 800; }
+  .cover h1 span { color: #c8f26b; }
+  .cover .lead { font-size: 14pt; max-width: 135mm; color: #e3f3ee; }
+  .cover .ball {
+    position: absolute; right: -35mm; top: 70mm; width: 120mm; height: 120mm;
+    border-radius: 50%; background: #c8f26b; opacity: 0.16;
+  }
+  .cover .ball::before, .cover .ball::after {
+    content: ""; position: absolute; width: 100%; height: 100%; border-radius: 50%;
+    border: 4mm solid #0b2a3a; opacity: 0.6;
+  }
+  .cover .ball::before { left: -62%; }
+  .cover .ball::after { left: 62%; }
+  .cover .meta { font-size: 10pt; color: #bfe9d8; display: flex; gap: 12mm; position: relative; z-index: 1; }
+  .cover .meta b { display: block; color: #fff; font-size: 11pt; margin-bottom: 1mm; }
+  .cover .top, .cover .mid { position: relative; z-index: 1; }
+
+  .section-label {
+    font-size: 8.5pt; letter-spacing: 2pt; text-transform: uppercase;
+    color: #1d7a6b; font-weight: 700; margin: 0 0 2mm;
+  }
+  h2 { font-size: 20pt; margin: 0 0 5mm; color: #0b2a3a; line-height: 1.2; }
+  h3 { font-size: 12pt; margin: 0 0 2mm; color: #0b2a3a; }
+  p { margin: 0 0 3mm; }
+  .muted { color: #5b6674; }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6mm; }
+  .card {
+    border: 0.4mm solid #dbe4e8; border-radius: 3mm; padding: 5mm 5.5mm;
+    background: #f7fafb;
+  }
+  .card.accent { background: #0f4c5c; border-color: #0f4c5c; color: #fff; }
+  .card.accent h3 { color: #c8f26b; }
+  .num {
+    display: inline-block; width: 8mm; height: 8mm; line-height: 8mm; text-align: center;
+    border-radius: 50%; background: #c8f26b; color: #0b2a3a; font-weight: 800;
+    margin-bottom: 2mm; font-size: 10pt;
+  }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5mm; margin: 6mm 0; }
+  .stat { text-align: center; padding: 5mm 3mm; border-radius: 3mm; background: #eef6f4; }
+  .stat .v { font-size: 20pt; font-weight: 800; color: #0f4c5c; }
+  .stat .l { font-size: 8.5pt; color: #5b6674; }
+
+  ul { margin: 0 0 3mm; padding-left: 5mm; }
+  li { margin-bottom: 1.5mm; }
+  ul.check { list-style: none; padding-left: 0; }
+  ul.check li { padding-left: 6mm; position: relative; }
+  ul.check li::before {
+    content: "✓"; position: absolute; left: 0; color: #1d7a6b; font-weight: 800;
+  }
+
+  .callout {
+    border-left: 1.2mm solid #c8f26b; background: #f1f8e4; padding: 4mm 5mm;
+    border-radius: 0 2mm 2mm 0; margin: 5mm 0;
+  }
+
+  table { width: 100%; border-collapse: collapse; margin: 3mm 0 5mm; font-size: 10pt; }
+  th {
+    background: #0f4c5c; color: #fff; text-align: left; padding: 3mm 4mm;
+    font-weight: 600;
+  }
+  td { padding: 3mm 4mm; border-bottom: 0.3mm solid #dbe4e8; vertical-align: top; }
+  tr:nth-child(even) td { background: #f7fafb; }
+  td.w { font-weight: 700; color: #0f4c5c; white-space: nowrap; }
+
+  .steps { margin: 4mm 0; }
+  .step { display: flex; gap: 5mm; margin-bottom: 4mm; align-items: flex-start; }
+  .step .badge {
+    flex: 0 0 18mm; text-align: center; background: #0f4c5c; color: #fff;
+    border-radius: 2mm; padding: 2mm 0; font-weight: 700; font-size: 9.5pt;
+  }
+  .step .txt { padding-top: 1mm; }
+
+  .footer {
+    position: absolute; left: 18mm; right: 18mm; bottom: 9mm;
+    font-size: 8pt; color: #8b95a1; display: flex; justify-content: space-between;
+    border-top: 0.3mm solid #dbe4e8; padding-top: 2mm;
+  }
+  .contact-box {
+    margin-top: 8mm; padding: 7mm; border-radius: 3mm;
+    background: linear-gradient(160deg, #0b2a3a, #0f4c5c); color: #fff;
+  }
+  .contact-box h3 { color: #c8f26b; font-size: 14pt; }
+  .contact-box a { color: #c8f26b; text-decoration: none; font-weight: 700; }
+
+  table.t { font-size: 8.6pt; margin: 2mm 0 4mm; }
+  table.t th { padding: 2mm 2.5mm; font-size: 8.4pt; }
+  table.t td { padding: 2mm 2.5mm; }
+  .tg, .ig, .an {
+    display: inline-block; font-size: 7pt; font-weight: 800; letter-spacing: 0.5pt;
+    padding: 0.4mm 1.6mm; border-radius: 1mm; color: #fff; margin-right: 1mm;
+  }
+  .tg { background: #2a8fd0; } .ig { background: #c2417a; } .an { background: #1d7a6b; }
+  .post {
+    border: 0.4mm solid #dbe4e8; border-radius: 3mm; background: #fff;
+    padding: 4mm 5mm; margin-bottom: 4mm; font-size: 9.3pt; line-height: 1.45;
+    page-break-inside: avoid;
+  }
+  .post .head { font-size: 8pt; color: #5b6674; margin-bottom: 2mm; }
+  .post .head b { color: #0b2a3a; }
+  .post p { margin: 0 0 2mm; }
+  .post .note { font-size: 8.3pt; color: #5b6674; border-top: 0.3mm dashed #dbe4e8; padding-top: 1.5mm; margin-top: 2mm; }
+  .ph { background: #fff3c4; padding: 0 1mm; border-radius: 0.8mm; }
+  .small { font-size: 9pt; }
+</style>
+</head>
+<body>
+
+<div class="page cover">
+  <div class="ball"></div>
+  <div class="top">
+    <div class="tag">Коммерческое предложение</div>
+    <h1>Tennison <span>×</span><br>AdvantAce</h1>
+    <div class="lead">
+      Разбор теннисной техники для игроков лиги: ИИ-анализ видео
+      и комментарии тренера Анны Еделькиной.
+    </div>
+  </div>
+  <div class="mid"></div>
+  <div class="meta">
+    <div><b>Формат</b>Пилот 6 недель</div>
+    <div><b>Стоимость для лиги</b>Бесплатно</div>
+    <div><b>Сайт</b>advantace.app</div>
+  </div>
+</div>
+
+<div class="page">
+  <div class="section-label">О проекте</div>
+  <h2>Что такое AdvantAce</h2>
+  <p>
+    AdvantAce — Telegram-бот, который разбирает технику тенниса по видео.
+    Игрок присылает короткий фрагмент (до 20 секунд, до 20 МБ) из матча или тренировки и получает структурированный разбор
+    на русском: что получается, что стоит исправить, на что обратить внимание.
+  </p>
+  <p>
+    К разбору ИИ добавляются комментарии тренера
+    <b>Анны Еделькиной</b> (<a href="https://t.me/anna_amotion" style="color:#1d7a6b">t.me/anna_amotion</a>) — в течение 24 часов.
+  </p>
+  <p>
+    Бот: <a href="https://t.me/RallyCoachAI_bot" style="color:#1d7a6b"><b>t.me/RallyCoachAI_bot</b></a>
+  </p>
+
+  <div class="stats">
+    <div class="stat"><div class="v">0 ₽</div><div class="l">для игроков и лиги</div></div>
+    <div class="stat"><div class="v">∞</div><div class="l">разборов без лимита</div></div>
+    <div class="stat"><div class="v">24 ч</div><div class="l">комментарий тренера</div></div>
+  </div>
+
+  <div class="callout">
+    Качество оценивают сами пользователи кнопкой «полезно / неполезно».
+    Результаты пилота мы покажем лиге в цифрах.
+  </div>
+
+  <div class="section-label" style="margin-top:8mm">Идея</div>
+  <h2>Почему это подходит Tennison</h2>
+  <p>
+    Tennison уже снимает и показывает матчи. Мы добавляем к ним экспертный разбор техники:
+    для игроков лиги — через бота, для аудитории лиги — через видеоразборы финалов.
+  </p>
+  <div class="grid2">
+    <div class="card">
+      <h3>Лига получает</h3>
+      <ul class="check">
+        <li>Регулярный экспертный контент</li>
+        <li>Бесплатный сервис для игроков</li>
+        <li>Отличие от других лиг</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Игроки получают</h3>
+      <ul class="check">
+        <li>Понятный разбор своей игры</li>
+        <li>Комментарий живого тренера</li>
+        <li>Подсказки, как расти по уровню</li>
+      </ul>
+    </div>
+  </div>
+  <div class="footer"><span>Tennison × AdvantAce</span><span>2</span></div>
+</div>
+
+<div class="page">
+  <div class="section-label">Предложение</div>
+  <h2>Два направления сотрудничества</h2>
+
+  <div class="grid2">
+    <div class="card accent">
+      <div class="num">1</div>
+      <h3>Разбор для игроков лиги</h3>
+      <p>
+        Игрок сам вырезает фрагмент из трансляции или присылает своё видео.
+        Бот возвращает разбор ИИ, а Анна Еделькина добавляет комментарии в течение 24 часов.
+      </p>
+      <p>
+        Ссылка на бота персональная для лиги — так мы вместе увидим,
+        сколько игроков пришло.
+      </p>
+    </div>
+    <div class="card accent">
+      <div class="num">2</div>
+      <h3>Видеоразборы финалов</h3>
+      <p>
+        Анна смотрит запись матча (YouTube или Telegram) и готовит
+        видеоразбор каждого участника: техника ударов, подача или другая тема по ситуации.
+      </p>
+      <p>
+        Матчи выбираем вместе с лигой. Публикует разборы лига.
+      </p>
+    </div>
+  </div>
+
+  <h2 style="margin-top:9mm">Кто за что отвечает</h2>
+  <table>
+    <tr><th>Мы (AdvantAce)</th><th>Лига Tennison</th></tr>
+    <tr>
+      <td>
+        Бот и ИИ-разборы для игроков<br>
+        Комментарии Анны в течение 24 часов<br>
+        Видеоразборы финалов<br>
+        Памятка «как вырезать фрагмент из трансляции»<br>
+        Персональная ссылка и статистика переходов
+      </td>
+      <td>
+        Пост в Telegram с закрепом и ссылкой на бота<br>
+        Упоминание в Instagram со ссылкой<br>
+        Публикация видеоразборов Анны<br>
+        Совместный выбор матчей для разбора
+      </td>
+    </tr>
+  </table>
+
+  <div class="callout">
+    <b>Условия:</b> без оплаты с обеих сторон, без эксклюзивности.
+    Лига ничем не рискует: если формат не подойдёт, мы просто остановимся после пилота.
+  </div>
+  <div class="footer"><span>Tennison × AdvantAce</span><span>3</span></div>
+</div>
+
+<div class="page">
+  <div class="section-label">План</div>
+  <h2>Пилот на 6 недель</h2>
+
+  <div class="steps">
+    <div class="step"><div class="badge">Неделя 0</div>
+      <div class="txt"><b>Подготовка.</b> Согласование формата, персональная ссылка для лиги,
+      памятка для игроков.</div></div>
+    <div class="step"><div class="badge">Неделя 1</div>
+      <div class="txt"><b>Запуск.</b> Анонс партнёрства, закреп со ссылкой на бота,
+      первые разборы игроков.</div></div>
+    <div class="step"><div class="badge">Недели 2–5</div>
+      <div class="txt"><b>Контент.</b> Видеоразборы финалов от Анны, разборы для игроков,
+      сбор отзывов.</div></div>
+    <div class="step"><div class="badge">Неделя 6</div>
+      <div class="txt"><b>Итоги.</b> Показываем цифры и обсуждаем продолжение.</div></div>
+  </div>
+
+  <h2 style="margin-top:8mm">Как оценим результат</h2>
+  <div class="grid2">
+    <div class="card"><h3>Охват</h3><p class="muted" style="margin:0">Число переходов по персональной ссылке лиги.</p></div>
+    <div class="card"><h3>Использование</h3><p class="muted" style="margin:0">Число игроков, сделавших хотя бы один разбор.</p></div>
+    <div class="card"><h3>Качество</h3><p class="muted" style="margin:0">Оценки «полезно / неполезно».</p></div>
+    <div class="card"><h3>Контент</h3><p class="muted" style="margin:0">Просмотры и реакции на видеоразборы в сравнении с обычными постами лиги.</p></div>
+  </div>
+
+  <h2 style="margin-top:8mm">Что дальше</h2>
+  <p>
+    Если пилот пройдёт хорошо, обсудим формат на сезон и более тесную интеграцию,
+    когда у лиги появится разработка — например, разбор в карточке матча на сайте.
+  </p>
+
+  <div class="callout">
+    Подробный план по неделям, календарь публикаций и черновики постов — на следующих страницах.
+  </div>
+  <div class="footer"><span>Tennison × AdvantAce</span><span>4</span></div>
+</div>
+
+
+<div class="page">
+  <div class="section-label">Приложение А</div>
+  <h2>План пилота: неделя за неделей</h2>
+  <p class="small muted">Даты привязываем к старту в неделе 0. Частота видеоразборов — предложение, окончательно согласуем с Анной.</p>
+  <table class="t">
+    <tr><th style="width:15%">Неделя</th><th style="width:27%">Цель</th><th style="width:29%">Мы</th><th style="width:29%">Лига</th></tr>
+    <tr><td class="w">0<br>Подготовка</td>
+      <td>Договориться о правилах и подготовить материалы</td>
+      <td>Памятка для игроков, график публикаций, тексты постов, пробный видеоразбор для согласования формата</td>
+      <td>Утверждает тексты и дату анонса, назначает человека, который публикует, предлагает матчи для первых разборов</td></tr>
+    <tr><td class="w">1<br>Запуск</td>
+      <td>Игроки узнали о сервисе и сделали первые разборы</td>
+      <td>Следим за разборами, Анна отвечает в течение 24 часов, собираем первые отзывы</td>
+      <td>Пост-анонс в Telegram с закрепом, Reel и сторис в Instagram со ссылкой на бота</td></tr>
+    <tr><td class="w">2</td>
+      <td>Снять барьер «как отправить»</td>
+      <td>Видеоразбор №1 от Анны (финал или другой матч, выбранный вместе)</td>
+      <td>Пост-инструкция «Как получить разбор за 3 минуты», публикация видеоразбора №1</td></tr>
+    <tr><td class="w">3</td>
+      <td>Показать пользу на примере</td>
+      <td>Видеоразбор №2, короткая нарезка для Reels</td>
+      <td>Публикация разбора и Reel, напоминание про бота в сторис</td></tr>
+    <tr><td class="w">4</td>
+      <td>Собрать выводы из разборов</td>
+      <td>Видеоразбор №3, пост «Что мы заметили» (общие выводы по присланным видео, без личных данных игроков)</td>
+      <td>Публикация, ответы на вопросы игроков в чате</td></tr>
+    <tr><td class="w">5</td>
+      <td>Социальное доказательство</td>
+      <td>Видеоразбор №4, отзыв игрока (согласие спрашиваем лично)</td>
+      <td>Публикация, повторный закреп со ссылкой</td></tr>
+    <tr><td class="w">6<br>Итоги</td>
+      <td>Подвести итоги и решить, что дальше</td>
+      <td>Сводка цифр, пост «Итоги пилота», предложение по продолжению</td>
+      <td>Публикует итоги, участвует в обсуждении формата</td></tr>
+  </table>
+
+  <div class="callout">
+    <b>Контрольные точки.</b> После недели 2 сверяем цифры и меняем подачу, если переходов мало.
+    После недели 4 решаем, продолжаем ли формат видеоразборов. Пороги успеха
+    (сколько переходов и разборов считаем хорошим результатом) согласуем в неделе 0, пока их не задаём: у нас нет исходной статистики по аудитории лиги.
+  </div>
+  <div class="footer"><span>Tennison × AdvantAce</span><span>5</span></div>
+</div>
+
+<div class="page">
+  <div class="section-label">Приложение Б</div>
+  <h2>Календарь публикаций</h2>
+  <p class="small muted">Публикует лига. Всё, что нужно от нас, мы присылаем готовым: текст, видео, картинку.</p>
+  <table class="t">
+    <tr><th style="width:12%">Неделя</th><th style="width:28%"><span class="tg">TG</span> Telegram</th><th style="width:30%"><span class="ig">IG</span> Instagram</th><th style="width:30%"><span class="an">Анна</span> Видео</th></tr>
+    <tr><td class="w">1</td><td>Пост №1 «Анонс» + закреп</td><td>Reel «Анонс» (или сторис-серия)</td><td>—</td></tr>
+    <tr><td class="w">2</td><td>Пост №2 «Как получить разбор»<br>Пост №3 «Видеоразбор №1»</td><td>Сторис с инструкцией</td><td>Видеоразбор №1</td></tr>
+    <tr><td class="w">3</td><td>Пост «Видеоразбор №2»</td><td>Reel-нарезка из разбора №2</td><td>Видеоразбор №2</td></tr>
+    <tr><td class="w">4</td><td>Пост №4 «Что мы заметили»<br>Пост «Видеоразбор №3»</td><td>Reel-нарезка из разбора №3</td><td>Видеоразбор №3</td></tr>
+    <tr><td class="w">5</td><td>Пост №5 «Отзыв игрока»<br>Пост «Видеоразбор №4»</td><td>Reel-нарезка из разбора №4, сторис с отзывом</td><td>Видеоразбор №4</td></tr>
+    <tr><td class="w">6</td><td>Пост №6 «Итоги пилота»</td><td>Сторис с итогами</td><td>—</td></tr>
+  </table>
+  <p class="small"><b>Итого за пилот:</b> около 8–9 постов в Telegram, 3–4 Reels и несколько сторис в Instagram, 4 видеоразбора от Анны. Это нагрузка по существующему ритму лиги, а не дополнительный поток: основная работа на нашей стороне.</p>
+
+  <h2 style="margin-top:7mm">Формат видеоразбора Анны (предложение)</h2>
+  <table class="t">
+    <tr><th style="width:18%">Часть</th><th>Что в ней</th></tr>
+    <tr><td class="w">Контекст<br><span class="muted">10–15 сек</span></td><td>Матч, участники, счёт. Один абзац, без пересказа матча</td></tr>
+    <tr><td class="w">Что получилось<br><span class="muted">30–60 сек</span></td><td>Сильные стороны игрока с примерами из розыгрышей</td></tr>
+    <tr><td class="w">Зоны роста<br><span class="muted">1–2 мин</span></td><td>Одна-две темы (удар, подача, перемещение) с кадрами и объяснением, что поменять</td></tr>
+    <tr><td class="w">Совет<br><span class="muted">20–30 сек</span></td><td>Одно простое упражнение, которое можно сделать на ближайшей тренировке</td></tr>
+    <tr><td class="w">Призыв<br><span class="muted">5–10 сек</span></td><td>«Хотите такой же разбор своей игры? Пришлите видео боту AdvantAce (ссылка в описании)»</td></tr>
+  </table>
+  <p class="small muted">Тон разборов доброжелательный: сначала сильные стороны, затем одна-две зоны роста. Это сохраняет атмосферу fair play, которая важна лиге.</p>
+  <div class="footer"><span>Tennison × AdvantAce</span><span>6</span></div>
+</div>
+
+<div class="page">
+  <div class="section-label">Приложение В</div>
+  <h2>Черновики постов</h2>
+  <p class="small muted">Тексты написаны в голосе лиги. Жёлтым выделено то, что заполняем перед публикацией.</p>
+
+  <div class="post">
+    <div class="head"><span class="tg">TG</span> <b>Пост №1 · Анонс</b> · неделя 1 · с закрепом</div>
+    <p><b>Tennison × AdvantAce: разбор вашей техники от тренера — бесплатно 🎾</b></p>
+    <p>Знакомая ситуация: проиграли матч и не поняли, что именно пошло не так? Теперь можно узнать.</p>
+    <p>Мы начинаем сотрудничество с AdvantAce — ботом, который разбирает технику по видео. Снимите до 20 секунд своих ударов, отправьте в бот и получите разбор. А тренер <b>Анна Еделькина</b> добавит свои комментарии в течение 24 часов.</p>
+    <p>Что нужно: видео до 20 секунд, на котором виден ваш удар сбоку или сзади. Это можно вырезать из нашей трансляции.</p>
+    <p>👉 Попробовать: <span class="ph">ссылка на бота</span></p>
+    <p>Бесплатно, без лимита по числу разборов. Расскажите в комментариях, что хотите улучшить в первую очередь.</p>
+    <div class="note">Упор: польза игроку и простота («20 секунд, бесплатно»), живой тренер как гарантия качества. ИИ упоминаем, но не делаем главным.</div>
+  </div>
+
+  <div class="post">
+    <div class="head"><span class="ig">IG</span> <b>Reel · Анонс</b> · неделя 1 · 15–20 секунд</div>
+    <p><b>Сценарий:</b> 1) Кадр: игрок проиграл розыгрыш (из трансляции), подпись «Почему не получилось?» · 2) Экран телефона: отправка видео в бота · 3) Экран с ответом бота и комментарием Анны · 4) Финал: «Разбор вашей техники — бесплатно. Ссылка в профиле».</p>
+    <p><b>Подпись:</b> Хотите знать, что мешает вашему форхенду, подаче или бэкхенду? Отправьте 20 секунд видео в бот AdvantAce и получите разбор + комментарий тренера Анны Еделькиной. Бесплатно. Ссылка в профиле 🎾</p>
+    <div class="note">Для Instagram главное — первые 2 секунды: вопрос или узнаваемый момент из матча лиги.</div>
+  </div>
+  <div class="footer"><span>Tennison × AdvantAce</span><span>7</span></div>
+</div>
+
+<div class="page">
+  <div class="section-label">Приложение В · продолжение</div>
+  <h2>Черновики постов</h2>
+
+  <div class="post">
+    <div class="head"><span class="tg">TG</span> <b>Пост №2 · Инструкция</b> · неделя 2</div>
+    <p><b>Как получить разбор за 3 минуты 📱</b></p>
+    <p>1️⃣ Найдите свой розыгрыш в трансляции или снимите себя на тренировке.<br>
+    2️⃣ Вырежьте фрагмент до 20 секунд, лучше 2–3 удара подряд. Лучшие ракурсы: сбоку или сзади-сбоку.<br>
+    3️⃣ Отправьте видео боту: <span class="ph">ссылка</span>. Размер до 20 МБ.<br>
+    4️⃣ Через минуту получите разбор, а комментарий тренера Анны придёт в течение 24 часов.</p>
+    <p>Можно добавить подпись к видео: «это подача» или «болит локоть». Так разбор будет точнее.</p>
+    <div class="note">Цель поста — убрать страх «не знаю, как это делается». Закрепить на время пилота.</div>
+  </div>
+
+  <div class="post">
+    <div class="head"><span class="tg">TG</span> <b>Пост №3 · Видеоразбор (шаблон для недель 2–5)</b></div>
+    <p><b>Разбор финала: <span class="ph">Игрок А</span> — <span class="ph">Игрок Б</span> 🎾</b></p>
+    <p>Тренер Анна Еделькина посмотрела финал и разобрала <span class="ph">1–2 ключевые темы</span>: что у игроков получилось лучше всего и над чем стоит поработать.</p>
+    <p>📺 <span class="ph">Видео</span></p>
+    <p>А если хотите такой же разбор своей игры — пришлите 20 секунд видео в бот: <span class="ph">ссылка</span>.</p>
+    <div class="note">Упор: интересный контент сам по себе, бот — естественное продолжение. Разбор — не реклама, а полезный материал.</div>
+  </div>
+
+  <div class="post">
+    <div class="head"><span class="tg">TG</span> <b>Пост №4 · Что мы заметили</b> · неделя 4</div>
+    <p><b>Что мы увидели в разборах игроков Tennison 👀</b></p>
+    <p>За <span class="ph">N</span> недель игроки лиги прислали <span class="ph">N</span> видео. Вот что повторяется чаще всего:</p>
+    <p>• <span class="ph">наблюдение 1</span><br>• <span class="ph">наблюдение 2</span><br>• <span class="ph">наблюдение 3</span></p>
+    <p>Узнали себя? Пришлите 20 секунд видео и проверьте: <span class="ph">ссылка</span></p>
+    <div class="note">Только обобщённые выводы, без имён и без конкретных видео игроков. Цифры подставляем только реальные из бота.</div>
+  </div>
+  <div class="footer"><span>Tennison × AdvantAce</span><span>8</span></div>
+</div>
+
+<div class="page">
+  <div class="section-label">Приложение В · продолжение</div>
+  <h2>Черновики постов</h2>
+
+  <div class="post">
+    <div class="head"><span class="tg">TG</span> <b>Пост №5 · Отзыв игрока</b> · неделя 5</div>
+    <p><b>«<span class="ph">цитата игрока</span>» — <span class="ph">имя</span>, уровень <span class="ph">категория</span></b></p>
+    <p><span class="ph">Имя</span> прислал видео своей <span class="ph">подачи / удара</span>, и вот что изменилось: <span class="ph">кратко, своими словами игрока</span>.</p>
+    <p>Попробуйте и вы: <span class="ph">ссылка</span></p>
+    <div class="note">Публикуем только с личного согласия игрока. Цитата — реальная, мы ничего не сочиняем.</div>
+  </div>
+
+  <div class="post">
+    <div class="head"><span class="tg">TG</span> <b>Пост №6 · Итоги пилота</b> · неделя 6</div>
+    <p><b>Итоги первого месяца с AdvantAce 🎾</b></p>
+    <p>За 6 недель: <span class="ph">N</span> игроков сделали разбор, <span class="ph">N</span> разборов получили оценку «полезно» из <span class="ph">N</span> оценённых, разобрали <span class="ph">N</span> финалов.</p>
+    <p>Что дальше: <span class="ph">решение по итогам обсуждения</span>. Спасибо, что пробовали и делились отзывами!</p>
+    <div class="note">Все цифры берём из бота и статистики лиги на момент публикации. Если результат скромный, пишем честно и объясняем, что поменяем.</div>
+  </div>
+
+  <h2 style="margin-top:6mm">На что делать упор в текстах</h2>
+  <ul class="check small">
+    <li><b>Польза, а не технология.</b> «Узнайте, что мешает вашей подаче», а не «наш ИИ анализирует видео».</li>
+    <li><b>Простота.</b> 20 секунд видео, бесплатно, без регистрации, всё в Telegram.</li>
+    <li><b>Доверие.</b> Живой тренер Анна Еделькина и ответ в течение 24 часов.</li>
+    <li><b>Язык лиги.</b> Уровни, категории и формулировки, привычные игрокам Tennison.</li>
+    <li><b>Один призыв в посте.</b> Одна ссылка и одно действие: отправить видео.</li>
+    <li><b>Честность.</b> Никаких обещаний «станете профи». Показываем конкретные улучшения и реальные цифры.</li>
+  </ul>
+  <div class="footer"><span>Tennison × AdvantAce</span><span>9</span></div>
+</div>
+
+<div class="page">
+  <div class="section-label">Приложение Г</div>
+  <h2>Как будем работать вместе</h2>
+  <table class="t">
+    <tr><th style="width:30%">Вопрос</th><th>Договорённость</th></tr>
+    <tr><td class="w">Основной контакт</td><td>Анна Еделькина — <a href="https://t.me/anna_amotion" style="color:#1d7a6b">t.me/anna_amotion</a></td></tr>
+    <tr><td class="w">Кто публикует</td><td>Лига, на своих каналах. Мы присылаем готовые тексты и видео</td></tr>
+    <tr><td class="w">Согласование</td><td>Лига видит тексты и видео до публикации. Срок ответа согласуем в неделе 0</td></tr>
+    <tr><td class="w">Выбор матчей</td><td>Лига или Анна предлагает матчи, решаем вместе</td></tr>
+    <tr><td class="w">Имена игроков</td><td>В видеоразборах финалов используются имена. Личные разборы игроков (из бота) публикуем только с личного согласия игрока, которое мы спрашиваем сами</td></tr>
+    <tr><td class="w">Статистика</td><td>Делимся цифрами по переходам и разборам по запросу лиги и в итогах пилота</td></tr>
+    <tr><td class="w">Остановка</td><td>Любая сторона может завершить пилот в любой момент без последствий</td></tr>
+  </table>
+
+  <h2 style="margin-top:7mm">Что нужно решить в неделе 0</h2>
+  <ul class="check small">
+    <li>Дата и время анонса, кто публикует со стороны лиги.</li>
+    <li>Какие матчи берём для первых видеоразборов.</li>
+    <li>Сколько видеоразборов в месяц комфортно для Анны.</li>
+    <li>Какие показатели считаем успехом пилота.</li>
+  </ul>
+
+  <div class="contact-box">
+    <h3>Давайте попробуем</h3>
+    <p style="margin-bottom:2mm">Бот: <a href="https://t.me/RallyCoachAI_bot">t.me/RallyCoachAI_bot</a></p>
+    <p style="margin-bottom:2mm">Сайт проекта: <a href="https://advantace.app">advantace.app</a></p>
+    <p style="margin:0">Контакт для связи — Анна Еделькина: <a href="https://t.me/anna_amotion">t.me/anna_amotion</a></p>
+  </div>
+  <div class="footer"><span>Tennison × AdvantAce</span><span>10</span></div>
+</div>
+
+</body>
+</html>
